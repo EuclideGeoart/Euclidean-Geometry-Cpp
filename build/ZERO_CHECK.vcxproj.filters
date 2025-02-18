@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\12ac35c9a6eddc79e73f2fb8b0bbc4e5\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E1FDB7CC-AEFD-33B5-AD85-A54ECEA77598}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

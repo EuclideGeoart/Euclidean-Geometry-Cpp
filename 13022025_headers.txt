@@ -1,0 +1,603 @@
+#pragma once
+#ifndef CIRCLE_H
+#define CIRCLE_H
+
+#include "GeometricObject.h"
+#include "ObjectPoint.h"
+#include <SFML/Graphics.hpp>
+#include <cmath>
+#include <string>
+#include "Types.h" 
+#include "Constants.h" 
+
+
+class ObjectPoint;
+
+class Circle : public GeometricObject { // Inherit from GeometricObject
+private:
+	sf::Vector2f center;     // Circle center.
+	float radius;            // Current radius.
+	bool selected;           // Whether the circle is selected.
+	bool creationFinished;   // True when circle creation is finalized.
+	sf::Color outlineColor;
+	sf::CircleShape shape;
+	bool created = false;
+	sf::Vector2f radiusPoint; // Point on the circumference for drawing the radius
+	std::vector<ObjectPoint*> childPoints;
+	// Helper function to calculate the distance between two points.
+	float distance(const sf::Vector2f& a, const sf::Vector2f& b) const;
+	float length(const sf::Vector2f& point) const;
+	sf::Vector2f sfToCGAL(const sf::Vector2f& point) const;
+public:
+	// Constructs a circle with the given center.
+	// Initially, radius is zero and creation is not finished.
+	Circle(const sf::Vector2f& center, const sf::Color& outlineColor = sf::Color::Blue);
+	void addChildPoint(ObjectPoint* child) override;
+	// During creation, update the circle's radius based on the current mouse position.
+	void updateRadius(const sf::Vector2f& currentPos);
+	void getStatus() const override;
+	// Mark the circle as finished (creation complete).
+	void finishCreation();
+
+	// Draw the circle by computing its circumference using the Cartesian circle formula.
+	// Also draws a small indicator at the center.
+	void draw(sf::RenderWindow& window, const sf::View& view) const;
+	// Returns true if the given position is within tolerance of the circle's center.
+	bool containsCenter(const sf::Vector2f& pos, float tolerance) const;
+	bool isMouseOver(const sf::Vector2f& pos) const; // Corrected signature
+	// Returns true if the given position is within tolerance of the circle's circumference.
+	bool containsCircumference(const sf::Vector2f& pos, float tolerance) const;
+
+	// Moves the circle by the given offset.
+	void move(const sf::Vector2f& offset);
+
+	// Sets the circle's radius.
+	void setRadius(float newRadius);
+
+	// Getters.
+	sf::Vector2f getCenter() const;
+	float getRadius() const;
+	bool isCreated() const;
+	bool centerSelected() const { return selected; }
+
+	// Sets whether the circle is selected (affecting its drawing style).
+	void setSelected(bool s);
+
+	// Sets the point on the circumference for drawing the radius.
+	void setRadiusPoint(const sf::Vector2f& point);
+
+	// Ensures the radius point lies on the circumference
+	sf::Vector2f constrainToCircumference(const sf::Vector2f& point) const;
+
+	bool hasRadius() const { return radiusPoint != center; }
+	sf::Vector2f getRadiusPoint() const { return radiusPoint; }
+
+	bool isNearCircumference(const sf::Vector2f& point, float tolerance) const;
+
+};
+
+#endif // CIRCLE_H
+
+#pragma once
+class Command {
+public:
+    virtual void execute() = 0;
+    virtual void undo() = 0;
+    virtual ~Command() {}
+};#pragma once
+#include "Command.h"
+#include <stack>
+#include <memory>
+
+class CommandManager {
+public:
+    void executeCommand(std::unique_ptr<Command> command) {
+        command->execute();
+        undoStack.push(std::move(command));
+        // Clear the redo stack after a new action.
+        while (!redoStack.empty())
+            redoStack.pop();
+    }
+
+    void undo() {
+        if (undoStack.empty())
+            return;
+        std::unique_ptr<Command> command = std::move(undoStack.top());
+        undoStack.pop();
+        command->undo();
+        redoStack.push(std::move(command));
+    }
+
+    void redo() {
+        if (redoStack.empty())
+            return;
+        std::unique_ptr<Command> command = std::move(redoStack.top());
+        redoStack.pop();
+        command->execute();
+        undoStack.push(std::move(command));
+    }
+private:
+    std::stack<std::unique_ptr<Command>> undoStack;
+    std::stack<std::unique_ptr<Command>> redoStack;
+};
+#pragma once
+#include <SFML/Graphics.hpp>
+
+class Config {
+public:
+    static const sf::Vector2f BUTTON_SIZE;
+    static const float POINT_SIZE;
+    static const float GRID_SIZE;
+    static const float ZOOM_FACTOR;
+    static const float SELECTION_THRESHOLD;
+
+    struct Colors {
+        static const sf::Color POINT;
+        static const sf::Color DEPENDENT_POINT;
+        static const sf::Color LINE;
+        static const sf::Color GRID;
+        static const sf::Color PREVIEW;
+        static const sf::Color BUTTON_ACTIVE;
+        static const sf::Color BUTTON_INACTIVE;
+    };
+};
+#pragma once
+#include <SFML/Graphics.hpp>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <limits>
+#include<cmath>
+
+namespace Constants {
+    // Colors
+    const sf::Color INTERSECTION_POINT_COLOR = sf::Color::Red; // Orange color for intersection points
+    const sf::Color GRID_COLOR = sf::Color(200, 200, 200,150);
+    inline const sf::Color POINT_COLOR = sf::Color::Blue;
+    const sf::Color DEPENDENT_POINT_COLOR = sf::Color::Yellow;
+    const sf::Color LINE_COLOR = sf::Color::Black;
+    const sf::Color LINE_SEGMENT_COLOR = sf::Color::Blue;
+    const sf::Color PREVIEW_COLOR = sf::Color(100, 100, 100, 128);
+    const sf::Color LINE_COLOR_HOVER = sf::Color(100, 100, 255);
+    const sf::Color LINE_SEGMENT_COLOR_HOVER = sf::Color(255, 100, 100);
+    const sf::Color SELECTION_COLOR = sf::Color(255, 255, 0, 128);
+
+    
+    constexpr float POINT_SIZE = 5.0f;
+	constexpr float GRID_SIZE = 50.0f;
+    static const float MIN_GRID_SPACING = GRID_SIZE / 2.0f;
+    static const float MAX_GRID_SPACING = GRID_SIZE * 2.0f;
+    inline constexpr float ZOOM_FACTOR = 1.1f;
+
+    // Sizes and Dimensions
+      // 100 pixels = 1 unit
+    const float LINE_THICKNESS = 2.0f;
+    const float HOVER_DISTANCE = 5.0f;
+    const sf::Vector2f BUTTON_SIZE(80.f, 30.f);
+    const float SELECTION_THICKNESS = 3.0f;
+
+
+    // Interaction Constants
+    const float HOVER_ALPHA = 150;
+    const float HOVER_SCALE = 1.5f;
+    constexpr float HOVER_OUTLINE_THICKNESS = 3.0f;
+
+    // View Control Constants
+    const float PAN_SPEED = 100.0f;
+    const float MIN_PAN_BOUND = -1000.0f;
+    const float MAX_PAN_BOUND = 1000.0f;
+
+    // GUI Constants
+    const float GUI_HEIGHT = 40.0f;
+    const sf::Color BUTTON_ACTIVE_COLOR(100, 100, 255);
+    const sf::Color BUTTON_INACTIVE_COLOR(180, 180, 180);
+    const sf::Color BUTTON_HOVER_COLOR(130, 130, 255);
+
+    // Line Drawing Constants
+    const float INFINITE_LINE_EXTENSION = 1e+5f;
+    const float LINE_SELECTION_THRESHOLD = 3.0f;
+    const float COORDINATE_PRECISION = 0.001f;  // For rounding coordinates
+    const float SNAP_THRESHOLD_BASE = 0.1f;      // Base snapping threshold
+    const float MIN_VISIBLE_SIZE = 0.5f;         // Minimum visible size in world units// Minimum grid spacing // Maximum grid spacing
+
+}
+#pragma once
+#include "Command.h"
+#include <vector>
+#include <memory>
+#include <utility>
+
+// This templated command works on any type T stored in a container (vector of unique_ptr<T>)
+template <typename T>
+class GenericDeleteCommand : public Command {
+public:
+    GenericDeleteCommand(std::vector<std::unique_ptr<T>>& container, int index)
+        : container(container), index(index) {
+    }
+
+    void execute() override {
+        // Save the item (via move) so that we can restore it later.
+        removedItem = std::move(container[index]);
+        container.erase(container.begin() + index);
+    }
+
+    void undo() override {
+        // Put the item back at its original index.
+        container.insert(container.begin() + index, std::move(removedItem));
+    }
+
+private:
+    std::vector<std::unique_ptr<T>>& container;
+    int index;
+    std::unique_ptr<T> removedItem;
+};
+#pragma once
+#include "ObjectPoint.h"
+#include <vector>
+#include <string>
+#include <SFML/Graphics.hpp>
+
+class ObjectPoint; // Forward declaration
+
+class GeometricObject {
+protected:
+   bool selected = false;
+
+public:
+   virtual void draw(sf::RenderWindow& window) const = 0;
+   virtual bool isMouseOver(const sf::Vector2f& pos) const = 0; // Corrected signature
+   virtual void getStatus() const = 0; // Added virtual method
+   virtual ~GeometricObject() = default;
+
+   bool isSelected() const { return selected; }
+   void setSelected(bool value) { selected = value; }
+
+   // Add method to handle child points
+   virtual void addChildPoint(ObjectPoint* child) = 0;
+
+private:
+   std::vector<ObjectPoint*> childPoints;
+};
+#pragma once
+#include <SFML/Graphics.hpp>
+#include "Constants.h"
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+
+typedef CGAL::Exact_predicates_exact_constructions_kernel Kernel_1;
+typedef Kernel_1::Point_2 Point_2;
+typedef Kernel_1::Line_2 Line_2;
+
+class Grid {
+public:
+    static void draw(sf::RenderWindow& window, const sf::View& view);
+
+private:
+    static void drawGridLines(sf::RenderWindow& window, const sf::View& view, float spacing);
+    static void calculateGridSpacing(const sf::View& view, float& spacing, const sf::RenderWindow& window);
+    static void drawAxisLabels(sf::RenderWindow& window, const sf::View& view, float spacing);
+    static void drawAxes(sf::RenderWindow& window, const sf::View& view);
+    Point_2 xAxisStart;
+    Point_2 xAxisEnd;
+    Point_2 yAxisStart;
+    Point_2 yAxisEnd;
+    Line_2 xAxis;
+    Line_2 yAxis;
+};
+#ifndef GUI_H
+#define GUI_H
+
+#include <SFML/Graphics.hpp>
+#include <vector>
+#include <string>
+
+class Button {
+public:
+	Button(sf::Vector2f position, sf::Vector2f size, std::string label, sf::Color color);
+	static void loadFont() {
+		if (!fontLoaded) {
+			if (!font.loadFromFile("arial.ttf")) {
+				throw std::runtime_error("Font loading failed");
+			}
+			fontLoaded = true;
+		}
+	}
+	void draw(sf::RenderWindow& window) const;
+	bool isMouseOver(const sf::RenderWindow& window) const;
+	void setLabel(const std::string& label);
+	std::string getLabel() const;
+	void setColor(sf::Color color);
+	sf::Color getColor() const;
+	bool isActive() const;
+	void setActive(bool active);
+
+private:
+	void centerText();  // New helper function
+	static sf::Font font;
+	static bool fontLoaded;
+	sf::RectangleShape shape;
+	sf::Text text;
+	bool active;
+};
+
+class GUI {
+public:
+	GUI();
+	void draw(sf::RenderWindow& window) const;
+	bool isButtonActive(const std::string& label) const;
+	void handleEvent(const sf::RenderWindow& window, const sf::Event& event);
+	void setView(const sf::View& view) { guiView = view; }
+	bool isGridActive() const;
+	bool isPointActive() const;
+	bool isObjPointActive() const;
+	bool isLineActive() const;
+	bool isLineSegmentActive() const;
+	bool isMoveActive() const {
+		return isButtonActive("Move");
+	}
+	bool isAnyToolActive() const {
+		return isLineActive() || isLineSegmentActive() || isPointActive() || isIntersectionActive() || isCircleActive();
+	}
+	bool isIntersectionActive() const;
+	//void resetCreationMode() {
+	//	// Deactivate all creation-related buttons
+	//	for (auto& button : buttons) {
+	//		if (button.getLabel() != "Grid" && button.getLabel() != "Move") {
+	//			button.setActive(false);
+	//		}
+	//	}
+	//}
+	bool isCircleActive() const;
+
+    // Displays a transient message on the GUI
+    void displayMessage(const std::string& message);
+
+    // Clears any displayed message
+    void clearMessage();
+
+private:
+	std::vector<Button> buttons;
+	sf::View guiView;
+	enum class ButtonType { Point, Line, LineSegment, Intersection, Grid };
+	ButtonType activeButton;
+
+    sf::Text guiMessage;
+    sf::Clock messageTimer;
+    bool messageActive = false;
+};
+
+#endif // GUI_H#pragma once
+#ifndef INTERSECTION_H
+#define INTERSECTION_H
+
+#include "Types.h"
+#include <SFML/Graphics.hpp>
+#include <CGAL/Simple_cartesian.h>
+
+bool findIntersection(const Line_2& line1, const Line_2& line2, Point_2& intersection);
+
+#endif
+
+
+#ifndef LINE_H
+#define LINE_H
+
+#include <SFML/Graphics.hpp>
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <CGAL/Cartesian.h>
+#include <CGAL/Segment_2.h>
+#include <CGAL/Point_2.h>
+#include "Types.h"
+#include "Point.h"
+
+class Line {
+public:
+    
+    //Line(const Point_2& start, const Point_2& end);
+      // (You can also keep an overload that takes sf::Vector2f if needed.)
+    Line(const sf::Vector2f& start, const sf::Vector2f& end, bool isSegment);
+    Line(Point* start, Point* end, bool isSegment = false);
+    
+    void updateFromPoints() {
+        if (startPointPtr && endPointPtr) {
+            startPoint = startPointPtr->getPositionCGAL();
+            endPoint = endPointPtr->getPositionCGAL();
+            updateSFMLVertices();
+        }
+    }
+    bool isSegment() const { return segmentFlag; }  // Renamed member to avoid conflict
+    void draw(sf::RenderWindow& window, const sf::View& view) const;
+    void setSelected(bool selected) {isSelected = selected;}
+
+    Point_2 getStartPoint() const {return startPoint;}
+    Point_2 getEndPoint() const {return endPoint;}
+    // Methods now take CGAL Point_2 and Vector_2
+    void moveEndpointToStart(const Point_2& newStart);
+    void moveEndpointToEnd(const Point_2& newEnd);
+    void translate(const Vector_2& offset);
+    void updatePosition(Point* movedPoint, const sf::Vector2f& newPos);
+    Point* getStartPointPtr() const { return startPointPtr; }
+    Point* getEndPointPtr() const { return endPointPtr; }
+    // Accessors return CGAL Point_2
+
+    // Keep sf::Vector2f for input, but use CGAL internally
+    void updateGeometry();
+    void setTranslationOffset(const sf::Vector2f& offset);
+    void applyTranslationOffset();
+    void finalizeTranslation();
+    bool containsPoint(const sf::Vector2f& Point) const;
+    bool containsEndpoint(const sf::Vector2f& point, float threshold) const;
+
+    // Use CGAL for intersection, but return sf::Vector2f for convenience
+    static bool calculateIntersection(const Line* l1, const Line* l2, sf::Vector2f& intersection);
+    // Add the missing setStartPoint method
+    void setStartPoint(const Point_2& newStart) {startPoint = newStart; updateSFMLVertices();}
+    void setEndPoint(const Point_2& newEnd) { endPoint = newEnd; updateSFMLVertices();}
+    void updateSFMLVertices();
+    // Add public getter for startPointPtr
+
+    // Ensures the endpoint lies on the circle's circumference
+    void setEndpointOnCircle(const sf::Vector2f& center, float radius, bool isEndPoint);
+
+private:
+    // Store CGAL points
+    Point_2 startPoint;
+    Point_2 endPoint;
+    Segment_2 cgalSegment;
+    Line_2 cgalLine;
+    bool segmentFlag;
+    /*bool isSegment;*/
+    bool isSelected = false;
+
+    sf::Vector2f start;
+    sf::Vector2f end; // Keep for drawing
+    Point* startPointPtr;
+    Point* endPointPtr;
+    // SFML vertices for drawing the line (kept for rendering)
+    sf::Vertex line[2];
+    float thickness = 1.0f;
+    // Add a temporary offset that is applied during line-drag.
+    sf::Vector2f translationOffset = sf::Vector2f(0.f, 0.f);
+    sf::Vector2f currentOffset = sf::Vector2f(0.f, 0.f);
+
+    // Helper function to update SFML vertices
+    //void updateSFMLVertices();
+};
+#endif#ifndef OBJECT_POINT_H
+#define OBJECT_POINT_H
+
+#include <SFML/Graphics.hpp>
+#include <memory>
+#include "Point.h"
+#include "Line.h"
+#include "Circle.h"
+#include "GeometricObject.h"  // Needed since ObjectPoint might interact with children of GeometricObject.
+#include "Constants.h"
+#include "Types.h"      // For Point_2 type
+
+// Enum to track what kind of geometric object this point is attached to.
+enum class ObjectType {
+    None,
+    Line,
+    Circle
+};
+
+class ObjectPoint: public GeometricObject, public Point {
+public:
+    // Construct an ObjectPoint attached to a Line.
+    //ObjectPoint(const sf::Vector2f& pos, Line* lineObj)
+    //    : Point(pos, Constants::POINT_COLOR),
+    //    attachedType(ObjectType::Line),
+    //    attachedLine(lineObj),
+    //    attachedCircle(nullptr) {
+    //}
+    //// Construct an ObjectPoint attached to a Circle.
+    //ObjectPoint(const sf::Vector2f& pos, Circle* circleObj)
+    //    : Point(pos, Constants::POINT_COLOR),
+    //    attachedType(ObjectType::Circle),
+    //    attachedLine(nullptr),
+    //    attachedCircle(circleObj) {
+    //}
+    // Existing constructors
+    ObjectPoint(const Point_2& pos, Line* lineObj);
+    ObjectPoint(const Point_2& pos, Circle* circleObj);
+    ObjectPoint(const Point_2& position, const sf::Color& color = Constants::POINT_COLOR, bool isLocked = false);
+    
+    // Add a new constructor to match the arguments used in main.cpp
+    ObjectPoint(const Point_2& position, GeometricObject* parentObject, const sf::Color& color = Constants::POINT_COLOR, bool isLocked = false);
+
+    void moveOnObject(const sf::Vector2f& newPos);
+
+    // Returns the attached object type.
+    ObjectType getAttachedType() const;
+
+private:
+    ObjectType attachedType;
+    // We assume the ObjectPoint does not own these objects.
+    Line* attachedLine;
+    Circle* attachedCircle;
+    GeometricObject* parentObject = nullptr; // Reference to the parent geometric object
+
+    // Helper function to convert an sf::Vector2f to a CGAL Point_2.
+    static Point_2 sfToCGAL(const sf::Vector2f& vec);
+};
+
+#endif // OBJECT_POINT_H
+#ifndef POINT_H
+#define POINT_H
+
+#include <SFML/Graphics.hpp>
+#include <vector>
+#include "Types.h"
+#include "Constants.h"
+
+// Forward declaration for Line to avoid circular dependency.
+class Line;
+
+class Point {
+public:
+    Point(const Point_2& position, const sf::Color& color = Constants::POINT_COLOR, bool isLocked = false);
+    void setSelected(bool selected);
+    bool getSelected() const { return isSelected; }
+    void setPosition(const Point_2& pos);
+    void updatePosition();
+    bool contains(const sf::Vector2f& worldPos, float tolerance = 5.0f) const;
+    void draw(sf::RenderWindow& window) const;
+    void setHovered(bool hovered);
+    bool isIntersectionPoint() const { return isIntersection; }
+    void setIntersectionPoint(bool isInter) { isIntersection = isInter; }
+    const sf::Vector2f& getPosition() const { return position; }
+    void translate(const sf::Vector2f& offset);
+    void updateGeometry();
+    void finalizeTranslation();
+    // Functions for connecting this point with lines.
+    void addConnectedLine(Line* line);
+    void removeConnectedLine(Line* line);
+    void updateConnectedGeometry(const sf::Vector2f& newPos);
+    const sf::Color& getColor() const { return color; }
+
+    // Returns the CGAL Point constructed from SFML position.
+    Point_2 getCGALPoint() const { return Point_2(position.x, position.y); }
+    Point_2 getPositionCGAL() const { return getCGALPoint(); }
+    const sf::Vector2f& getSFMLPosition() const { return position; }
+
+private:
+    std::vector<Line*> connectedLines;
+    sf::Vector2f position;
+    sf::Color color;
+    sf::CircleShape shape;
+    bool isHovered;
+    bool isSelected = false;
+    bool isIntersection = false;
+    float selectionRadius = 5.0f;
+    sf::Vector2f translationOffset;
+};
+
+#endif#pragma once
+#include <SFML/Graphics.hpp>
+
+class CoordinateTransform {
+public:
+    static sf::Vector2f pixelToWorld(const sf::RenderWindow& window, const sf::Vector2i& pixelPos);
+    static sf::Vector2i worldToPixel(const sf::RenderWindow& window, const sf::Vector2f& worldPos);
+    static float calculateViewScale(const sf::RenderWindow& window);
+private:
+    static sf::Vector2f roundCoordinates(sf::Vector2f pos);
+};
+#ifndef TYPES_H
+#define TYPES_H
+
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <boost/variant/get.hpp>
+#include <SFML/Graphics.hpp>
+#include <CGAL/squared_distance_2.h> 
+
+
+typedef CGAL::Exact_predicates_exact_constructions_kernel K;
+typedef K::Point_2 Point_2;
+typedef K::Line_2 Line_2;
+typedef K::Segment_2 Segment_2;
+typedef K::Intersect_2 Intersect_2;
+typedef K::Vector_2 Vector_2;
+typedef K::FT FT;
+typedef CGAL::cpp11::result_of<K::Intersect_2(Line_2, Line_2)>::type Intersection_result;
+
+ //Add squared distance computation
+#endif

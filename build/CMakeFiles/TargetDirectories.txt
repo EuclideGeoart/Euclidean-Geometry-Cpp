@@ -1,0 +1,3 @@
+C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/GeometryTool2.dir
+C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/ZERO_CHECK.dir

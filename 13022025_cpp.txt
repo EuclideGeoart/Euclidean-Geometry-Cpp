@@ -1,0 +1,2431 @@
+#include "Circle.h"  
+#define _USE_MATH_DEFINES // For M_PI  
+#include <cmath>  
+#include <math.h> // Add this line to include math.h
+#include <CGAL/Point_2.h> // Include CGAL Point_2
+#include <CGAL/squared_distance_2.h> // Include CGAL squared_distance_2
+#include "GeometricObject.h"
+
+const double pi = M_PI;
+
+Circle::Circle(const sf::Vector2f& centerPos, const sf::Color& outlineCol)
+   : center(centerPos),
+   radius(0.f),
+   selected(false),
+   creationFinished(false),
+   outlineColor(outlineCol),
+   radiusPoint(centerPos) // Initialize radiusPoint to center
+{
+}
+
+void Circle::updateRadius(const sf::Vector2f& currentPos) {
+   float dx = currentPos.x - center.x;
+   float dy = currentPos.y - center.y;
+   radius = std::sqrt(dx * dx + dy * dy);
+   radiusPoint = constrainToCircumference(currentPos); // Ensure the radius point is on the circumference
+}
+
+sf::Vector2f Circle::constrainToCircumference(const sf::Vector2f& point) const {
+   sf::Vector2f direction = point - center;
+   float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+   if (length == 0) return center;
+   return center + (direction / length) * radius;
+}
+
+void Circle::finishCreation() {
+   creationFinished = true;
+}
+
+void Circle::draw(sf::RenderWindow& window, const sf::View& view) const {
+   sf::Color drawColor = selected ? sf::Color::Green : outlineColor;
+   // Draw the circle as a series of line segments.
+   const int pointCount = 100;
+   sf::VertexArray circleVertices(sf::LineStrip, pointCount + 1);
+
+   for (int i = 0; i <= pointCount; ++i) {
+       float theta = 2.f * pi * static_cast<float>(i) / static_cast<float>(pointCount);
+       float x = center.x + radius * std::cos(theta);
+       float y = center.y + radius * std::sin(theta);
+       circleVertices[i].position = sf::Vector2f(x, y);
+       circleVertices[i].color = drawColor;
+   }
+   window.draw(circleVertices);
+
+   // Draw the center indicator as a small filled circle.
+   sf::CircleShape centerPoint(3.f);
+   centerPoint.setPosition(center - sf::Vector2f(3.f, 3.f));
+   centerPoint.setFillColor(sf::Color::Red);
+   window.draw(centerPoint);
+
+   // Draw the radius line if the radiusPoint is not the center
+   if (radiusPoint != center) {
+       sf::Vertex line[] =
+       {
+           sf::Vertex(center, sf::Color::Blue),
+           sf::Vertex(radiusPoint, sf::Color::Blue)
+       };
+       window.draw(line, 2, sf::Lines);
+   }
+
+   // Draw child ObjectPoints if any
+   // Assuming childPoints is accessible or provide a method to iterate
+}
+
+bool Circle::containsCenter(const sf::Vector2f& pos, float tolerance) const {
+   float dx = pos.x - center.x;
+   float dy = pos.y - center.y;
+   return (std::sqrt(dx * dx + dy * dy) <= tolerance);
+}
+
+bool Circle::containsCircumference(const sf::Vector2f& pos, float tolerance) const {
+   float dx = pos.x - center.x;
+   float dy = pos.y - center.y;
+   float dist = std::sqrt(dx * dx + dy * dy);
+   return (std::fabs(dist - radius) <= tolerance);
+}
+
+bool Circle::isNearCircumference(const sf::Vector2f& point, float tolerance) const {
+   float dist = distance(center, point);
+   return std::abs(dist - radius) <= tolerance;
+}
+
+void Circle::move(const sf::Vector2f& offset) {
+   center += offset;
+   radiusPoint += offset; // Move radiusPoint along with the center
+}
+
+void Circle::setRadius(float newRadius) {
+   radius = newRadius;
+   // Update radiusPoint to maintain consistency
+   radiusPoint = sf::Vector2f(center.x + newRadius, center.y);
+}
+
+sf::Vector2f Circle::getCenter() const {
+   return center;
+}
+
+float Circle::getRadius() const {
+   return radius;
+}
+
+bool Circle::isCreated() const {
+   return creationFinished;
+}
+
+void Circle::setSelected(bool s) {
+   selected = s;
+}
+
+void Circle::setRadiusPoint(const sf::Vector2f& point) {
+   radiusPoint = constrainToCircumference(point);
+   // Update radius to match the new radiusPoint
+   radius = distance(center, radiusPoint);
+}
+
+float Circle::distance(const sf::Vector2f& a, const sf::Vector2f& b) const {
+   return std::sqrt(std::pow(a.x - b.x, 2) + std::pow(a.y - b.y, 2));
+}
+
+sf::Vector2f Circle::sfToCGAL(const sf::Vector2f& point) const {
+   return sf::Vector2f(point.x, point.y);
+}
+
+float Circle::length(const sf::Vector2f& point) const {
+   return std::sqrt(point.x * point.x + point.y * point.y);
+}
+
+//bool Circle::isMouseOver(const sf::RenderWindow& window) const {
+//   // Implementation to check if mouse is over the circle
+//   // Example implementation:
+//   sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+//   sf::Vector2f worldPos = window.mapPixelToCoords(mousePos);
+//   float distance = std::sqrt(std::pow(worldPos.x - center.x, 2) + std::pow(worldPos.y - center.y, 2));
+//   return distance <= 50.f; // Example radius
+//}
+bool Circle::isMouseOver(const sf::Vector2f& pos) const {
+    // Implementation to check if mouse is over the circle
+    // Example implementation:
+    sf::Vector2f diff = pos - center;
+    float dist2 = diff.x * diff.x + diff.y * diff.y;
+    return (std::abs(std::sqrt(dist2) - radius) < 5.f);
+}
+
+std::string Circle::getStatus() const {
+	if (creationFinished) {
+		return "on circumference";)";
+	}
+    return "Circle";
+}
+
+void Circle::addChildPoint(ObjectPoint* child) {
+    childPoints.push_back(child);
+    std::cout << "Adding child point to Circle." << std::endl;
+}#include "Config.h"
+
+const sf::Vector2f Config::BUTTON_SIZE(100.0f, 30.0f);
+const float Config::POINT_SIZE = 5.0f;
+const float Config::GRID_SIZE = 100.0f;
+const float Config::ZOOM_FACTOR = 1.1f;
+const float Config::SELECTION_THRESHOLD = 5.0f;
+
+const sf::Color Config::Colors::POINT = sf::Color::Blue;
+const sf::Color Config::Colors::DEPENDENT_POINT = sf::Color::Red;
+const sf::Color Config::Colors::LINE = sf::Color::Black;
+const sf::Color Config::Colors::GRID = sf::Color(200, 200, 200);
+const sf::Color Config::Colors::PREVIEW = sf::Color(100, 100, 100);
+const sf::Color Config::Colors::BUTTON_ACTIVE = sf::Color(100, 100, 255);
+const sf::Color Config::Colors::BUTTON_INACTIVE = sf::Color(50, 50, 150);
+#include "GeometricObject.h"
+
+// Implement addChildPoint if not already implemented
+void GeometricObject::addChildPoint(ObjectPoint* point) {
+   childPoints.push_back(point);
+   // Additional logic if needed
+}
+
+// ...existing code...
+#include "Grid.h"
+#include "Constants.h"
+#include <iostream>
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+
+void Grid::draw(sf::RenderWindow& window, const sf::View& view) {
+    float spacing;
+    calculateGridSpacing(view, spacing, window);
+    drawGridLines(window, view, spacing);
+    drawAxes(window, view);
+    drawAxisLabels(window, view, spacing); // Draw axis labels
+}
+void Grid::calculateGridSpacing(const sf::View& view, float& spacing, const sf::RenderWindow& window) {
+    float viewWidth = view.getSize().x;
+    float baseSpacing = Constants::GRID_SIZE;
+
+    // Calculate grid spacing based on zoom level
+    spacing = baseSpacing * (viewWidth / window.getSize().x);
+
+    // Ensure the grid spacing doesn't become too small or too large
+    if (spacing < Constants::MIN_GRID_SPACING) {
+        spacing = Constants::MIN_GRID_SPACING;
+    }
+    else if (spacing > Constants::MAX_GRID_SPACING) {
+        spacing = Constants::MAX_GRID_SPACING;
+    }
+}
+
+void Grid::drawGridLines(sf::RenderWindow& window, const sf::View& view, float spacing) {
+    sf::Vector2f viewSize = view.getSize();
+    sf::Vector2f viewCenter = view.getCenter();
+    float left = viewCenter.x - viewSize.x / 2;
+    float right = viewCenter.x + viewSize.x / 2;
+    float top = viewCenter.y - viewSize.y / 2;
+    float bottom = viewCenter.y + viewSize.y / 2;
+
+    // Draw vertical grid lines
+    for (float x = left; x <= right; x += spacing) {
+        sf::Vertex line[] = {
+            sf::Vertex(sf::Vector2f(x, top), Constants::GRID_COLOR),
+            sf::Vertex(sf::Vector2f(x, bottom), Constants::GRID_COLOR)
+        };
+        window.draw(line, 2, sf::Lines);
+    }
+
+    // Draw horizontal grid lines
+    for (float y = top; y <= bottom; y += spacing) {
+        sf::Vertex line[] = {
+            sf::Vertex(sf::Vector2f(left, y), Constants::GRID_COLOR),
+            sf::Vertex(sf::Vector2f(right, y), Constants::GRID_COLOR)
+        };
+        window.draw(line, 2, sf::Lines);
+    }
+}
+
+
+
+void Grid::drawAxes(sf::RenderWindow& window, const sf::View& view) {
+    sf::Vector2f viewSize = view.getSize();
+    sf::Vector2f viewCenter = view.getCenter();
+
+    // Create CGAL points for axes
+    Point_2 xAxisStart(viewCenter.x - viewSize.x, 0);
+    Point_2 xAxisEnd(viewCenter.x + viewSize.x, 0);
+    Point_2 yAxisStart(0, viewCenter.y - viewSize.y);
+    Point_2 yAxisEnd(0, viewCenter.y + viewSize.y);
+
+    // Create CGAL lines
+    Line_2 xAxis(xAxisStart, xAxisEnd);
+    Line_2 yAxis(yAxisStart, yAxisEnd);
+
+    // Convert back to SFML for rendering
+    sf::Vertex xAxisLine[] = {
+        sf::Vertex(sf::Vector2f(CGAL::to_double(xAxisStart.x()), CGAL::to_double(xAxisStart.y())), sf::Color::Black),
+        sf::Vertex(sf::Vector2f(CGAL::to_double(xAxisEnd.x()), CGAL::to_double(xAxisEnd.y())), sf::Color::Black)
+    };
+
+    sf::Vertex yAxisLine[] = {
+        sf::Vertex(sf::Vector2f(CGAL::to_double(yAxisStart.x()), CGAL::to_double(yAxisStart.y())), sf::Color::Black),
+        sf::Vertex(sf::Vector2f(CGAL::to_double(yAxisEnd.x()), CGAL::to_double(yAxisEnd.y())), sf::Color::Black)
+    };
+
+    window.draw(xAxisLine, 2, sf::Lines);
+    window.draw(yAxisLine, 2, sf::Lines);
+}
+void Grid::drawAxisLabels(sf::RenderWindow& window, const sf::View& view, float spacing) {
+    sf::Font font;
+    if (!font.loadFromFile("arial.ttf")) { // Update path to match your project structure
+        std::cerr << "Error loading font!" << std::endl;
+        return;
+    }
+
+        sf::Vector2f viewSize = view.getSize();
+        sf::Vector2f viewCenter = view.getCenter();
+        float left = viewCenter.x - viewSize.x / 2;
+        float right = viewCenter.x + viewSize.x / 2;
+        float top = viewCenter.y - viewSize.y / 2;
+        float bottom = viewCenter.y + viewSize.y / 2;
+
+        // Draw x-axis labels
+        for (float x = left; x <= right; x += spacing) {
+            sf::Text label;
+            label.setFont(font);
+            label.setCharacterSize(12); // Adjust as needed
+            label.setFillColor(sf::Color::Black);
+            label.setString(std::to_string(static_cast<int>(x))); // Cast to int for cleaner labels
+
+            // Position the label below the x-axis
+            label.setPosition(x, bottom + 5.f); // Small offset to avoid overlapping the grid line
+
+            window.draw(label);
+        }
+
+        // Draw y-axis labels
+        for (float y = top; y <= bottom; y += spacing) {
+            sf::Text label;
+            label.setFont(font);
+            label.setCharacterSize(12);
+            label.setFillColor(sf::Color::Black);
+            label.setString(std::to_string(static_cast<int>(y)));
+
+            // Position the label to the left of the y-axis
+            label.setPosition(left - 40.f, y); // Offset to avoid overlapping the grid line
+
+            window.draw(label);
+        }
+    }#include "GUI.h"
+#include <iostream>
+#include "Constants.h"
+#include <SFML/Graphics.hpp>
+
+sf::Font Button::font;
+bool Button::fontLoaded = false;
+float xOffset = 10.0f;
+const float yPos = 10.0f;
+const float buttonSpacing = 10.0f;
+
+Button::Button(sf::Vector2f position, sf::Vector2f size, std::string label, sf::Color color)
+    : shape(size), active(false) {
+
+    loadFont();  // This will only load the font once
+
+    // Set up the shape
+    shape.setPosition(position);
+    shape.setFillColor(color);
+    shape.setOutlineThickness(2.0f);
+    shape.setOutlineColor(sf::Color::Black);
+
+    // Set up the text with the static font
+    text.setFont(font);
+    text.setString(label);
+    text.setCharacterSize(14);
+    text.setFillColor(sf::Color::White);
+
+    centerText();
+}
+
+
+void Button::centerText() {
+    // Get the global bounds of the text (includes any potential spacing/padding)
+    sf::FloatRect textBounds = text.getGlobalBounds();
+    sf::Vector2f buttonPos = shape.getPosition();
+    sf::Vector2f buttonSize = shape.getSize();
+
+    // Calculate centered position
+    float xPos = buttonPos.x + (buttonSize.x - textBounds.width) / 2.0f;
+    // Adjust vertical position to account for text baseline
+    float yPos = buttonPos.y + (buttonSize.y - textBounds.height) / 2.0f - textBounds.top / 2.0f;
+
+    text.setPosition(xPos, yPos);
+}
+
+void Button::draw(sf::RenderWindow& window) const {
+    if (!window.isOpen()) {
+        return;
+    }
+
+    // Draw the button shape first
+    window.draw(shape);
+
+     //Draw the text if font is loaded
+    if (text.getFont() != nullptr) {
+        window.draw(text);  // Re-enabled text drawing
+    }
+}
+
+// Rest of the implementation stays the same...
+void Button::setLabel(const std::string& label) {
+    text.setString(label);
+    centerText();
+}
+
+bool Button::isMouseOver(const sf::RenderWindow& window) const {
+    sf::Vector2i pixelPos = sf::Mouse::getPosition(window);
+    sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos);
+    return shape.getGlobalBounds().contains(worldPos);
+}
+
+std::string Button::getLabel() const {
+    return text.getString().toAnsiString();
+}
+
+void Button::setColor(sf::Color color) {
+    shape.setFillColor(color);
+}
+
+sf::Color Button::getColor() const {
+    return shape.getFillColor();
+}
+
+bool Button::isActive() const {
+    return active;
+}
+
+void Button::setActive(bool active) {
+    this->active = active;
+    shape.setFillColor(active ? Constants::BUTTON_ACTIVE_COLOR : Constants::BUTTON_INACTIVE_COLOR);
+}
+
+// GUI class implementation
+GUI::GUI() {
+    float xOffset = 10.0f;
+    const float yPos = 10.0f;
+    const float buttonSpacing = 10.0f;
+
+    try {
+        // Create buttons with proper spacing
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Grid", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Point", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+        // --- ADDED: "Point on Object" button ---
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "ObjPoint", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+        // --- ADDED: "Line" button ---
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Line", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Line Segment", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+        // --- ADDED: "Circle" button ---
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Circle", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Intersect", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+        // --- ADDED: "Move" button ---
+        buttons.emplace_back(sf::Vector2f(xOffset, yPos), Constants::BUTTON_SIZE, "Move", Constants::BUTTON_INACTIVE_COLOR);
+        xOffset += Constants::BUTTON_SIZE.x + buttonSpacing;
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "Error creating GUI: " << e.what() << std::endl;
+    }
+}
+
+void GUI::draw(sf::RenderWindow& window) const {
+    for (const auto& button : buttons) {
+        button.draw(window);
+    }
+    if (messageActive) {
+        window.draw(guiMessage);
+    }
+}
+
+bool GUI::isButtonActive(const std::string& label) const {
+    for (const auto& button : buttons) {
+        if (button.getLabel() == label) {
+            return button.isActive();
+        }
+    }
+    return false;
+}
+
+void GUI::handleEvent(const sf::RenderWindow& window,const sf::Event& event ) {
+    if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
+        for (auto& button : buttons) {
+            if (button.isMouseOver(window)) {
+                if (button.getLabel() == "Grid") {
+                    button.setActive(!button.isActive());
+                }
+                else if (button.getLabel() == "Move") {
+                    button.setActive(!button.isActive()); // Toggle Move button
+                    // Deactivate other buttons (except Grid)
+                    for (auto& otherButton : buttons) {
+                        if (otherButton.getLabel() != "Grid" && otherButton.getLabel() != "Move") {
+                            otherButton.setActive(false);
+                        }
+                    }
+                }
+                else {
+                    // If clicking an already active button, deactivate it
+                    if (button.isActive()) {
+                        button.setActive(false);
+                    }
+                    else {
+                        // Deactivate other non-grid buttons
+                        for (auto& otherButton : buttons) {
+                            if (otherButton.getLabel() != "Grid") {
+                                otherButton.setActive(false);
+                            }
+                        }
+                        button.setActive(true);
+                    }
+                }
+                break; // Important: Break after handling a button
+            }
+        }
+    }
+}
+
+void GUI::displayMessage(const std::string& message) {  
+   // Assuming there's a member sf::Text guiMessage;  
+   guiMessage.setString(message);  
+   guiMessage.setPosition(10.0f, 10.0f);  // Set to a fixed position or desired coordinates  
+   guiMessage.setFillColor(sf::Color::Black);  
+   // Possibly set a timer to auto-clear after a few seconds  
+   messageTimer.restart();  
+   messageActive = true;  
+}
+
+void GUI::clearMessage() {
+    if (messageActive && messageTimer.getElapsedTime().asSeconds() > 2.0f) { // Display for 2 seconds
+        guiMessage.setString("");
+        messageActive = false;
+    }
+}
+
+bool GUI::isGridActive() const {
+    return isButtonActive("Grid");
+}
+
+bool GUI::isPointActive() const {
+    return isButtonActive("Point");
+}
+bool GUI::isObjPointActive() const {
+	return isButtonActive("ObjPoint");
+}
+bool GUI::isLineActive() const {
+    return isButtonActive("Line");
+}
+
+bool GUI::isLineSegmentActive() const {
+    return isButtonActive("Line Segment");
+}
+
+bool GUI::isIntersectionActive() const {
+    return isButtonActive("Intersect");
+}
+bool GUI::isCircleActive() const {
+    return isButtonActive("Circle");
+}
+#include "Intersection.h"
+#include <CGAL/intersections.h>
+#include <boost/variant.hpp>
+
+
+// Use a visitor to safely handle the variant alternatives.
+// This avoids the ambiguous duplicate type problem when using get_if.
+
+bool findIntersection(const Line_2& line1, const Line_2& line2, Point_2& intersection) {
+    auto result = CGAL::intersection(line1, line2);
+    if (!result) {
+        return false;
+    }
+
+    // Use a visitor to safely handle the variant alternatives.
+    bool found = false;
+    std::visit([&](auto&& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<T, Point_2>) {
+            intersection = arg;
+            found = true;
+        }
+        else if constexpr (std::is_same_v<T, K::Segment_2>) {
+            // If the intersection is a segment, choose its midpoint.
+            intersection = CGAL::midpoint(arg.source(), arg.target());
+            found = true;
+        }
+        }, *result);
+
+    return found;
+}
+
+
+
+
+
+#include "Line.h"
+#include "Types.h"
+#include "Constants.h"
+#include <SFML/Graphics.hpp>
+#include <CGAL/intersections.h>
+#include <CGAL/number_utils.h>
+#include <iostream>
+#include <cmath>
+#include <vector>
+#include "Point.h"
+#define _USE_MATH_DEFINES
+#include <math.h>
+
+//Line::Line(const sf::Vector2f& start, const sf::Vector2f& end, bool inf)
+//    : start(start), end(end), infinite(inf)
+//{
+//    Point_2 cgalStart(start.x, start.y);
+//    Point_2 cgalEnd(end.x, end.y);
+//    cgalLine = Line_2(cgalStart, cgalEnd);
+//
+//    if (infinite) {
+//        sf::Vector2f dir = end - start;
+//        float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+//        if (length != 0) {
+//            dir /= length;
+//            drawnStart = start - dir * 10000.f;
+//            drawnEnd = start + dir * 10000.f;
+//        }
+//    }
+//    else {
+//        drawnStart = start;
+//        drawnEnd = end;
+//    }
+//}
+
+// Constructor for line segment (default)
+//Line::Line(const Point_2& start, const Point_2& end)
+//	: startPoint(start), endPoint(end), isSegment(true), isSelected(false)
+//{
+//	updateSFMLVertices();
+//}
+// Constructor with explicit isSegment flag (true for segment, false for infinite line)
+Line::Line(const sf::Vector2f& start, const sf::Vector2f& end, bool isSegment)
+	: start(sf::Vector2f(start.x, start.y)),
+	end(sf::Vector2f(end.x, end.y)),
+	segmentFlag(isSegment),
+	startPoint(Point_2(start.x, start.y)),
+	endPoint(Point_2(end.x, end.y))
+{
+	if (segmentFlag) {
+		cgalSegment = Segment_2(startPoint, endPoint);
+	}
+	else {
+		cgalLine = Line_2(startPoint, endPoint);
+	}
+	updateSFMLVertices();
+}
+Line::Line(Point* start, Point* end, bool isSegment)
+	: startPointPtr(start),
+	endPointPtr(end),
+	segmentFlag(isSegment),
+	startPoint(start->getCGALPoint()),
+	endPoint(end->getCGALPoint())
+{
+	if (segmentFlag) {
+		cgalSegment = Segment_2(startPoint, endPoint);
+	}
+	else {
+		cgalLine = Line_2(startPoint, endPoint);
+	}
+	std::cout << "Line created: ("
+		<< CGAL::to_double(startPoint.x()) << ", "
+		<< CGAL::to_double(startPoint.y()) << ") -> ("
+		<< CGAL::to_double(endPoint.x()) << ", "
+		<< CGAL::to_double(endPoint.y()) << ")  isSegment=" << segmentFlag << "\n";
+
+	updateSFMLVertices();
+}
+sf::Vector2f toSFMLVector(const Point_2& point) {
+	return sf::Vector2f(
+		static_cast<float>(CGAL::to_double(point.x())),
+		static_cast<float>(CGAL::to_double(point.y()))
+	);
+}
+void Line::updateSFMLVertices() {
+	// Example: convert CGAL points to sf::Vector2f and then add the translationOffset.
+	sf::Vector2f sfStart(
+		static_cast<float>(CGAL::to_double(startPoint.x())),
+		static_cast<float>(CGAL::to_double(startPoint.y()))
+	);
+	sf::Vector2f sfEnd(
+		static_cast<float>(CGAL::to_double(endPoint.x())),
+		static_cast<float>(CGAL::to_double(endPoint.y()))
+	);
+	// Apply the translation offset.
+	sfStart += translationOffset;
+	sfEnd += translationOffset;
+
+	sf::VertexArray lineVertices(sf::Lines, 2);
+	lineVertices[0].position = sfStart;
+	lineVertices[1].position = sfEnd;
+}
+Point_2 toCGALPoint(const sf::Vector2f& vector) {
+	return Point_2(vector.x, vector.y);
+}
+
+void Line::updatePosition(Point* movedPoint, const sf::Vector2f& newPos) {
+	Point_2 newCGALPoint(newPos.x, newPos.y);
+	if (movedPoint == startPointPtr) {
+		startPoint = newCGALPoint;
+		if (segmentFlag) {
+			cgalSegment = Segment_2(newCGALPoint, endPoint);
+		}
+		else {
+			cgalLine = Line_2(newCGALPoint, endPoint);
+		}
+	}
+	else if (movedPoint == endPointPtr) {
+		endPoint = newCGALPoint;
+		if (segmentFlag) {
+			cgalSegment = Segment_2(startPoint, newCGALPoint);
+		}
+		else {
+			cgalLine = Line_2(startPoint, newCGALPoint);
+		}
+	}
+	updateSFMLVertices();
+}
+
+
+// Remove:  No longer needed, we use CGAL types directly in the constructors
+// const Line_2& Line::getLine() const {
+//     return cgalLine;
+// }
+// 
+// / Remove: updateGeometry is not needed with the CGAL-based approach
+// void Line::updateGeometry() { ... }
+// --- Helper function to update SFML vertices (defined here) ---
+
+// --- Helper function to update SFML vertices (Keep) ---
+
+void Line::updateGeometry() {
+	// Get the current positions from the connected free points
+	startPoint = startPointPtr->getCGALPoint();
+	endPoint = endPointPtr->getCGALPoint();
+
+	// (Re)compute the CGAL objects using the free points.
+	if (segmentFlag) {
+		cgalSegment = Segment_2(startPoint, endPoint);
+	}
+	else {
+		cgalLine = Line_2(startPoint, endPoint);
+	}
+	// Then update the drawn vertices by applying the translation offset.
+	updateSFMLVertices();
+}
+
+void Line::draw(sf::RenderWindow& window, const sf::View& view) const {
+	// Convert CGAL points to SFML coordinates.
+	double sx = CGAL::to_double(startPoint.x());
+	double sy = CGAL::to_double(startPoint.y());
+	double ex = CGAL::to_double(endPoint.x());
+	double ey = CGAL::to_double(endPoint.y());
+
+	sf::Vector2f sfStart(static_cast<float>(sx), static_cast<float>(sy));
+	sf::Vector2f sfEnd(static_cast<float>(ex), static_cast<float>(ey));
+
+		// Use a visible color.
+	sf::Color drawColor = isSelected ? sf::Color::Red : sf::Color::Black;
+
+	// If this is a line segment, draw it directly.
+	if (segmentFlag) {
+		// Check for degenerate segment.
+		if (std::hypot(sfEnd.x - sfStart.x, sfEnd.y - sfStart.y) < 0.001f) {
+			std::cerr << "Line segment degenerate: not drawing.\n";
+			return;
+		}
+		sf::Vertex vertices[2] = {
+			sf::Vertex(sfStart, drawColor),
+			sf::Vertex(sfEnd, drawColor)
+		};
+		window.draw(vertices, 2, sf::Lines);
+		const sf::View& view = window.getView();
+		float scale = static_cast<float>(window.getSize().x) / view.getSize().x;
+		float radius = Constants::POINT_SIZE / scale;
+		sf::CircleShape circle(radius);
+		circle.setOrigin(radius, radius);
+		circle.setFillColor(sf::Color::Green);
+		circle.setPosition(sfStart);
+		window.draw(circle);
+		circle.setPosition(sfEnd);
+		window.draw(circle);
+		if (isSelected) {
+			float radius = Constants::POINT_SIZE + 1.f / scale;
+			sf::CircleShape circle(radius);
+			circle.setOrigin(radius, radius);
+			circle.setFillColor(sf::Color(255, 165, 0, 128));
+			circle.setPosition(sfStart);
+			window.draw(circle);
+			circle.setPosition(sfEnd);
+			window.draw(circle);
+		}
+	}
+	else {
+		// Draw infinite line.
+		// Compute direction vector.
+		sf::Vector2f direction = sfEnd - sfStart;
+		float len = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+		if (len < 1e-8f) {
+			std::cerr << "Infinite line degenerate: not drawing.\n";
+			return;
+		}
+		direction /= len;
+		// Extend well beyond view.
+		sf::Vector2f viewSize = view.getSize();
+		float extension = std::max(viewSize.x, viewSize.y) * 5.0f;
+		sf::Vector2f p1 = sfStart - direction * extension;
+		sf::Vector2f p2 = sfStart + direction * extension;
+
+		// Draw the infinite line
+		sf::Vertex vertices[2] = {
+			sf::Vertex(p1, drawColor),
+			sf::Vertex(p2, drawColor)
+		};
+		window.draw(vertices, 2, sf::Lines);
+		// Calculate control points within view bounds
+		sf::Vector2f viewCenter = view.getCenter();
+		// Draw control points
+		const sf::View& view = window.getView();
+		float scale = static_cast<float>(window.getSize().x) / view.getSize().x;
+		float radius = Constants::POINT_SIZE / scale;
+		sf::CircleShape controlCircle(radius);
+		controlCircle.setOrigin(radius, radius);
+		controlCircle.setFillColor(sf::Color::Magenta);
+
+		controlCircle.setPosition(sfStart);
+		window.draw(controlCircle);
+		controlCircle.setPosition(sfEnd);
+		window.draw(controlCircle);
+
+		window.draw(vertices, 2, sf::Lines);
+		if (isSelected) {
+			float radius = Constants::POINT_SIZE + 1.f / scale;
+			sf::CircleShape circle(radius);
+			circle.setOrigin(radius, radius);
+			circle.setFillColor(sf::Color(255, 165, 0, 128));
+			circle.setPosition(sfStart);
+			window.draw(circle);
+			circle.setPosition(sfEnd);
+			window.draw(circle);
+		}
+		// Calculate control points within view bounds
+
+	}
+}
+//    // Get CGAL line components
+//    Vector_2 cgalDirection = cgalLine.to_vector();
+//    Point_2 cgalPoint = cgalLine.point();
+
+//    // Normalize CGAL direction vector using exact arithmetic
+//    double dirLength = std::sqrt(CGAL::to_double(cgalDirection.squared_length()));
+//    Vector_2 normalizedDir = cgalDirection / dirLength;
+
+//    // Calculate view extension in CGAL coordinates
+//    sf::Vector2f viewSize = view.getSize();
+//    double viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
+//    double extensionLength = viewDiagonal * 3.0;
+
+//    // Calculate extended points using CGAL
+//    Point_2 cgalExtendedStart = cgalPoint + (-extensionLength * normalizedDir);
+//    Point_2 cgalExtendedEnd = cgalPoint + (extensionLength * normalizedDir);
+
+//    // Convert to SFML for rendering
+//    sf::Vector2f extendedStart(
+//        static_cast<float>(CGAL::to_double(cgalExtendedStart.x())),
+//        static_cast<float>(CGAL::to_double(cgalExtendedStart.y()))
+//    );
+//    sf::Vector2f extendedEnd(
+//        static_cast<float>(CGAL::to_double(cgalExtendedEnd.x())),
+//        static_cast<float>(CGAL::to_double(cgalExtendedEnd.y()))
+//    );
+
+//    // Draw highlight when selected
+//    if (isSelected) {
+//        std::cout << "Line selected!" << std::endl;
+//        sf::Vertex glowLine[] = {
+//            sf::Vertex(extendedStart, sf::Color(255, 165, 0, 128)),
+//            sf::Vertex(extendedEnd, sf::Color(255, 165, 0, 128))
+//        };
+//        window.draw(glowLine, 2, sf::Lines);
+//        std::cout << "Infinite line highlighted!" << std::endl;
+//    }
+
+//    // Draw main line with color based on selection
+//    sf::Color lineColor = isSelected ? sf::Color::Red : Constants::LINE_COLOR;
+//    sf::Vertex mainLine[] = {
+//        sf::Vertex(extendedStart, lineColor),
+//        sf::Vertex(extendedEnd, lineColor)
+//    };
+//    window.draw(mainLine, 2, sf::Lines);
+//}
+
+bool Line::containsPoint(const sf::Vector2f& point) const {
+	Point_2 cgalPoint(point.x, point.y);
+	if (segmentFlag) {
+		Segment_2 segment(startPoint, endPoint);
+		return CGAL::squared_distance(segment, cgalPoint) < 25.0; // 5 pixel tolerance squared
+	}
+	else {
+		Line_2 line(startPoint, endPoint);
+		return CGAL::squared_distance(line, cgalPoint) < 25.0;
+	}
+}
+
+
+void Line::moveEndpointToStart(const Point_2& newStart) {
+	startPoint = newStart;
+	if (startPointPtr) {
+		startPointPtr->setPosition(newStart);
+	}
+	updateSFMLVertices();
+}
+
+void Line::moveEndpointToEnd(const Point_2& newEnd) {
+	endPoint = newEnd;
+	if (endPointPtr) {
+		endPointPtr->setPosition(newEnd);
+	}
+	updateSFMLVertices();
+}
+
+//void Line::translate(const Vector_2& offset) {
+//	// Update the line's CGAL geometry.
+//	startPoint = startPoint + offset;
+//	endPoint = endPoint + offset;
+//
+//	// Update the associated free points.
+//	// We assume these free-point methods update both internal state and any cached positioning.
+//	if (startPointPtr) {
+//		startPointPtr->setPosition(startPoint);
+//		// Optionally, if updateConnectedGeometry is causing conflicts because of shared points,
+//		// consider either calling it conditionally or ensuring it uses the current, already-updated position.
+//		startPointPtr->updateConnectedGeometry(toSFMLVector(startPoint));
+//	}
+//	if (endPointPtr) {
+//		endPointPtr->setPosition(endPoint);
+//		endPointPtr->updateConnectedGeometry(toSFMLVector(endPoint));
+//	}
+//
+//	// Update the vertices used for SFML drawing.
+//	updateSFMLVertices();
+//}
+void Line::translate(const Vector_2& offset) {
+	// Update the line's CGAL points
+	startPoint = startPoint + offset;
+	endPoint = endPoint + offset;
+
+	// Update the associated free points
+	if (startPointPtr) {
+		startPointPtr->setPosition(startPoint);
+	}
+	if (endPointPtr) {
+		endPointPtr->setPosition(endPoint);
+	}
+
+	// Update the SFML vertices
+	updateSFMLVertices();
+}
+void Line::setTranslationOffset(const sf::Vector2f& delta) {
+	// Accumulate the delta into the translation offset.
+	translationOffset += delta;
+	updateSFMLVertices();
+}
+void Line::applyTranslationOffset() {
+	// Update the underlying points by adding the offset.
+	// This requires that your Point class supports a method to translate its position.
+	// For example, assume Point has a translate(const sf::Vector2f&) method.
+	if (startPointPtr) {
+		// Assuming Point::translate works as expected.
+		startPointPtr->translate(translationOffset);
+	}
+	if (endPointPtr) {
+		endPointPtr->translate(translationOffset);
+	}
+	// Now refresh the geometry from the updated free points.
+	updateGeometry();  // Or updateFromPoints() 
+	// Reset internal offset.
+	translationOffset = sf::Vector2f(0.f, 0.f);
+}
+void Line::finalizeTranslation() {
+	// Apply the accumulated translation offset to the connected points.
+	if (startPointPtr)
+		startPointPtr->translate(translationOffset);
+	if (endPointPtr)
+		endPointPtr->translate(translationOffset);
+
+	// Reset the translation offset.
+	translationOffset = sf::Vector2f(0.f, 0.f);
+	// Finally, re-read geometry from the free points.
+	updateGeometry();
+}
+
+/*void Line::updateCGAL() {
+	Point_2 cgalStart(start.x, start.y);
+	Point_2 cgalEnd(end.x, end.y);
+	cgalLine = Line_2(cgalStart, cgalEnd);
+}*/
+
+
+bool Line::containsEndpoint(const sf::Vector2f& point, float threshold) const { // Keep sf::Vector2f for input
+	// Convert SFML point to CGAL point for calculations
+	Point_2 cgalPoint(point.x, point.y);
+	// Use CGAL's squared_distance for efficiency and consistency
+	return (CGAL::squared_distance(startPoint, cgalPoint) <= threshold * threshold) ||
+		(CGAL::squared_distance(endPoint, cgalPoint) <= threshold * threshold);
+}
+
+/*float Line::dotProduct(sf::Vector2f v1, sf::Vector2f v2) const {
+	return v1.x * v2.x + v1.y * v2.y;
+}
+
+float Line::distance(sf::Vector2f p1, sf::Vector2f p2) const {
+	sf::Vector2f diff = p1 - p2;
+	return std::sqrt(diff.x * diff.x + diff.y * diff.y);
+}*/
+/*sf::Vector2f Line::normalize(sf::Vector2f vector) const {
+	float length = std::sqrt(vector.x * vector.x + vector.y * vector.y);
+	if (length != 0) {
+		return sf::Vector2f(vector.x / length, vector.y / length);
+	}
+	return vector;
+}*/
+
+bool Line::calculateIntersection(const Line* l1, const Line* l2, sf::Vector2f& intersection) {
+	auto result = CGAL::intersection(Line_2(l1->startPoint, l1->endPoint),
+		Line_2(l2->startPoint, l2->endPoint));
+	if (result) {
+		std::visit([&](auto&& arg) {
+			using T = std::decay_t<decltype(arg)>;
+			if constexpr (std::is_same_v<T, Point_2>) {
+				intersection = sf::Vector2f(static_cast<float>(CGAL::to_double(arg.x())),
+					static_cast<float>(CGAL::to_double(arg.y())));
+				return true;
+			}
+			else if constexpr (std::is_same_v<T, Segment_2>) {
+				Point_2 midpoint = CGAL::midpoint(arg.source(), arg.target());
+				intersection = sf::Vector2f(static_cast<float>(CGAL::to_double(midpoint.x())),
+					static_cast<float>(CGAL::to_double(midpoint.y())));
+				return true;
+			}
+			else {
+				return false;
+			}
+			}, *result);
+	}
+	return false;
+}
+
+void Line::setEndpointOnCircle(const sf::Vector2f& center, float radius, bool isEndPoint) {
+    sf::Vector2f direction = isEndPoint ? (end - center) : (start - center);
+    float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+    if (length != 0) {
+        if (isEndPoint) {
+            end = center + (direction / length) * radius;
+            line[1].position = end;
+        } else {
+            start = center + (direction / length) * radius;
+            line[0].position = start;
+        }
+    }
+}
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <SFML/Graphics.hpp>
+#include <CGAL/intersections.h>
+#include <algorithm>
+#include <variant>
+#include "Types.h"
+#include "Constants.h"
+#include "CommandManager.h"
+#include "GenericDeleteCommand.h"
+#include "GUI.h"
+#include "Grid.h"
+#include "Point.h"
+#include "ObjectPoint.h"
+#include "GeometricObject.h"
+#include "Line.h"
+#include "Circle.h"
+#include "Intersection.h"
+#include "command.h"
+#include <memory>
+#include <vector>
+#include <iostream>
+
+// Replace the problematic line with the following:
+
+
+enum class DragMode {
+	None,
+	MoveEndpoint,
+	TranslateSegment,
+	MoveControlPoint
+};
+
+enum class EndpointSelection {
+	None,
+	Start,
+	End
+};
+
+// Global state variables for dragging line segments:
+DragMode segmentDragMode = DragMode::None;
+EndpointSelection selectedEndpoint = EndpointSelection::None;
+sf::Vector2f dragStartPos;
+// used when translating the whole segment
+
+
+class GeometryEditor {
+private:
+	sf::RenderWindow window;
+	sf::View drawingView;
+	GUI gui;
+	Grid grid;
+	CommandManager commandManager;
+	sf::View guiView;
+	std::vector<std::unique_ptr<Point>> points;
+	std::vector<std::unique_ptr<ObjectPoint>>ObjectPoints;
+	std::vector<std::unique_ptr<Line>> lines;
+	std::vector<std::unique_ptr<Circle>> circles;
+	std::vector<sf::Vector2f> linePoints;
+	sf::Vector2f lastMousePos;
+	sf::Vector2f dragOffset;
+	Point* lineCreationPoint = nullptr;
+
+	//Panning state
+	bool isPanning = false;
+	sf::Vector2f panningVelocity;
+	sf::Clock panClock;
+	float panSpeed = 5.0f;
+	const float dampingFactor = 0.85f;
+	sf::Vector2f lastValidMousePos;
+	bool isFirstPanFrame = true;     // Track first frame of panning
+
+	// Selection and dragging state
+	Point* selectedPoint = nullptr;
+	Line* selectedLine = nullptr;
+	Line* selectedLineSegment = nullptr;
+	bool isDragging = false;
+	bool isDraggingEndpoint = false;
+	int selectedEndpointIndex = -1;
+	int selectedControlPointIndex = -1;
+	bool isDraggingControlPoint = false;
+	DragMode dragMode = DragMode::None; // ADDED: To track the drag mode
+
+	// Selection and dragging state
+	Circle* selectedCircle = nullptr;
+	bool isDraggingCircle = false;
+	bool isResizingCircle = false;
+
+	sf::Vector2f toSFMLVector(const Point_2& point) {
+		return sf::Vector2f(
+			static_cast<float>(CGAL::to_double(point.x())),
+			static_cast<float>(CGAL::to_double(point.y()))
+		);
+	}
+
+	Point_2 toCGALPoint(const sf::Vector2f& vector) {
+		return Point_2(vector.x, vector.y);
+	}
+
+	float length(const sf::Vector2f& vec) {
+		return std::sqrt(vec.x * vec.x + vec.y * vec.y);
+	}
+
+	float getScaledTolerance(const sf::View& view) {
+		// Get current zoom level from view
+		float viewWidth = view.getSize().x;
+		float windowWidth = window.getSize().x;
+		float zoomFactor = viewWidth / windowWidth;
+
+		// Scale base tolerance with zoom
+		float baseTolerance = 8.0f;  // Adjust this base value as needed
+		return baseTolerance * zoomFactor;
+	}
+
+	void handleMousePress(const sf::Event::MouseButtonEvent& mouseEvent) {
+		// Convert click position into GUI and world (drawing) coordinates.
+		sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+		sf::Vector2f guiPos = window.mapPixelToCoords(pixelPos, guiView);
+		sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos, drawingView);
+
+		// 1. GUI region: forward event and return.
+		if (guiPos.y <= Constants::BUTTON_SIZE.y + 0.7f) {
+			sf::Event event;
+			event.type = sf::Event::MouseButtonPressed;
+			event.mouseButton = mouseEvent;
+			gui.handleEvent(window, event);
+			return;
+		}
+
+		// 2. Creation mode for lines/segments: only one branch for free point creation.
+		if (gui.isLineActive() || gui.isLineSegmentActive()) {
+			// Check if an existing point (including endpoints/control points) exists beneath the cursor.
+			Point* clickedFreePoint = nullptr;  // Adjust as needed
+			for (auto& point : points) {
+				float tolerance = getScaledTolerance(drawingView);
+				if (point->contains(worldPos, tolerance)) {  // do not filter out locked ones!
+					clickedFreePoint = point.get();
+					break;
+				}
+			}
+			// If no point exists, create a new free point.
+			if (!clickedFreePoint) {
+				Point_2 newPos = toCGALPoint(worldPos);
+				auto newPoint = std::make_unique<Point>(newPos, Constants::POINT_COLOR);
+				clickedFreePoint = newPoint.get();
+				points.push_back(std::move(newPoint));
+			}
+			// Use the clicked free point to form a line.
+			 // Use clickedFreePoint to create a new line:
+			if (lineCreationPoint == nullptr) {
+				lineCreationPoint = clickedFreePoint;
+				lineCreationPoint->setSelected(true);
+				std::cout << "Line creation start point selected!\n";
+			}
+			else if (lineCreationPoint != clickedFreePoint) {
+				// Finalize any in-progress translation on the endpoints,
+				// so that they already have their final, translated positions.
+				//lineCreationPoint->finalizeTranslation();   // commits any translation for the first point
+				//clickedFreePoint->finalizeTranslation();      // commits any translation for the second point
+
+				// Now create the line using the free points (with updated positions)
+				auto newLine = std::make_unique<Line>(lineCreationPoint, clickedFreePoint, gui.isLineSegmentActive());
+				// Connect the new line so that future moves on these points update it.
+				lineCreationPoint->addConnectedLine(newLine.get());
+				clickedFreePoint->addConnectedLine(newLine.get());
+				lines.push_back(std::move(newLine));
+
+				// Clear the selection state of the first point and any stored points.
+				lineCreationPoint->setSelected(false);
+				lineCreationPoint = nullptr;
+				linePoints.clear();
+			}
+			// Return from creation mode.
+			return;
+		}
+		if (gui.isCircleActive()) {
+			const float tolerance = getScaledTolerance(drawingView);
+
+			// First: try to use an existing free point to serve as center.
+			Point* clickedPoint = nullptr;
+			for (auto& pt : points) {
+				if (pt->contains(worldPos, tolerance)) {
+					clickedPoint = pt.get();
+					break;
+				}
+			}
+
+			if (clickedPoint) {
+				// If a free point is found, use its position as circle center.
+				if (!selectedCircle) {
+					auto newCircle = std::make_unique<Circle>(clickedPoint->getPosition());
+					selectedCircle = newCircle.get();
+					selectedCircle->setSelected(true);
+					circles.push_back(std::move(newCircle));
+					std::cout << "Circle center set from existing free point.\n";
+					return;
+				}
+				else if (!selectedCircle->isCreated()) {
+					// In creation phase: if user clicks using a free point that's away from center,
+					// treat it as the radius control.
+					if (!selectedCircle->containsCenter(clickedPoint->getPosition(), tolerance)) {
+						std::cout << "Create Radius\n";
+						selectedCircle->updateRadius(clickedPoint->getPosition());
+						selectedCircle->finishCreation();
+						// Create a line segment from center to the clicked free point.
+						auto newLine = std::make_unique<Line>(selectedCircle->getCenter(), clickedPoint->getPosition(), true);
+						lines.push_back(std::move(newLine));
+						std::cout << "Circle radius set from free point.\n";
+						return;
+					}
+				}
+			}
+
+			// Otherwise, if no free point was clicked, use the current mouse position.
+			if (!selectedCircle) {
+				// Create a new circle with initial center at the current mouse position.
+				auto newCircle = std::make_unique<Circle>(worldPos);
+				selectedCircle = newCircle.get();
+				selectedCircle->setSelected(true);
+				circles.push_back(std::move(newCircle));
+				std::cout << "Circle center created at mouse click.\n";
+			}
+			else {
+				// A circle exists. Decide between updating the radius or moving/resizing it.
+				if (!selectedCircle->isCreated()) {
+					// Check if the mouse click is sufficiently away from the center.
+					if (!selectedCircle->containsCenter(worldPos, tolerance)) {
+						std::cout << "Create Radius\n";
+						selectedCircle->updateRadius(worldPos);
+						selectedCircle->finishCreation();
+						// Create the radius line – a new line segment from center to the current mouse position.
+						auto newLine = std::make_unique<Line>(selectedCircle->getCenter(), worldPos, true);
+						lines.push_back(std::move(newLine));
+						return;
+					}
+					else {
+						std::cout << "Click near center detected; please click away from the center to set radius.\n";
+						return;
+					}
+				}
+				else {
+					// Circle is finalized; allow move/resize.
+					if (selectedCircle->containsCircumference(worldPos, tolerance)) {
+						isResizingCircle = true;
+						selectedCircle->setSelected(true);
+						std::cout << "Circle selected for resizing.\n";
+					}
+					else if (selectedCircle->containsCenter(worldPos, tolerance)) {
+						isDraggingCircle = true;
+						selectedCircle->setSelected(true);
+						std::cout << "Circle selected for moving.\n";
+					}
+				}
+			}
+			return;
+		}
+
+
+		if (gui.isLineSegmentActive()) {
+			// Check if the user is trying to draw a radius for a circle
+			if (selectedCircle && !selectedCircle->hasRadius()) {
+				float tolerance = getScaledTolerance(drawingView);
+				if (selectedCircle->containsCenter(worldPos, tolerance)) {
+					lineCreationPoint = new Point(toCGALPoint(worldPos), sf::Color::Blue);
+					points.push_back(std::unique_ptr<Point>(lineCreationPoint));
+					std::cout << "Circle center selected for radius drawing.\n";
+					gui.displayMessage("Draw Radius");
+					return;
+				}
+			}
+		}
+		if (gui.isLineSegmentActive() && lineCreationPoint) {
+			float tolerance = getScaledTolerance(drawingView);
+			if (selectedCircle && selectedCircle->containsCircumference(worldPos, tolerance)) {
+				// Finalize the radius line
+				selectedCircle->setRadiusPoint(worldPos);
+				std::cout << "Radius line finalized.\n";
+			}
+			lineCreationPoint = nullptr;
+		}
+		if (gui.isLineSegmentActive() && lineCreationPoint && selectedCircle) {
+			float tolerance = getScaledTolerance(drawingView);
+			if (selectedCircle->isNearCircumference(worldPos, tolerance)) {
+				GeometricObject* parentObject = selectedCircle.get();
+				if (parentObject) {
+					auto radiusPoint = std::make_unique<ObjectPoint>(toCGALPoint(worldPos), parentObject, sf::Color::Blue);
+					ObjectPoints.push_back(std::move(radiusPoint));
+					gui.clearMessage();
+					std::cout << "Radius point created and linked to the circle.\n";
+				}
+			}
+		}
+		// 3. Allow circle manipulation when no tool is active or when the Move tool is active
+		if ((gui.isButtonActive("Move") && mouseEvent.button == sf::Mouse::Left) ||
+			(!gui.isAnyToolActive() && mouseEvent.button == sf::Mouse::Left)) {
+			float tolerance = getScaledTolerance(drawingView);
+			// Look for line endpoints / control points.
+			for (auto& line : lines) {
+				if (line->isSegment()) {
+					sf::Vector2f startPt = toSFMLVector(line->getStartPoint());
+					sf::Vector2f endPt = toSFMLVector(line->getEndPoint());
+					if (length(worldPos - startPt) <= tolerance) {
+						selectedLineSegment = line.get();
+						selectedEndpointIndex = 0;
+						isDraggingEndpoint = true;
+						dragMode = DragMode::MoveEndpoint;
+						line->setSelected(true);
+						std::cout << "Line segment start endpoint selected for dragging.\n";
+						return;
+					}
+					if (length(worldPos - endPt) <= tolerance) {
+						selectedLineSegment = line.get();
+						selectedEndpointIndex = 1;
+						isDraggingEndpoint = true;
+						dragMode = DragMode::MoveEndpoint;
+						line->setSelected(true);
+						std::cout << "Line segment end endpoint selected for dragging.\n";
+						return;
+					}
+					if (line->containsPoint(worldPos)) {
+						selectedLineSegment = line.get();
+						// Begin translation mode.
+						isDragging = true;
+						dragMode = DragMode::TranslateSegment;
+						dragStartPos = worldPos; // record initial drag position
+						line->setSelected(true);
+						std::cout << "Line selected for translation.\n";
+						return;
+					}
+				}
+				else { // plain infinite line: check control points.
+
+					sf::Vector2f startPt = toSFMLVector(line->getStartPoint());
+					sf::Vector2f endPt = toSFMLVector(line->getEndPoint());
+					if (length(worldPos - startPt) <= tolerance) {
+						selectedLine = line.get();
+						selectedControlPointIndex = 0;
+						isDraggingControlPoint = true;
+						dragMode = DragMode::MoveControlPoint;
+						line->setSelected(true);
+						std::cout << "Line start control point selected for dragging.\n";
+						return;
+					}
+					if (length(worldPos - endPt) <= tolerance) {
+						selectedLine = line.get();
+						selectedControlPointIndex = 1;
+						isDraggingControlPoint = true;
+						dragMode = DragMode::MoveControlPoint;
+						line->setSelected(true);
+						std::cout << "Line end control point selected for dragging.\n";
+						return;
+					}
+					// If not near control points, check if click is in the body for translation.
+					if (line->containsPoint(worldPos)) {
+						selectedLine = line.get();
+						isDragging = true;
+						dragMode = DragMode::TranslateSegment;
+						dragStartPos = worldPos;
+						line->setSelected(true);
+						std::cout << "Line selected for translation.\n";
+						return;
+					}
+				}
+			}
+		}
+		// Check free points for moving.
+		for (auto& point : points) {
+			if (point->contains(worldPos)) {  // do not filter out locked ones here either if you want to reuse them
+				selectedPoint = point.get();
+				isDragging = true;
+				point->setSelected(true);
+				std::cout << "Free point selected for moving.\n";
+				return;
+			}
+		}
+		// Check circles for moving or resizing.
+		for (auto& circle : circles) {
+			float tolerance = getScaledTolerance(drawingView);
+			if (circle->containsCenter(worldPos, tolerance)) {
+				selectedCircle = circle.get();
+				isDraggingCircle = true;
+				selectedCircle->setSelected(true);
+				std::cout << "Circle selected for moving.\n";
+				return;
+			}
+			if (circle->containsCircumference(worldPos, tolerance)) {
+				selectedCircle = circle.get();
+				isResizingCircle = true;
+				selectedCircle->setSelected(true);
+				std::cout << "Circle selected for resizing.\n";
+				return;
+			}
+		}
+		if (gui.isObjPointActive()) {
+			bool objectFound = false;
+			float tolerance = getScaledTolerance(drawingView); // Define tolerance here
+			// Try to attach the new point to a line first.
+			for (auto& line : lines) {
+				// Here we use the line's containsPoint method, or you could implement a
+				// distance check. Adjust the method as needed:
+				if (line->containsPoint(worldPos)) {
+					// Create an ObjectPoint attached to this line.
+					auto newObjPoint = std::make_unique<ObjectPoint>(toCGALPoint(worldPos), line.get());
+					// You might keep these in a dedicated container; if not, simply push into points.
+					points.push_back(std::move(newObjPoint));
+					std::cout << "Created ObjectPoint on line.\n";
+					objectFound = true;
+					break;
+				}
+			}
+			// If not attached to a line, check circles.
+			if (!objectFound) {
+				for (auto& circle : circles) {
+					// Here we check if the click is near the circumference.
+					if (circle->containsCircumference(worldPos, tolerance)) {
+						auto newObjPoint = std::make_unique<ObjectPoint>(worldPos, circle.get());
+						points.push_back(std::move(newObjPoint));
+						std::cout << "Created ObjectPoint on circle.\n";
+						objectFound = true;
+						break;
+					}
+				}
+			}
+			if (!objectFound) {
+				std::cout << "No object within tolerance to attach ObjectPoint.\n";
+			}
+			return;
+		}
+		// 4. Other creation modes (point or intersection creation).
+		if (gui.isPointActive() || gui.isIntersectionActive()) {
+			handleGeometryCreation(worldPos, pixelPos);
+			return;
+		}
+
+		// 5. Default selection: if no creation or move tool is active.
+		for (auto& line : lines) {
+			if (line->containsPoint(worldPos)) {
+				selectedLineSegment = line.get();
+				selectedLineSegment->setSelected(true);
+				selectedLine = line.get();
+				selectedLine->setSelected(true);
+				isDragging = true;
+				std::cout << (line->isSegment() ? "Line segment" : "Infinite line")
+					<< " selected!\n";
+				return;
+			}
+		}
+		for (auto& point : points) {
+			if (point->contains(worldPos, getScaledTolerance(drawingView))) {
+				selectedPoint = point.get();
+				selectedPoint->setSelected(true);
+				isDragging = true;
+				std::cout << "Free point selected.\n";
+				return;
+			}
+		}
+
+		// Fallback for intersection mode.
+		if (gui.isIntersectionActive()) {
+			calculateIntersections(worldPos);
+		}
+	}
+
+	// Otherwise translate the whole segment
+	void handleDragging(const sf::Vector2f& worldPos) {
+		if (isDragging) {
+			if (selectedPoint) {
+				Point_2 cgalWorldPos = toCGALPoint(worldPos);
+				selectedPoint->setPosition(cgalWorldPos);
+				selectedPoint->updateConnectedGeometry(worldPos);
+			}
+			else if (selectedLineSegment || selectedLine) {
+				sf::Vector2f offset = worldPos - lastMousePos;
+				Vector_2 cgalOffset(offset.x, offset.y); // Convert sf::Vector2f to CGAL::Vector_2
+				// Use the stored selectedEndpoint value instead of testing lastMousePos
+				if (selectedEndpoint == EndpointSelection::Start) {
+					// Drag the start endpoint
+					selectedLineSegment->moveEndpointToStart(toCGALPoint(worldPos));
+				}
+				else if (selectedEndpoint == EndpointSelection::End) {
+					// Drag the end endpoint
+					selectedLineSegment->moveEndpointToEnd(toCGALPoint(worldPos));
+				}
+				else {
+					// Otherwise translate the whole segment
+					if (selectedLineSegment) {
+						selectedLineSegment->translate(cgalOffset);
+					}
+					else if (selectedLine) {
+						selectedLine->translate(cgalOffset);
+					}
+				}
+				lastMousePos = worldPos;
+			}
+		}
+	}
+
+
+
+
+	void handleMouseMove(const sf::Event::MouseMoveEvent& moveEvent) {
+		sf::Vector2i pixelPos(moveEvent.x, moveEvent.y);
+		sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos, drawingView);
+
+		if (isDraggingEndpoint && selectedLineSegment && dragMode == DragMode::MoveEndpoint) {
+			if (selectedEndpointIndex == 0) {
+				selectedLineSegment->moveEndpointToStart(toCGALPoint(worldPos));
+				if (selectedLineSegment->getStartPointPtr()) {
+					selectedLineSegment->getStartPointPtr()->setPosition(toCGALPoint(worldPos));
+				}
+			}
+			else {
+				selectedLineSegment->moveEndpointToEnd(toCGALPoint(worldPos));
+				if (selectedLineSegment->getEndPointPtr()) {
+					selectedLineSegment->getEndPointPtr()->setPosition(toCGALPoint(worldPos));
+				}
+			}
+		}
+		else if (isDraggingControlPoint && selectedLine && dragMode == DragMode::MoveControlPoint) {
+			if (selectedControlPointIndex == 0) {
+				selectedLine->moveEndpointToStart(toCGALPoint(worldPos));
+				if (selectedLine->getStartPointPtr()) {
+					selectedLine->getStartPointPtr()->setPosition(toCGALPoint(worldPos));
+				}
+			}
+			else {
+				selectedLine->moveEndpointToEnd(toCGALPoint(worldPos));
+				if (selectedLine->getEndPointPtr()) {
+					selectedLine->getEndPointPtr()->setPosition(toCGALPoint(worldPos));
+				}
+			}
+		}
+		else if (isDragging && dragMode == DragMode::TranslateSegment) {
+			// Compute the delta since the last event
+			sf::Vector2f delta = worldPos - dragStartPos;
+			Vector_2 cgalDelta(delta.x, delta.y); // Convert sf::Vector2f to CGAL::Vector_2
+
+			if (selectedLineSegment) {
+				/*selectedLineSegment->applyTranslationOffset();
+				selectedLineSegment->setTranslationOffset(delta);*/
+				selectedLineSegment->translate(cgalDelta);
+			}
+			else if (selectedLine) {
+				/*selectedLine->applyTranslationOffset();
+				selectedLine->setTranslationOffset(delta);*/
+				selectedLine->translate(cgalDelta);
+			}
+			dragStartPos = worldPos; // update this for the next frame
+		}
+		// In handleMouseMove:
+		else if (gui.isCircleActive() && selectedCircle) {
+			// If the circle is still in creation phase, update the radius as the mouse moves.
+			if (!selectedCircle->isCreated()) {
+				selectedCircle->updateRadius(worldPos);
+				std::cout << "Updating circle radius via drag.\n";
+			}
+			else if (isResizingCircle) {
+				// Update the circle's radius based on mouse distance from its center.
+				float newRadius = std::sqrt(std::pow(worldPos.x - selectedCircle->getCenter().x, 2) +
+					std::pow(worldPos.y - selectedCircle->getCenter().y, 2));
+				selectedCircle->setRadius(newRadius);
+				std::cout << "Resizing circle to radius: " << newRadius << "\n";
+			}
+			else if (isDraggingCircle) {
+				// Move the circle; compute offset relative to the last mouse position.
+				sf::Vector2f offset = worldPos - lastMousePos;
+				selectedCircle->move(offset);
+				std::cout << "Moving circle; new center: (" << selectedCircle->getCenter().x
+					<< ", " << selectedCircle->getCenter().y << ")\n";
+			}
+		}
+		// Handle circle dragging or resizing
+		if (isDraggingCircle && selectedCircle) {
+			sf::Vector2f offset = worldPos - lastMousePos;
+			selectedCircle->move(offset);
+			std::cout << "Moving circle; new center: (" << selectedCircle->getCenter().x
+				<< ", " << selectedCircle->getCenter().y << ")\n";
+		}
+		else if (isResizingCircle && selectedCircle) {
+			float newRadius = std::sqrt(std::pow(worldPos.x - selectedCircle->getCenter().x, 2) +
+				std::pow(worldPos.y - selectedCircle->getCenter().y, 2));
+			selectedCircle->setRadius(newRadius);
+			std::cout << "Resizing circle to radius: " << newRadius << "\n";
+		}
+
+		if (gui.isLineSegmentActive() && lineCreationPoint && selectedCircle) {
+			float tolerance = getScaledTolerance(drawingView); // Declare tolerance here
+			if (selectedCircle->isNearCircumference(worldPos, tolerance)) {
+				// Ensure tolerance is declared
+				// (Already declared above)
+				// Additional logic if needed
+			}
+			else {
+				gui.clearMessage();
+			}
+		}
+
+		lastMousePos = worldPos;
+	}
+
+	void handleMouseRelease(const sf::Event::MouseButtonEvent& mouseEvent) {
+		if (isDraggingEndpoint && selectedLineSegment) {
+			selectedLineSegment->setSelected(false);
+			selectedLineSegment = nullptr;
+			isDraggingEndpoint = false;
+			dragMode = DragMode::None;
+			selectedEndpointIndex = -1;
+			std::cout << "Line segment endpoint dragging finished.\n";
+		}
+		if (isDraggingControlPoint && selectedLine) {
+			selectedLine->setSelected(false);
+			selectedLine = nullptr;
+			isDraggingControlPoint = false;
+			dragMode = DragMode::None;
+			selectedControlPointIndex = -1;
+			std::cout << "Line control point dragging finished.\n";
+		}
+		if (dragMode == DragMode::TranslateSegment && selectedLineSegment) {
+			selectedLineSegment->applyTranslationOffset();
+			selectedLineSegment->setTranslationOffset(sf::Vector2f(0.f, 0.f)); // Ensure translation is finalized
+			selectedLineSegment->setSelected(false);
+			selectedLineSegment = nullptr;
+		}
+		if (dragMode == DragMode::TranslateSegment && selectedLine) {
+			selectedLine->applyTranslationOffset();
+			selectedLine->setTranslationOffset(sf::Vector2f(0.f, 0.f)); // Ensure translation is finalized
+			selectedLine->setSelected(false);
+			selectedLine = nullptr;
+		}
+		if (isDragging && selectedPoint) {
+			selectedPoint->setSelected(false);
+			selectedPoint = nullptr;
+			isDragging = false;
+			std::cout << "Free point dragging finished.\n";
+		}
+		if (gui.isCircleActive() && selectedCircle) {
+			// If the circle has not been finalized (i.e. creation phase), finish its creation:
+			if (!selectedCircle->isCreated()) {
+				selectedCircle->finishCreation();
+				std::cout << "Circle creation finished.\n";
+			}
+			if (isDraggingCircle || isResizingCircle) {
+				selectedCircle->setSelected(false);
+				isDraggingCircle = false;
+				isResizingCircle = false;
+				selectedCircle = nullptr; // Optionally reset selection; or allow further editing
+				std::cout << "Circle editing finished.\n";
+			}
+		}
+		if (isDraggingCircle || isResizingCircle) {
+			selectedCircle->setSelected(false);
+			isDraggingCircle = false;
+			isResizingCircle = false;
+			selectedCircle = nullptr;
+			std::cout << "Circle editing finished.\n";
+		}
+	}
+
+	std::optional<Point_2> findIntersection(const Line_2& line1, const Line_2& line2) {
+		auto result = CGAL::intersection(line1, line2);
+
+		if (result) {
+			// Use std::visit to handle the variant
+			return std::visit([](auto&& arg) -> std::optional<Point_2> {
+				using T = std::decay_t<decltype(arg)>;
+				if constexpr (std::is_same_v<T, Point_2>) {
+					return arg; // Return the intersection point
+				}
+				else if constexpr (std::is_same_v<T, Segment_2>) {
+					// If the intersection is a segment, return its midpoint
+					return CGAL::midpoint(arg.source(), arg.target());
+				}
+				else {
+					return std::nullopt; // No intersection
+				}
+				}, *result);
+		}
+		return std::nullopt;
+	}
+	// Define the findNearbyPoint method
+	Point* findNearbyPoint(const sf::Vector2f& worldPos) {
+		// Implement the logic to find a nearby point
+		for (const auto& point : points) {
+			if (point->contains(worldPos, getScaledTolerance(drawingView))) {
+				return point.get();
+			}
+		}
+		return nullptr;
+	}
+	void handlePointMovement(Point* point, const sf::Vector2f& newPos) {
+		point->setPosition(toCGALPoint(newPos)); // Ensure toCGALPoint is used herenewPos);
+		point->updateConnectedGeometry(newPos);
+	}
+	void handleGeometryCreation(const sf::Vector2f& worldPos, const sf::Vector2i& pos) {
+		// Point creation
+		// Check if clicking near existing point
+		if (gui.isPointActive()) {
+			Point* existingPoint = findNearbyPoint(worldPos); // Use findNearbyPoint
+			if (existingPoint) {
+				lineCreationPoint = existingPoint;
+			}
+			else {
+				auto newPoint = std::make_unique<Point>(toCGALPoint(worldPos)); // Ensure toCGALPoint is used
+				points.push_back(std::move(newPoint));
+			}
+			return;
+		}
+		// Line or Line Segment creation
+		if (gui.isLineActive() || gui.isLineSegmentActive()) {
+			std::cout << "Adding point for line creation at: (" << pos.x << ", " << pos.y << ")" << std::endl;
+			Point* nearbyPoint = findNearbyPoint(worldPos);
+
+			if (nearbyPoint) {
+				lineCreationPoint = nearbyPoint;
+			}
+			else {
+				auto newPoint = std::make_unique<Point>(toCGALPoint(worldPos));
+				lineCreationPoint = newPoint.get();
+				points.push_back(std::move(newPoint));
+			}
+
+			linePoints.push_back(worldPos);
+
+			if (linePoints.size() == 2) {
+				Point_2 start = toCGALPoint(linePoints[0]);
+				Point_2 end = toCGALPoint(linePoints[1]);
+				bool isSegment = gui.isLineSegmentActive();
+				std::cout << "Creating line from: (" << CGAL::to_double(start.x()) << ","
+					<< CGAL::to_double(start.y()) << ") to ("
+					<< CGAL::to_double(end.x()) << ","
+					<< CGAL::to_double(end.y()) << ")" << std::endl;
+
+				/*sf::Vector2f sfStart(static_cast<float>(CGAL::to_double(start.x())), static_cast<float>(CGAL::to_double(start.y())));
+				sf::Vector2f sfEnd(static_cast<float>(CGAL::to_double(end.x())), static_cast<float>(CGAL::to_double(end.y())));*/
+
+				//Create new line or segment
+				auto newLine = std::make_unique<Line>(toSFMLVector(start), toSFMLVector(end), isSegment);
+				// Connect the line to its points
+				Point* startPoint = findNearbyPoint(toSFMLVector(start));
+				Point* endPoint = findNearbyPoint(toSFMLVector(end));
+
+				if (startPoint) startPoint->addConnectedLine(newLine.get());
+				if (endPoint) endPoint->addConnectedLine(newLine.get());
+				lines.push_back(std::move(newLine));
+
+				std::cout << "Created " << (isSegment ? "line segment" : "infinite line")
+					<< " from (" << CGAL::to_double(start.x()) << ", " << CGAL::to_double(start.y())
+					<< ") to (" << CGAL::to_double(end.x()) << ", " << CGAL::to_double(end.y()) << ")" << std::endl;
+
+				// Check for intersections with existing lines
+				Line_2 newCGALLine(start, end);
+				for (const auto& existingLine : lines) {
+					if (existingLine->isSegment()) continue; // Skip segments for intersection testing
+
+					Line_2 existingCGALLine(existingLine->getStartPoint(), existingLine->getEndPoint());
+					auto result = CGAL::intersection(newCGALLine, existingCGALLine);
+
+					if (result) {
+						if (auto intersectionPoint = findIntersection(newCGALLine, existingCGALLine)) {
+							points.push_back(std::make_unique<Point>(*intersectionPoint, Constants::INTERSECTION_POINT_COLOR, true));
+							std::cout << "Intersection point created" << std::endl;
+						}
+					}
+				}
+
+				linePoints.clear();
+				std::cout << "Total lines in container: " << lines.size() << std::endl;
+			}
+		}
+	}
+
+	/*void handlePanning(const sf::Event::MouseMoveEvent& mouseEvent) {
+		if (isPanning) {
+			sf::Vector2f currentMousePos = window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), drawingView);
+			sf::Vector2f delta = lastMousePos - currentMousePos;
+			drawingView.move(delta);
+			window.setView(drawingView);
+			lastMousePos = currentMousePos;
+		}
+	}*/
+	//    if (isPanning) {
+	//        sf::Vector2f currentMousePos = window.mapPixelToCoords(
+	//            sf::Vector2i(mouseEvent.x, mouseEvent.y), drawingView);
+
+	//        if (isFirstPanFrame) {
+	//            lastMousePos = currentMousePos;  // Initialize lastMousePos correctly
+	//            isFirstPanFrame = false;
+	//            return;
+	//        }
+
+	//        sf::Vector2f delta = lastMousePos - currentMousePos;
+
+	//        // Clamp maximum movement to avoid jumps
+	//        const float maxDelta = 30.0f;
+	//        delta.x = std::clamp(delta.x, -maxDelta, maxDelta);
+	//        delta.y = std::clamp(delta.y, -maxDelta, maxDelta);
+
+	//        // Apply smooth panning with damping
+	//        drawingView.move(delta);
+	//        window.setView(drawingView);
+
+	//        lastMousePos = currentMousePos;  // Update last position properly
+	//    }
+	//    else {
+	//        isFirstPanFrame = true;
+	//    }
+	//}
+
+	void handlePanning(const sf::Event::MouseMoveEvent& mouseEvent) {
+		if (isPanning) {
+			sf::Time deltaTime = panClock.restart();
+			float smoothFactor = deltaTime.asSeconds() * 60.0f; // Normalize to 60 FPS
+
+			sf::Vector2f currentMousePos = window.mapPixelToCoords(
+				sf::Vector2i(mouseEvent.x, mouseEvent.y), drawingView);
+			if (isFirstPanFrame) {
+				lastMousePos = currentMousePos;
+				isFirstPanFrame = false;
+				return;
+			}
+
+			sf::Vector2f delta = (lastMousePos - currentMousePos) * panSpeed * smoothFactor;
+			const float maxDelta = 100.0f;
+			delta.x = std::clamp(delta.x, -maxDelta, maxDelta);
+			delta.y = std::clamp(delta.y, -maxDelta, maxDelta);
+			drawingView.move(delta);
+			window.setView(drawingView);
+
+			lastMousePos = window.mapPixelToCoords(
+				sf::Vector2i(mouseEvent.x, mouseEvent.y),
+				drawingView
+			);
+		}
+	}
+
+	void handleZoom(float delta, const sf::Vector2i& mousePos) {
+		sf::Vector2f beforeZoom = window.mapPixelToCoords(mousePos, drawingView);
+		float factor = (delta < 0) ? Constants::ZOOM_FACTOR : 1.0f / Constants::ZOOM_FACTOR;
+		drawingView.zoom(factor);
+		window.setView(drawingView);
+		sf::Vector2f afterZoom = window.mapPixelToCoords(mousePos, drawingView);
+		sf::Vector2f offset = beforeZoom - afterZoom;
+		drawingView.move(offset);
+		window.setView(drawingView);
+		grid.draw(window, drawingView);
+	}
+
+
+	void calculateIntersections(const sf::Vector2f& clickPos) {
+		std::vector<Line*> nearbyLines;
+		for (const auto& line : lines) {
+			if (line->containsPoint(clickPos)) {
+				nearbyLines.push_back(line.get());
+			}
+		}
+
+		if (nearbyLines.size() >= 2) {
+			for (size_t i = 0; i < nearbyLines.size() - 1; ++i) {
+				for (size_t j = i + 1; j < nearbyLines.size(); ++j) {
+					sf::Vector2f intersectionPoint;
+					if (Line::calculateIntersection(nearbyLines[i], nearbyLines[j], intersectionPoint)) {
+						Point_2 cgalIntersectionPoint = toCGALPoint(intersectionPoint);
+						auto newPoint = std::make_unique<Point>(cgalIntersectionPoint, Constants::INTERSECTION_POINT_COLOR, true);
+						points.push_back(std::move(newPoint));
+					}
+				}
+			}
+		}
+	}
+public:
+	GeometryEditor()
+		: window(sf::VideoMode(2500, 2000), "Geometry Tool")
+
+		, isPanning(false)
+		, isDragging(false)
+		, selectedPoint(nullptr)
+		, selectedLine(nullptr)
+		, selectedLineSegment(nullptr) {
+
+		drawingView = window.getDefaultView();
+		window.setFramerateLimit(60);
+		guiView = sf::View(sf::FloatRect(0, 0, window.getSize().x, window.getSize().y));
+		gui.setView(guiView);
+		grid = Grid();
+
+	}
+
+
+	void run() {
+		while (window.isOpen()) {
+			handleEvents();
+			render();
+		}
+	}
+
+	void update(sf::Time deltaTime) {
+		// Update animations or physics here using deltaTime
+		float dt = deltaTime.asSeconds();
+		// Use dt for smooth animations
+	}
+
+	void handleEvents() {
+		sf::Event event;
+		while (window.pollEvent(event)) {
+			switch (event.type) {
+			case sf::Event::KeyPressed:
+				// Delete key: delete selected point (or any object)
+				if (event.key.code == sf::Keyboard::Delete) {
+					if (selectedPoint) {
+						int pointIndex = -1;
+						for (size_t i = 0; i < points.size(); ++i) {
+							if (points[i].get() == selectedPoint) {
+								pointIndex = static_cast<int>(i);
+								break;
+							}
+						}
+						if (pointIndex != -1) {
+							auto deleteCmd = std::make_unique<GenericDeleteCommand<Point>>(points, pointIndex);
+							commandManager.executeCommand(std::move(deleteCmd));
+							selectedPoint = nullptr;
+						}
+					}
+					if (selectedLine) {
+						int lineIndex = -1;
+						for (size_t i = 0; i < lines.size(); ++i) {
+							if (lines[i].get() == selectedLine) {
+								lineIndex = static_cast<int>(i);
+								break;
+							}
+						}
+						if (lineIndex != -1) {
+							auto deleteCmd = std::make_unique<GenericDeleteCommand<Line>>(lines, lineIndex);
+							commandManager.executeCommand(std::move(deleteCmd));
+							selectedLine = nullptr;
+						}
+					}
+					if (selectedLineSegment) {
+						int segmentIndex = -1;
+						for (size_t i = 0; i < lines.size(); ++i) {
+							if (lines[i].get() == selectedLineSegment) {
+								segmentIndex = static_cast<int>(i);
+								break;
+							}
+						}
+						if (segmentIndex != -1) {
+							auto deleteCmd = std::make_unique<GenericDeleteCommand<Line>>(lines, segmentIndex);
+							commandManager.executeCommand(std::move(deleteCmd));
+							selectedLineSegment = nullptr;
+						}
+					}
+				}
+				// Undo: Ctrl+Z
+				if (event.key.code == sf::Keyboard::Z && sf::Keyboard::isKeyPressed(sf::Keyboard::LControl)) {
+					commandManager.undo();
+				}
+				// Redo: Ctrl+Y
+				if (event.key.code == sf::Keyboard::Y && sf::Keyboard::isKeyPressed(sf::Keyboard::LControl)) {
+					commandManager.redo();
+				}
+				break;
+			case sf::Event::MouseButtonPressed: {
+				sf::Vector2i pixelPos(event.mouseButton.x, event.mouseButton.y);
+				sf::Vector2f guiPos = window.mapPixelToCoords(pixelPos, guiView);
+
+				// Check if click is in GUI area
+				if (guiPos.y <= Constants::BUTTON_SIZE.y) {
+					gui.handleEvent(window, event);
+					break; // Add break to prevent fallthrough
+				}
+				else if (event.mouseButton.button == sf::Mouse::Left && sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)) {
+					isPanning = true;
+					lastMousePos = window.mapPixelToCoords(
+						sf::Vector2i(event.mouseButton.x, event.mouseButton.y),
+						drawingView
+					);
+					std::cout << "Shift + Left mouse button pressed, starting panning.\n";
+					std::cout << "lastMousePos: (" << lastMousePos.x << ", " << lastMousePos.y << ")\n";
+					break; // Add break to prevent fallthrough
+				}
+				else if (event.mouseButton.button == sf::Mouse::Left) {
+					handleMousePress(event.mouseButton);
+					break; // Add break to prevent fallthrough
+				}
+			}
+
+			case sf::Event::MouseButtonReleased: {
+				if (event.mouseButton.button == sf::Mouse::Left && isPanning) {
+					isPanning = false;
+					std::cout << "Shift + Left mouse button released, stopping panning.\n";
+				}
+				handleMouseRelease(event.mouseButton);
+				break;
+			}
+
+			case sf::Event::MouseMoved: {
+				if (isPanning) {
+					std::cout << "Mouse moved while panning.\n";
+					handlePanning(event.mouseMove);
+				}
+				else {
+					handleMouseMove(event.mouseMove);
+				}
+				break;
+			}
+
+			case sf::Event::MouseWheelScrolled: {
+				handleZoom(event.mouseWheelScroll.delta,
+					sf::Vector2i(event.mouseWheelScroll.x, event.mouseWheelScroll.y));
+				break;
+			}
+
+			case sf::Event::Resized: {
+				handleResize(event.size.width, event.size.height);
+				break;
+			}
+			case sf::Event::Closed:
+				window.close();
+				break;
+			}
+		}
+	}
+
+
+	void handleResize(unsigned int width, unsigned int height) {
+		// Update the window's viewport to the new size
+		sf::FloatRect visibleArea(0, 0, width, height);
+		window.setView(sf::View(visibleArea));
+
+		// Adjust the drawingView to maintain the aspect ratio and prevent stretching
+		sf::Vector2f center = drawingView.getCenter();
+		sf::Vector2f size = drawingView.getSize();
+		float aspectRatio = static_cast<float>(width) / height;
+
+		if (aspectRatio > size.x / size.y) {
+			// Window is wider than the view, adjust height
+			size.y = size.x / aspectRatio;
+		}
+		else {
+			// Window is taller than the view, adjust width
+			size.x = size.y * aspectRatio;
+		}
+
+		drawingView.setSize(size);
+		drawingView.setCenter(center);
+		window.setView(drawingView);
+
+		// Adjust the guiView to match the new window size
+		guiView.setSize(width, height);
+		guiView.setCenter(width / 2.0f, height / 2.0f);
+	}
+
+
+	void render() {
+		window.clear(sf::Color::White);
+		window.setView(drawingView);
+
+		if (gui.isGridActive()) {
+			grid.draw(window, drawingView);
+		}
+
+		// Draw geometry
+		for (const auto& line : lines) {
+			if (line) {
+				line->draw(window, drawingView);
+			}
+		}
+
+		for (const auto& pt : points) {
+			pt->draw(window);
+		}
+		for (const auto& circle : circles) {
+			circle->draw(window, drawingView);
+		}
+
+		// Draw GUI last
+		window.setView(guiView);
+		gui.draw(window);
+
+		window.display();
+	}
+
+};
+
+int main() {
+	try {
+		GeometryEditor editor;
+		editor.run();
+	}
+	catch (const std::exception& e) {
+		std::cerr << "Error: " << e.what() << std::endl;
+		return 1;
+	}
+	return 0;
+}
+
+#include "ObjectPoint.h"  
+#include "GeometricObject.h"
+#include <cmath>  
+
+
+
+
+//ObjectPoint::ObjectPoint(const Point_2& pos, Circle* circleObj)
+//    : Point(pos, Constants::POINT_COLOR),
+//    attachedType(ObjectType::Circle),
+//    attachedLine(nullptr),
+//    attachedCircle(circleObj),
+//    parentObject(static_cast<GeometricObject*>(circleObj)) // Cast to GeometricObject*
+//{
+//}
+
+ObjectPoint::ObjectPoint(const Point_2& pos, Line* lineObj)
+    : Point(pos, Constants::POINT_COLOR),
+    GeometricObject(), // Initialize base class if needed
+    attachedType(ObjectType::Line),
+    attachedLine(lineObj),
+    attachedCircle(nullptr) {
+}
+
+// Constructor for attaching to a Circle
+ObjectPoint::ObjectPoint(const Point_2& pos, Circle* circleObj)
+    : Point(pos, Constants::POINT_COLOR),
+    GeometricObject(), // Initialize base class if needed
+    attachedType(ObjectType::Circle),
+    attachedLine(nullptr),
+    attachedCircle(circleObj) {
+}
+ObjectPoint::ObjectPoint(const Point_2& position, const sf::Color& color, bool isLocked)
+    : Point(position, color, isLocked), attachedType(ObjectType::None), attachedLine(nullptr), attachedCircle(nullptr), parentObject(nullptr) {
+    // Initialization code
+}
+
+ObjectPoint::ObjectPoint(const Point_2& position, GeometricObject* parent, const sf::Color& color, bool isLocked)
+    : Point(position, color, isLocked), attachedType(ObjectType::None), attachedLine(nullptr), attachedCircle(nullptr), parentObject(parent) {
+    // Additional initialization if necessary
+    if (parentObject) {
+        parentObject->addChildPoint(this);
+    }
+}
+
+// Helper: Compute dot product of two vectors.  
+static float dot(const sf::Vector2f& a, const sf::Vector2f& b) {  
+   return a.x * b.x + a.y * b.y;  
+}  
+
+// Helper: Subtract two vectors.  
+static sf::Vector2f subtract(const sf::Vector2f& a, const sf::Vector2f& b) {  
+   return sf::Vector2f(a.x - b.x, a.y - b.y);  
+}  
+
+// Helper: Multiply vector by scalar.  
+static sf::Vector2f multiply(const sf::Vector2f& v, float scalar) {  
+   return sf::Vector2f(v.x * scalar, v.y * scalar);  
+}  
+
+// Helper: Add two vectors.  
+static sf::Vector2f add(const sf::Vector2f& a, const sf::Vector2f& b) {  
+   return sf::Vector2f(a.x + b.x, a.y + b.y);  
+}  
+
+// Helper: Convert a CGAL Point_2 to an sf::Vector2f.  
+static sf::Vector2f toSFMLVector(const Point_2& point) {  
+   return sf::Vector2f(static_cast<float>(CGAL::to_double(point.x())), static_cast<float>(CGAL::to_double(point.y()))); //static_cast<float>(   point.x(), point.y());
+}  
+
+static Point_2 toCGALPoint(const sf::Vector2f& vector) {
+    return Point_2(vector.x, vector.y);
+}
+
+// Move the ObjectPoint along the attached object.  
+// For a line, project newPos onto the line segment.  
+// For a circle, project newPos onto the circle's circumference.  
+void ObjectPoint::moveOnObject(const sf::Vector2f& newPos) {  
+   if (attachedType == ObjectType::Line && attachedLine) {  
+       // Get the endpoints of the line.  
+       sf::Vector2f A = toSFMLVector(attachedLine->getStartPoint());  
+       sf::Vector2f B = toSFMLVector(attachedLine->getEndPoint());  
+
+       // Compute the projection of newPos onto the line AB.  
+       sf::Vector2f AB = subtract(B, A);  
+       sf::Vector2f AP = subtract(newPos, A);  
+       float ab2 = dot(AB, AB);  
+       if (ab2 == 0.0f) {  
+           return; // Avoid division by zero if the line is degenerate.  
+       }  
+       // Compute the projection parameter.
+       float t = dot(AP, AB) / ab2;  
+       // If you want to restrict to the segment, clamp t  
+       if (t < 0.f) t = 0.f;  
+       if (t > 1.f) t = 1.f;  
+       // Compute the projection.
+       sf::Vector2f proj = add(A, multiply(AB, t));  
+       // Set the point's position to the projection.  
+       this->setPosition(toCGALPoint(proj));  
+   }  
+   else if (attachedType == ObjectType::Circle && attachedCircle) {  
+       // Get the circle center and radius.  
+       sf::Vector2f center = attachedCircle->getCenter();  
+       double radius = attachedCircle->getRadius();  
+       // Compute vector from center to newPos.  
+       sf::Vector2f centerToNew = subtract(newPos, center);  
+       float len = std::sqrt(dot(centerToNew, centerToNew));  
+       if (len == 0) {  
+           return; // Avoid division by zero.  
+       }  
+       // Normalize and scale to the circle's radius.  
+       sf::Vector2f proj = add(center, multiply(centerToNew, radius / len));  
+       this->setPosition(toCGALPoint(proj));  
+   }  
+   // For ObjectType::None do nothing.  
+}
+ObjectType ObjectPoint::getAttachedType() const {
+    return attachedType;
+}
+
+inline Point_2 ObjectPoint::sfToCGAL(const sf::Vector2f& vec) {
+    return Point_2(vec.x, vec.y);
+}
+
+#include "Point.h"
+#include "Line.h"
+#include "Constants.h"
+#include <algorithm>    // For std::remove
+#include <cmath>
+#include <CGAL/number_utils.h> // For CGAL::to_double
+#include <iostream>
+
+Point::Point(const Point_2& pos, const sf::Color& col, bool intersection )
+    : position(sf::Vector2f(static_cast<float>(CGAL::to_double(pos.x())), static_cast<float>(CGAL::to_double(pos.y())))),
+      color(col), isSelected(false), isIntersection(intersection), isHovered(false) // Initialize isHovered here
+{
+    shape.setRadius(Constants::POINT_SIZE);
+    shape.setOrigin(Constants::POINT_SIZE, Constants::POINT_SIZE);
+    shape.setFillColor(color);
+    shape.setPosition(position);
+}
+
+void Point::setPosition(const Point_2& pos) {
+    // Update our own stored position...
+    position = sf::Vector2f(CGAL::to_double(pos.x()), CGAL::to_double(pos.y()));
+    shape.setPosition(position);
+
+    // Notify all connected geometry that this point’s position has changed.
+    updateConnectedGeometry(position);
+}
+
+
+
+void Point::updatePosition() {
+    shape.setPosition(position);
+}
+
+bool Point::contains(const sf::Vector2f& point, float tolerance) const {
+    double dx = position.x - point.x;
+    double dy = position.y - point.y;
+    return (dx * dx + dy * dy) <= tolerance * tolerance;
+}
+
+void Point::setSelected(bool selected) {
+    isSelected = selected;
+    shape.setFillColor(isSelected ? sf::Color::Red : color);
+}
+
+void Point::addConnectedLine(Line* line) {
+    // Avoid duplicate insertion if necessary.
+    for (auto l : connectedLines) {
+        if (l == line) return;
+    }
+    connectedLines.push_back(line);
+}
+
+void Point::removeConnectedLine(Line* line) {
+    connectedLines.erase(std::remove(connectedLines.begin(), connectedLines.end(), line), connectedLines.end());
+}
+
+void Point::updateConnectedGeometry(const sf::Vector2f& newPos) {
+    for (auto* connectedLine : connectedLines) {
+        connectedLine->updatePosition(this, newPos);
+    }
+}
+
+void Point::translate(const sf::Vector2f& offset) {
+    // Update the stored position.
+    position += offset;
+    // Update the rendered shape's position.
+    shape.setPosition(position);
+    // Notify connected geometry that this point moved.
+    updateConnectedGeometry(position);
+}
+void Point::finalizeTranslation() {
+    // Update the underlying points by adding the offset.
+    // This requires that your Point class supports a method to translate its position.
+    // For example, assume Point has a translate(const sf::Vector2f&) method.
+    for (auto* connectedLine : connectedLines) {
+        Point* startPointPtr = connectedLine->getStartPointPtr();
+        Point* endPointPtr = connectedLine->getEndPointPtr();
+        if (startPointPtr)
+            startPointPtr->translate(translationOffset);
+        if (endPointPtr)
+            endPointPtr->translate(translationOffset);
+    }
+
+    // Reset the translation offset.
+    translationOffset = sf::Vector2f(0.f, 0.f);
+    // Finally, re-read geometry from the free points.
+    updateGeometry();
+}
+void Point::updateGeometry() {
+    // Simply update the rendered shape's position.
+    shape.setPosition(position);
+    // Optionally, update connected geometry if needed:
+    // updateConnectedGeometry(position);
+}
+
+
+void Point::draw(sf::RenderWindow& window) const {
+        double sx = CGAL::to_double(position.x);
+        double sy = CGAL::to_double(position.y);
+        sf::Vector2f center(static_cast<float>(sx), static_cast<float>(sy));
+
+        // Get current view so we can compute a fixed screen scale for the point.
+        const sf::View& view = window.getView();
+        // Compute how many pixels per world unit (note: you can use any side; here we use width):
+        float scale = static_cast<float>(window.getSize().x) / view.getSize().x;
+        // For a fixed size in screen pixels, divide constant by scale:
+        float radius = Constants::POINT_SIZE / scale;
+        sf::CircleShape circle(radius);
+        circle.setFillColor(color);
+        // Center the circle at the point's position:
+        circle.setOrigin(radius, radius);
+        circle.setPosition(position);
+        window.draw(circle);
+
+        if (isSelected) {
+            // Outer glow circle (larger, semi-transparent)
+            sf::CircleShape glow(shape.getRadius() * 1.5f);
+            glow.setFillColor(sf::Color(255, 165, 0, 128)); // Semi-transparent orange
+            glow.setPosition(position);
+            glow.setOrigin(glow.getRadius(), glow.getRadius());
+            window.draw(glow);
+            circle.setOutlineThickness(2.f);
+
+            // Inner highlight circle
+            sf::CircleShape highlight(shape.getRadius() * 1.2f);
+            highlight.setFillColor(sf::Color(255, 215, 0, 180)); // Semi-transparent gold
+            highlight.setPosition(position);
+            highlight.setOrigin(highlight.getRadius(), highlight.getRadius());
+            window.draw(highlight);
+        }
+        else circle.setOutlineThickness(0.f);
+        circle.setOutlineColor(sf::Color::Black);
+        window.draw(circle);
+    }
+    // Get current view so we can compute a fixed screen scale for the point.
+
+void Point::setHovered(bool hovered) {
+    isHovered = hovered;
+    if (isHovered) {
+        shape.setOutlineThickness(Constants::HOVER_OUTLINE_THICKNESS);
+        shape.setOutlineColor(sf::Color(220, 50, 20));
+    }
+    else {
+        shape.setOutlineThickness(0);
+    }
+}
+#include "Transforms.h"
+#include "Constants.h"
+
+sf::Vector2f CoordinateTransform::pixelToWorld(const sf::RenderWindow& window, const sf::Vector2i& pixelPos) {
+    // Direct mapping with no rounding or snapping
+    return window.mapPixelToCoords(pixelPos);
+}
+
+sf::Vector2i CoordinateTransform::worldToPixel(const sf::RenderWindow& window, const sf::Vector2f& worldPos) {
+    return window.mapCoordsToPixel(worldPos);
+}
+
+
+float CoordinateTransform::calculateViewScale(const sf::RenderWindow& window) {
+    return window.getView().getSize().x / window.getDefaultView().getSize().x;
+}
+
+sf::Vector2f CoordinateTransform::roundCoordinates(sf::Vector2f pos) {
+    float x = std::round(pos.x / Constants::COORDINATE_PRECISION) * Constants::COORDINATE_PRECISION;
+    float y = std::round(pos.y / Constants::COORDINATE_PRECISION) * Constants::COORDINATE_PRECISION;
+    return sf::Vector2f(x, y);
+}

@@ -1,0 +1,324 @@
+#pragma once
+#include <SFML/Graphics.hpp>
+
+class Config {
+public:
+    static const sf::Vector2f BUTTON_SIZE;
+    static const float POINT_SIZE;
+    static const float GRID_SIZE;
+    static const float ZOOM_FACTOR;
+    static const float SELECTION_THRESHOLD;
+
+    struct Colors {
+        static const sf::Color POINT;
+        static const sf::Color DEPENDENT_POINT;
+        static const sf::Color LINE;
+        static const sf::Color GRID;
+        static const sf::Color PREVIEW;
+        static const sf::Color BUTTON_ACTIVE;
+        static const sf::Color BUTTON_INACTIVE;
+    };
+};
+#pragma once
+#include <SFML/Graphics.hpp>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <limits>
+#include<cmath>
+
+namespace Constants {
+    // Colors
+    const sf::Color INTERSECTION_POINT_COLOR = sf::Color::Red; // Orange color for intersection points
+    const sf::Color GRID_COLOR = sf::Color(200, 200, 200,150);
+    inline const sf::Color POINT_COLOR = sf::Color::Blue;
+    const sf::Color DEPENDENT_POINT_COLOR = sf::Color::Yellow;
+    const sf::Color LINE_COLOR = sf::Color::Black;
+    const sf::Color LINE_SEGMENT_COLOR = sf::Color::Black;
+    const sf::Color PREVIEW_COLOR = sf::Color(100, 100, 100, 128);
+    const sf::Color LINE_COLOR_HOVER = sf::Color(100, 100, 255);
+    const sf::Color LINE_SEGMENT_COLOR_HOVER = sf::Color(255, 100, 100);
+    const sf::Color SELECTION_COLOR = sf::Color(255, 255, 0, 128);
+
+    
+    constexpr float POINT_SIZE = 5.0f;
+	constexpr float GRID_SIZE = 50.0f;
+    static const float MIN_GRID_SPACING = GRID_SIZE / 2.0f;
+    static const float MAX_GRID_SPACING = GRID_SIZE * 2.0f;
+    inline constexpr float ZOOM_FACTOR = 1.1f;
+
+    // Sizes and Dimensions
+      // 100 pixels = 1 unit
+    const float LINE_THICKNESS = 2.0f;
+    const float HOVER_DISTANCE = 5.0f;
+    const sf::Vector2f BUTTON_SIZE(80.f, 30.f);
+    const float SELECTION_THICKNESS = 3.0f;
+
+
+    // Interaction Constants
+    const float HOVER_ALPHA = 150;
+    const float HOVER_SCALE = 1.5f;
+    constexpr float HOVER_OUTLINE_THICKNESS = 3.0f;
+
+    // View Control Constants
+    const float MIN_ZOOM = 0.1f;
+    const float MAX_ZOOM = 10.0f;
+    const float PAN_SPEED = 100.0f;
+    const float MIN_PAN_BOUND = -1000.0f;
+    const float MAX_PAN_BOUND = 1000.0f;
+
+    // GUI Constants
+    const float GUI_HEIGHT = 40.0f;
+    const sf::Color BUTTON_ACTIVE_COLOR(100, 100, 255);
+    const sf::Color BUTTON_INACTIVE_COLOR(180, 180, 180);
+    const sf::Color BUTTON_HOVER_COLOR(130, 130, 255);
+
+    // Line Drawing Constants
+    const float INFINITE_LINE_EXTENSION = 1e+5f;
+    const float LINE_SELECTION_THRESHOLD = 3.0f;
+    const float COORDINATE_PRECISION = 0.001f;  // For rounding coordinates
+    const float SNAP_THRESHOLD_BASE = 0.1f;      // Base snapping threshold
+    const float MIN_VISIBLE_SIZE = 0.5f;         // Minimum visible size in world units// Minimum grid spacing // Maximum grid spacing
+
+}
+#pragma once
+#include <SFML/Graphics.hpp>
+#include <string>
+
+class GeometricObject {
+protected:
+    bool selected = false;
+
+public:
+    virtual void draw(sf::RenderWindow& window) const = 0;
+    virtual bool isMouseOver(const sf::RenderWindow& window) const = 0;
+    virtual std::string getStatus() const = 0;
+    virtual ~GeometricObject() = default;
+
+    bool isSelected() const { return selected; }
+    void setSelected(bool value) { selected = value; }
+};
+#pragma once
+#include <SFML/Graphics.hpp>
+#include "Constants.h"
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+
+typedef CGAL::Exact_predicates_exact_constructions_kernel Kernel_1;
+typedef Kernel_1::Point_2 Point_2;
+typedef Kernel_1::Line_2 Line_2;
+
+class Grid {
+public:
+    static void draw(sf::RenderWindow& window, const sf::View& view);
+
+private:
+    static void drawGridLines(sf::RenderWindow& window, const sf::View& view, float spacing);
+    static void calculateGridSpacing(const sf::View& view, float& spacing, const sf::RenderWindow& window);
+    static void drawAxisLabels(sf::RenderWindow& window, const sf::View& view, float spacing);
+    static void drawAxes(sf::RenderWindow& window, const sf::View& view);
+    Point_2 xAxisStart;
+    Point_2 xAxisEnd;
+    Point_2 yAxisStart;
+    Point_2 yAxisEnd;
+    Line_2 xAxis;
+    Line_2 yAxis;
+};
+#ifndef GUI_H
+#define GUI_H
+
+#include <SFML/Graphics.hpp>
+#include <vector>
+#include <string>
+
+class Button {
+public:
+    Button(sf::Vector2f position, sf::Vector2f size, std::string label, sf::Color color);
+    static void loadFont() {
+        if (!fontLoaded) {
+            if (!font.loadFromFile("arial.ttf")) {
+                throw std::runtime_error("Font loading failed");
+            }
+            fontLoaded = true;
+        }
+    }
+    void draw(sf::RenderWindow& window) const;
+    bool isMouseOver(const sf::RenderWindow& window) const;
+    void setLabel(const std::string& label);
+    std::string getLabel() const;
+    void setColor(sf::Color color);
+    sf::Color getColor() const;
+    bool isActive() const;
+    void setActive(bool active);
+
+private:
+    void centerText();  // New helper function
+    static sf::Font font;
+    static bool fontLoaded;
+    sf::RectangleShape shape;
+    sf::Text text;
+    bool active;
+};
+
+class GUI {
+public:
+    GUI();
+    void draw(sf::RenderWindow& window) const;
+    bool isButtonActive(const std::string& label) const;
+    void handleEvent(const sf::RenderWindow& window, const sf::Event& event );
+    void setView(const sf::View& view) { guiView = view; }
+    bool isGridActive() const;
+    bool isPointActive() const;
+    bool isLineActive() const;
+    bool isIntersectionActive() const;
+    bool isLineSegmentActive() const;
+
+private:
+    std::vector<Button> buttons;
+    sf::View guiView;
+    enum class ButtonType { Point, Line, LineSegment, Intersection, Grid };
+    ButtonType activeButton;
+};
+
+#endif // GUI_H#pragma once
+#ifndef INTERSECTION_H
+#define INTERSECTION_H
+
+#include "Types.h"
+#include <SFML/Graphics.hpp>
+#include <CGAL/Simple_cartesian.h>
+
+bool findIntersection(const Line_2& line1, const Line_2& line2, Point_2& intersection);
+
+#endif
+
+
+#pragma once
+#include "GeometricObject.h"
+#include "Types.h"
+#include "Constants.h"
+#include <SFML/Graphics.hpp>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+
+
+class Line {
+public:
+    const sf::Vector2f& getStartPoint() const { return start; }
+    const sf::Vector2f& getEndPoint() const { return end; }
+    Line(const sf::Vector2f& start, const sf::Vector2f& end, bool infinite);
+    bool isInfinite() const; // Declaration only
+    //bool containsPoint(const sf::Vector2f& pos) const;
+    void moveEndpoint(const sf::Vector2f& pos);
+    void translate(const sf::Vector2f& offset);
+    void setSelected(bool selected) { isSelected = selected; }
+    bool getSelected() const { return isSelected; }
+    static bool calculateIntersection(const Line* l1, const Line* l2, sf::Vector2f& intersection);
+    //void draw(sf::RenderWindow& window) const;  // Only declare it once here
+    void draw(sf::RenderWindow& window, const sf::View& view);
+    void setHovered(bool hover) { isHovered = hover; }
+    bool getHovered() const { return isHovered; }
+    //const Line_2& getLine() const;
+    void updateGeometry();
+    const Line_2& getLine() const;
+    //void setStartPoint(const sf::Vector2f& point) { start = point; }
+    //void setEndPoint(const sf::Vector2f& point) { end = point; }
+    /*bool containsEndpoint(const sf::Vector2f& point) const {
+        float threshold = Constants::POINT_SIZE;
+        return (std::hypot(point.x - start.x, point.y - start.y) <= threshold ||
+            std::hypot(point.x - end.x, point.y - end.y) <= threshold);
+    }*/
+    bool containsEndpoint(const sf::Vector2f& point, float threshold = Constants::POINT_SIZE) const;
+    bool containsPoint(const sf::Vector2f& point) const;
+    void setStartPoint(const sf::Vector2f& point) {
+        start = point;
+        updateCGALLine();
+    }
+    void setEndPoint(const sf::Vector2f& point) {
+        end = point;
+        updateCGALLine();
+    }
+private:
+    sf::Vector2f point1, point2;
+    sf::Vector2f direction;
+    bool infinite;
+    float dotProduct(sf::Vector2f v1, sf::Vector2f v2) const;
+    float distance(sf::Vector2f p1, sf::Vector2f p2) const;
+    sf::Vector2f normalize(sf::Vector2f vector) const;
+    bool isHovered = false;
+    bool isSelected = false;
+    sf::Vector2f start;
+    sf::Vector2f end;
+    sf::Vector2f startPoint;
+    sf::Vector2f endPoint;
+    sf::Color color;
+    // For drawing calculations
+    sf::Vector2f drawnStart;
+    sf::Vector2f drawnEnd;
+    void updateCGALLine() {
+        Point_2 cgalStart(start.x, start.y);
+        Point_2 cgalEnd(end.x, end.y);
+        cgalLine = Line_2(cgalStart, cgalEnd);
+    }
+
+    // CGAL representation, used for intersection calculations.
+    Line_2 cgalLine;
+};
+#ifndef POINT_H
+#define POINT_H
+
+#include <SFML/Graphics.hpp>
+#include "Types.h"
+
+class Point {
+private:
+    sf::Vector2f position;
+    sf::Color color;
+    sf::CircleShape shape;
+    bool isHovered;
+
+public:
+    explicit Point(const Point_2& cgalPoint, const sf::Color& col);
+    void setSelected(bool selected) { isSelected = selected; }
+    bool getSelected() const { return isSelected; }
+    void setPosition(const Point_2& cgalPoint);
+    void updatePosition();
+    bool contains(const sf::Vector2f& pos) const;
+    void draw(sf::RenderWindow& window) const;
+    void setHovered(bool hovered);
+    bool isIntersectionPoint() const { return isIntersection; }
+    void setIntersectionPoint(bool isInter) { isIntersection = isInter; }
+
+    const sf::Vector2f& getPosition() const { return position; }
+    const sf::Color& getColor() const { return color; }
+    bool isSelected = false;
+    bool isIntersection = false;
+};
+
+#endif
+#pragma once
+#include <SFML/Graphics.hpp>
+
+class CoordinateTransform {
+public:
+    static sf::Vector2f pixelToWorld(const sf::RenderWindow& window, const sf::Vector2i& pixelPos);
+    static sf::Vector2i worldToPixel(const sf::RenderWindow& window, const sf::Vector2f& worldPos);
+    static float calculateViewScale(const sf::RenderWindow& window);
+private:
+    static sf::Vector2f roundCoordinates(sf::Vector2f pos);
+};
+#ifndef TYPES_H
+#define TYPES_H
+
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+#include <boost/variant/get.hpp>
+#include <SFML/Graphics.hpp>
+#include <CGAL/squared_distance_2.h> 
+
+typedef CGAL::Exact_predicates_exact_constructions_kernel K;
+typedef K::Point_2 Point_2;
+typedef K::Line_2 Line_2;
+typedef K::Segment_2 Segment_2;
+typedef K::Intersect_2 Intersect_2;
+typedef K::Vector_2 Vector_2;
+typedef CGAL::cpp11::result_of<K::Intersect_2(Line_2, Line_2)>::type Intersection_result;
+typedef CGAL::Simple_cartesian<double> Kernel;
+typedef Kernel::FT FT;
+// Add squared distance computation
+#endif

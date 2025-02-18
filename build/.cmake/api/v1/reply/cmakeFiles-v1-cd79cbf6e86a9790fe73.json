@@ -1,0 +1,437 @@
+{
+	"inputs" : 
+	[
+		{
+			"path" : "CMakeLists.txt"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/CMakeFiles/3.29.6/CMakeSystem.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeDependentOption.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/Windows-Initialize.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/CMakeFiles/3.29.6/CMakeCCompiler.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/CMakeFiles/3.29.6/CMakeCXXCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeSystemSpecificInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeGenericSystem.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeInitializeConfigs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/Windows.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/WindowsPaths.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeCInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Compiler/MSVC-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Compiler/MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/Windows-MSVC-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/Windows-MSVC.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/CMakeFiles/3.29.6/CMakeRCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeRCInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeCXXInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Compiler/MSVC-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Compiler/MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/Windows-MSVC-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Platform/Windows-MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGALConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGALConfigBuildVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGALConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGALConfig-installation-dirs.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_CreateSingleSourceCGALProgram.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_add_test.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeParseArguments.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeParseArguments.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_Macros.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_VersionUtils.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_Common.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_Macros.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_SetupVLD.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_TweakFindBoost.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_enable_end_of_configuration_hook.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGALConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGALConfigBuildVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_target_use_TBB.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_SCM.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_SetupCGALDependencies.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_SetupGMP.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/FindGMP.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_GeneratorSpecificSettings.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/FindMPFR.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_GeneratorSpecificSettings.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/FindGMPXX.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/FindGMP.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_GeneratorSpecificSettings.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_SetupBoost.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_TweakFindBoost.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost/vcpkg-cmake-wrapper.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindBoost.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost/vcpkg-cmake-wrapper.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost/BoostConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost/BoostConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost_headers/boost_headers-config-version.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost_headers/boost_headers-config.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/boost_headers/boost_headers-targets.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/cgal/CGAL_setup_target_dependencies.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindThreads.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CheckLibraryExists.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CheckIncludeFile.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CheckCSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/Internal/CheckSourceCompiles.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageHandleStandardArgs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/FindPackageMessage.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/sfml/SFMLConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/sfml/SFMLConfig.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/msys64/mingw64/share/cmake/Modules/CMakeFindDependencyMacro.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/sfml/SFMLSharedTargets.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/sfml/SFMLSharedTargets-debug.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/sfml/SFMLSharedTargets-release.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/dev/vcpkg/installed/x64-windows/share/sfml/SFMLConfigDependencies.cmake"
+		}
+	],
+	"kind" : "cmakeFiles",
+	"paths" : 
+	{
+		"build" : "C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build",
+		"source" : "C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2"
+	},
+	"version" : 
+	{
+		"major" : 1,
+		"minor" : 0
+	}
+}

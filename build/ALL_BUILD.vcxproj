@@ -1,0 +1,184 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ResolveNugetPackages>false</ResolveNugetPackages>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{7B2734DE-F92F-3369-ADCB-C3B3A8977367}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.22621.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>ALL_BUILD</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <Midl>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\msys64\mingw64\bin\cmake.exe -SC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2 -BC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build --check-stamp-file C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCXXCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeRCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeSystem.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\vcpkg-cmake-wrapper.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config-version.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-targets.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig-installation-dirs.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigBuildVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Common.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_CreateSingleSourceCGALProgram.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_GeneratorSpecificSettings.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Macros.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SCM.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupCGALDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupVLD.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_TweakFindBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_VersionUtils.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_add_test.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_enable_end_of_configuration_hook.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_setup_target_dependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_target_use_TBB.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMPXX.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindMPFR.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-debug.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-release.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets.cmake;C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCXXInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCommonLanguageInclude.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeDependentOption.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeFindDependencyMacro.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeGenericSystem.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeInitializeConfigs.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeLanguageInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeParseArguments.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeRCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInitialize.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckCSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckIncludeFile.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckLibraryExists.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\FindBoost.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageHandleStandardArgs.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageMessage.cmake;C:\msys64\mingw64\share\cmake\Modules\FindThreads.cmake;C:\msys64\mingw64\share\cmake\Modules\Internal\CheckSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-Initialize.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\msys64\mingw64\bin\cmake.exe -SC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2 -BC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build --check-stamp-file C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCXXCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeRCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeSystem.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\vcpkg-cmake-wrapper.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config-version.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-targets.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig-installation-dirs.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigBuildVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Common.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_CreateSingleSourceCGALProgram.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_GeneratorSpecificSettings.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Macros.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SCM.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupCGALDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupVLD.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_TweakFindBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_VersionUtils.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_add_test.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_enable_end_of_configuration_hook.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_setup_target_dependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_target_use_TBB.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMPXX.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindMPFR.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-debug.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-release.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets.cmake;C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCXXInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCommonLanguageInclude.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeDependentOption.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeFindDependencyMacro.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeGenericSystem.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeInitializeConfigs.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeLanguageInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeParseArguments.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeRCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInitialize.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckCSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckIncludeFile.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckLibraryExists.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\FindBoost.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageHandleStandardArgs.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageMessage.cmake;C:\msys64\mingw64\share\cmake\Modules\FindThreads.cmake;C:\msys64\mingw64\share\cmake\Modules\Internal\CheckSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-Initialize.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\msys64\mingw64\bin\cmake.exe -SC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2 -BC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build --check-stamp-file C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCXXCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeRCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeSystem.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\vcpkg-cmake-wrapper.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config-version.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-targets.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig-installation-dirs.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigBuildVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Common.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_CreateSingleSourceCGALProgram.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_GeneratorSpecificSettings.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Macros.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SCM.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupCGALDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupVLD.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_TweakFindBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_VersionUtils.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_add_test.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_enable_end_of_configuration_hook.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_setup_target_dependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_target_use_TBB.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMPXX.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindMPFR.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-debug.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-release.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets.cmake;C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCXXInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCommonLanguageInclude.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeDependentOption.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeFindDependencyMacro.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeGenericSystem.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeInitializeConfigs.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeLanguageInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeParseArguments.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeRCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInitialize.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckCSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckIncludeFile.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckLibraryExists.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\FindBoost.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageHandleStandardArgs.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageMessage.cmake;C:\msys64\mingw64\share\cmake\Modules\FindThreads.cmake;C:\msys64\mingw64\share\cmake\Modules\Internal\CheckSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-Initialize.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\msys64\mingw64\bin\cmake.exe -SC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2 -BC:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build --check-stamp-file C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeCXXCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeRCCompiler.cmake;C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\3.29.6\CMakeSystem.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\BoostConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost\vcpkg-cmake-wrapper.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config-version.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-config.cmake;C:\dev\vcpkg\installed\x64-windows\share\boost_headers\boost_headers-targets.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig-installation-dirs.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigBuildVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGALConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Common.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_CreateSingleSourceCGALProgram.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_GeneratorSpecificSettings.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_Macros.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SCM.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupCGALDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_SetupVLD.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_TweakFindBoost.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_VersionUtils.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_add_test.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_enable_end_of_configuration_hook.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_setup_target_dependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\CGAL_target_use_TBB.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMP.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindGMPXX.cmake;C:\dev\vcpkg\installed\x64-windows\share\cgal\FindMPFR.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfig.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigDependencies.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLConfigVersion.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-debug.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets-release.cmake;C:\dev\vcpkg\installed\x64-windows\share\sfml\SFMLSharedTargets.cmake;C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCXXInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeCommonLanguageInclude.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeDependentOption.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeFindDependencyMacro.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeGenericSystem.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeInitializeConfigs.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeLanguageInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeParseArguments.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeRCInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInformation.cmake;C:\msys64\mingw64\share\cmake\Modules\CMakeSystemSpecificInitialize.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckCSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckIncludeFile.cmake;C:\msys64\mingw64\share\cmake\Modules\CheckLibraryExists.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Compiler\MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\FindBoost.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageHandleStandardArgs.cmake;C:\msys64\mingw64\share\cmake\Modules\FindPackageMessage.cmake;C:\msys64\mingw64\share\cmake\Modules\FindThreads.cmake;C:\msys64\mingw64\share\cmake\Modules\Internal\CheckSourceCompiles.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-Initialize.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-C.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC-CXX.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows-MSVC.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\Windows.cmake;C:\msys64\mingw64\share\cmake\Modules\Platform\WindowsPaths.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\ZERO_CHECK.vcxproj">
+      <Project>{6093F117-AB9B-3593-A007-5F2F314F1B05}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\build\GeometryTool2.vcxproj">
+      <Project>{A3028D38-385B-389F-B76C-150313EFC85D}</Project>
+      <Name>GeometryTool2</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

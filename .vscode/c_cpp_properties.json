@@ -1,0 +1,29 @@
+{
+    "configurations": [
+        {
+            "name": "x64",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "C:/dev/vcpkg/installed/x64-windows/include",
+                "C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/",
+                "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808/include",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.19041.0/ucrt",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.19041.0/shared",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.19041.0/um",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.19041.0/winrt",
+                "C:/Program Files (x86)/Windows Kits/10/Include/10.0.19041.0/cppwinrt"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "windowsSdkVersion": "10.0.19041.0",
+            "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.29.30133/bin/Hostx64/x64/cl.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-x64"
+        }
+    ],
+    "version": 4
+}

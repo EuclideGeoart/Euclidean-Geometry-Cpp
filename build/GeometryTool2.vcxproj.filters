@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Circle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Config.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GeometricObject.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GeometryEditor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Grid.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GUI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\HandleEvents.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Intersection.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Line.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\ObjectPoint.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Point.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Transforms.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Circle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Command.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\CommandManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Constants.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GenericDeleteCommand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GeometricObject.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GeometryEditor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GeometryFactory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Grid.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\GUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\HandleEvents.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Header.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Intersection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Line.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\ObjectPoint.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\ObjectType.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Point.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\ProjectionUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Transforms.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\Types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Mario_Geometry2\Desktop\Coding\Geometry_Tool_2\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{DAF6918C-46AC-3AA9-B313-F2219EE2F3FC}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{400F69C3-A3BC-3436-8E10-1F4A7964503B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
