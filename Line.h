@@ -100,9 +100,9 @@ public:
   bool isSelected() const override { return m_selected; }
   bool isParallelLine() const { return m_isParallelLine; }
   bool isPerpendicularLine() const { return m_isPerpendicularLine; }
-  void setAsParallelLine(std::shared_ptr<Line> referenceLine,
+  void setAsParallelLine(std::shared_ptr<GeometricObject> refObj, int edgeIndex,
                          const Vector_2 &referenceDirection);
-  void setAsPerpendicularLine(std::shared_ptr<Line> referenceLine,
+  void setAsPerpendicularLine(std::shared_ptr<GeometricObject> refObj, int edgeIndex,
                               const Vector_2 &referenceDirection);
   void maintainConstraints();
   void forceConstraintUpdate();
@@ -381,7 +381,8 @@ private:
   // Constraint properties
   bool m_isParallelLine = false;
   bool m_isPerpendicularLine = false;
-  std::weak_ptr<Line> m_referenceLine; // The line this line is constrained to
+  std::weak_ptr<GeometricObject> m_constraintRefObject; // Check generic object for constraint
+  int m_constraintRefEdgeIndex = -1; // -1 = object itself (if line), >=0 = specific edge index
   //--- preview Points ---
   std::shared_ptr<Point> m_tempPreviewP1;
   std::shared_ptr<Point> m_tempPreviewP2;

@@ -1039,96 +1039,115 @@ void handleParallelLineCreation(GeometryEditor &editor,
   try {
     if (!editor.m_isPlacingParallel) {  // First click: Select reference
       editor.resetParallelLineToolState();
+      
+      // Look for ANY object that might support edge alignment
+      GeometricObject *refObj = editor.lookForObjectAt(worldPos_sfml, tolerance); // Empty list = all types
 
-      GeometricObject *refObj = editor.lookForObjectAt(worldPos_sfml, tolerance,
-                                                       {ObjectType::Line, ObjectType::LineSegment});
+      if (refObj) {
+        // Prepare to store reference
+        std::shared_ptr<GeometricObject> refObjSP;
+        int edgeIndex = -1;
+        Vector_2 refDirection;
+        bool validReferenceFound = false;
 
-      if (refObj &&
-          (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment)) {
-        // Get the shared_ptr instead of using raw pointer
-        Line *rawLinePtr = static_cast<Line *>(refObj);
-        auto lineSharedPtr = editor.getLineSharedPtr(rawLinePtr);
+        // Case 1: Lines (keep existing behavior/optimization)
+        if (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment) {
+             Line *rawLinePtr = static_cast<Line *>(refObj);
+             refObjSP = editor.getLineSharedPtr(rawLinePtr);
+             if (refObjSP) {
+                 if (auto linePtr = std::dynamic_pointer_cast<Line>(refObjSP)) {
+                     if (linePtr->isValid()) {
+                         Point_2 p1 = linePtr->getStartPoint();
+                         Point_2 p2 = linePtr->getEndPoint();
+                         if (p1 != p2) {
+                             refDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
+                             validReferenceFound = true;
+                         }
+                     }
+                 }
+             }
+        } 
+        // Case 2: Complex Shapes (Iterate edges)
+        else {
+             std::vector<Segment_2> edges = refObj->getEdges();
+             double minDistance = std::numeric_limits<double>::max();
+             int bestEdgeIndex = -1;
+             
+             for (size_t i = 0; i < edges.size(); ++i) {
+                 double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(edges[i], cgalWorldPos)));
+                 if (dist < minDistance) {
+                     minDistance = dist;
+                     bestEdgeIndex = static_cast<int>(i);
+                 }
+             }
 
-        if (!lineSharedPtr) {
-          std::cerr << "Error: Could not find shared_ptr for reference line" << std::endl;
-          editor.resetParallelLineToolState();
-          return;
+             // Only accept if within tolerance (though lookForObjectAt already checked bounds, explicit edge check is safer)
+             // Using a slightly loose tolerance for "closest edge" selection within the object
+             if (bestEdgeIndex != -1) {
+                 // Retrieve shared_ptr for the generic object. Iterate lists?
+                 // Since lookForObjectAt works on raw pointers, we need the shared_ptr.
+                 // We don't have a generic "getSharedPtr" helper... we must find it.
+                 // Or we can rely on the fact it's in a list.
+                 // TODO: Efficiently get shared_ptr.
+                 // For now, iterate all vectors. Safe given object count.
+                 
+                 // Try to resolve shared_ptr
+                 if (refObj->getType() == ObjectType::Rectangle) {
+                    for(auto& r : editor.rectangles) if(r.get() == refObj) refObjSP = r;
+                 } else if (refObj->getType() == ObjectType::Triangle) {
+                    for(auto& t : editor.triangles) if(t.get() == refObj) refObjSP = t;
+                 } else if (refObj->getType() == ObjectType::Polygon) {
+                    for(auto& p : editor.polygons) if(p.get() == refObj) refObjSP = p;
+                 } else if (refObj->getType() == ObjectType::RegularPolygon) {
+                    for(auto& rp : editor.regularPolygons) if(rp.get() == refObj) refObjSP = rp;
+                 }
+
+                 if (refObjSP) {
+                     refDirection = edges[bestEdgeIndex].to_vector();
+                     edgeIndex = bestEdgeIndex;
+                     validReferenceFound = true;
+                 }
+             }
         }
 
-        // Store as weak_ptr to avoid circular references
-        editor.m_parallelReferenceLine = lineSharedPtr;
-
-        // Now use the weak_ptr safely
-        if (auto refLine = editor.m_parallelReferenceLine.lock()) {
-          if (!refLine->isValid()) {
-            std::cerr << "Parallel: Selected reference line is invalid." << std::endl;
-            editor.resetParallelLineToolState();
-            return;
-          }
-
-          try {
-            Point_2 p1 = refLine->getStartPoint();
-            Point_2 p2 = refLine->getEndPoint();
-            if (!CGAL::is_finite(p1.x()) || !CGAL::is_finite(p1.y()) || !CGAL::is_finite(p2.x()) ||
-                !CGAL::is_finite(p2.y())) {
-              std::cerr << "Parallel: Reference line endpoints are not finite." << std::endl;
-              editor.resetParallelLineToolState();
-              return;
-            }
-            if (p1 == p2) {
-              std::cerr << "Parallel: Reference line endpoints are coincident." << std::endl;
-              editor.resetParallelLineToolState();
-              return;
-            }
-            editor.m_parallelReferenceDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
-            if (editor.m_parallelReferenceDirection.squared_length() <
-                Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
-              std::cerr << "Parallel: Reference line direction is too small." << std::endl;
-              editor.resetParallelLineToolState();
-              return;
-            }
-          } catch (const std::exception &e) {
-            std::cerr << "Parallel: Error getting ref line points/direction: " << e.what()
-                      << std::endl;
-            editor.resetParallelLineToolState();
-            return;
-          }
-
-          editor.m_isPlacingParallel = true;
-          editor.setGUIMessage("Parallel: Ref selected. Click to place line.");
-        } else {
-          std::cerr << "Parallel: Reference line no longer exists." << std::endl;
-          editor.resetParallelLineToolState();
-          return;
+        if (validReferenceFound) {
+             if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
+                 editor.setGUIMessage("Parallel: Edge too short.");
+                 editor.resetParallelLineToolState();
+                 return;
+             }
+             
+             editor.m_parallelReference.object = refObjSP;
+             editor.m_parallelReference.edgeIndex = edgeIndex;
+             editor.m_parallelReferenceDirection = refDirection;
+             
+             editor.m_isPlacingParallel = true;
+             editor.setGUIMessage("Parallel: Ref selected. Click to place line.");
+             return;
         }
-      } else {
-        // Check for axis lines
-        bool isHorizontalAxis = false;
-        bool isVerticalAxis = false;
+      } 
+      
+      // Fallback: Axis Check
+      bool isHorizontalAxis = false;
+      bool isVerticalAxis = false;
+      // ... Axis logic ... 
+      if (std::abs(worldPos_sfml.y) <= tolerance) isHorizontalAxis = true;
+      else if (std::abs(worldPos_sfml.x) <= tolerance) isVerticalAxis = true;
 
-        // Check if clicking near X-axis (horizontal line through origin)
-        if (std::abs(worldPos_sfml.y) <= tolerance) {
-          isHorizontalAxis = true;
-        }
-        // Check if clicking near Y-axis (vertical line through origin)
-        else if (std::abs(worldPos_sfml.x) <= tolerance) {
-          isVerticalAxis = true;
-        }
-
-        if (isHorizontalAxis) {
-          editor.m_parallelReferenceLine.reset();
+      if (isHorizontalAxis) {
+          editor.m_parallelReference.reset();
           editor.m_parallelReferenceDirection = Vector_2(1, 0);
           editor.m_isPlacingParallel = true;
           editor.setGUIMessage("Parallel: X-Axis selected. Click to place line.");
-        } else if (isVerticalAxis) {
-          editor.m_parallelReferenceLine.reset();
+      } else if (isVerticalAxis) {
+          editor.m_parallelReference.reset();
           editor.m_parallelReferenceDirection = Vector_2(0, 1);
           editor.m_isPlacingParallel = true;
           editor.setGUIMessage("Parallel: Y-Axis selected. Click to place line.");
-        } else {
-          editor.setGUIMessage("Parallel: Click on a line or axis to select reference.");
-        }
+      } else {
+          editor.setGUIMessage("Parallel: Click on a line, shape edge, or axis to select reference.");
       }
+
     } else {  // Second click: Place the parallel line
       if (editor.m_parallelReferenceDirection == Vector_2(0, 0)) {
         std::cerr << "CRITICAL_ERROR (Parallel): No reference direction set "
@@ -1138,21 +1157,83 @@ void handleParallelLineCreation(GeometryEditor &editor,
         return;
       }
 
-      // Find if clicking on an existing point or line for snapping
+      // Find if clicking on an existing anchor point (vertex/free/object point)
       Point_2 anchorPos_cgal = cgalWorldPos;
       std::shared_ptr<Point> clickedExistingPt = nullptr;
 
-      // Check for existing points
-      GeometricObject *clickedPtObj = editor.lookForObjectAt(
-          worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint});
-      if (clickedPtObj) {
-        if (clickedPtObj->getType() == ObjectType::Point) {
-          Point *rawPt = static_cast<Point *>(clickedPtObj);
-          for (auto &pt_sp : editor.points) {
-            if (pt_sp.get() == rawPt) {
-              clickedExistingPt = pt_sp;
-              anchorPos_cgal = pt_sp->getCGALPosition();
+      // Unified anchor search (same as Line tool)
+      std::shared_ptr<Point> anchor =
+          PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
+      if (anchor) {
+        clickedExistingPt = anchor;
+        anchorPos_cgal = anchor->getCGALPosition();
+
+        // If this is a newly created vertex ObjectPoint, register it in the editor
+        bool exists = false;
+        for (const auto &p : editor.points) {
+          if (p == clickedExistingPt) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          for (const auto &p : editor.ObjectPoints) {
+            if (p == clickedExistingPt) {
+              exists = true;
               break;
+            }
+          }
+        }
+        if (!exists) {
+          if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedExistingPt)) {
+            editor.ObjectPoints.push_back(objPt);
+          }
+        }
+      }
+
+      // Check for shape edges or circle circumference (snap to edge)
+      if (!clickedExistingPt) {
+        auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance * 2.0f);
+        if (edgeHit.has_value()) {
+          const auto &hit = edgeHit.value();
+
+          if (Circle *circle = dynamic_cast<Circle *>(hit.host)) {
+            for (auto &circlePtr : editor.circles) {
+              if (circlePtr.get() == circle) {
+                auto objPoint = ObjectPoint::create(circlePtr,
+                                                    hit.relativePosition * 2.0 * M_PI,
+                                                    Constants::OBJECT_POINT_DEFAULT_COLOR);
+                if (objPoint && objPoint->isValid()) {
+                  editor.ObjectPoints.push_back(objPoint);
+                  clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
+                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
+                }
+                break;
+              }
+            }
+          } else {
+            std::shared_ptr<GeometricObject> hostPtr = nullptr;
+            auto findHost = [&](auto &container) {
+              for (auto &shape : container) {
+                if (shape.get() == hit.host) {
+                  hostPtr = std::static_pointer_cast<GeometricObject>(shape);
+                  return true;
+                }
+              }
+              return false;
+            };
+
+            if (findHost(editor.rectangles) || findHost(editor.polygons) ||
+                findHost(editor.regularPolygons) || findHost(editor.triangles)) {
+              if (hostPtr) {
+                auto objPoint =
+                    ObjectPoint::createOnShapeEdge(hostPtr, hit.edgeIndex, hit.relativePosition);
+                if (objPoint && objPoint->isValid()) {
+                  editor.ObjectPoints.push_back(objPoint);
+                  clickedExistingPt = objPoint;
+                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
+                }
+              }
             }
           }
         }
@@ -1161,8 +1242,8 @@ void handleParallelLineCreation(GeometryEditor &editor,
       // Check for line intersection to snap to
       if (!clickedExistingPt) {
         for (auto &linePtr : editor.lines) {
-          if (auto refLine = editor.m_parallelReferenceLine.lock()) {
-            if (linePtr && linePtr.get() != refLine.get() &&
+          if (auto refObj = editor.m_parallelReference.lock()) {
+            if (linePtr && linePtr.get() != refObj.get() &&
                 linePtr->contains(worldPos_sfml, tolerance)) {
               // Project the click point onto this line for better snapping
               try {
@@ -1253,14 +1334,12 @@ void handleParallelLineCreation(GeometryEditor &editor,
           editor.lines.push_back(newLine);
 
           // Use weak_ptr safely for setting parallel constraint
-          if (auto refLine = editor.m_parallelReferenceLine.lock()) {
-            newLine->setAsParallelLine(refLine,
-                                       editor.m_parallelReferenceDirection);  // Pass refLine
-            // (shared_ptr), not
-            // refLine.get()
+          if (auto refObj = editor.m_parallelReference.lock()) {
+             newLine->setAsParallelLine(refObj, editor.m_parallelReference.edgeIndex,
+                                        editor.m_parallelReferenceDirection);
           } else {
             // Axis-based parallel line
-            newLine->setAsParallelLine(nullptr, editor.m_parallelReferenceDirection);
+            newLine->setAsParallelLine(nullptr, -1, editor.m_parallelReferenceDirection);
             std::cout << "Parallel line created relative to axis" << std::endl;
           }
 
@@ -1304,95 +1383,103 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
     if (!editor.m_isPlacingPerpendicular) {  // First click: Select reference
       editor.resetPerpendicularLineToolState();
 
-      GeometricObject *refObj = editor.lookForObjectAt(worldPos_sfml, tolerance,
-                                                       {ObjectType::Line, ObjectType::LineSegment});
+      // Look for ANY object that might support edge alignment
+      GeometricObject *refObj = editor.lookForObjectAt(worldPos_sfml, tolerance); // Empty list = all types
 
-      if (refObj &&
-          (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment)) {
-        // Get the shared_ptr instead of using raw pointer
-        Line *rawLinePtr = static_cast<Line *>(refObj);
-        auto lineSharedPtr = editor.getLineSharedPtr(rawLinePtr);
+      if (refObj) {
+        // Prepare to store reference
+        std::shared_ptr<GeometricObject> refObjSP;
+        int edgeIndex = -1;
+        Vector_2 refDirection;
+        bool validReferenceFound = false;
 
-        if (!lineSharedPtr) {
-          std::cerr << "Error: Could not find shared_ptr for perpendicular "
-                       "reference line"
-                    << std::endl;
-          editor.resetPerpendicularLineToolState();
-          return;
+        // Case 1: Lines (keep existing behavior/optimization)
+        if (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment) {
+             Line *rawLinePtr = static_cast<Line *>(refObj);
+             refObjSP = editor.getLineSharedPtr(rawLinePtr);
+             if (refObjSP) {
+                 if (auto linePtr = std::dynamic_pointer_cast<Line>(refObjSP)) {
+                     if (linePtr->isValid()) {
+                         Point_2 p1 = linePtr->getStartPoint();
+                         Point_2 p2 = linePtr->getEndPoint();
+                         if (p1 != p2) {
+                             refDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
+                             validReferenceFound = true;
+                         }
+                     }
+                 }
+             }
+        } 
+        // Case 2: Complex Shapes (Iterate edges)
+        else {
+             std::vector<Segment_2> edges = refObj->getEdges();
+             double minDistance = std::numeric_limits<double>::max();
+             int bestEdgeIndex = -1;
+             
+             for (size_t i = 0; i < edges.size(); ++i) {
+                 double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(edges[i], cgalWorldPos)));
+                 if (dist < minDistance) {
+                     minDistance = dist;
+                     bestEdgeIndex = static_cast<int>(i);
+                 }
+             }
+
+             if (bestEdgeIndex != -1) {
+                 // Try to resolve shared_ptr (Generic iteration would be better but explicit is safe)
+                 if (refObj->getType() == ObjectType::Rectangle) {
+                    for(auto& r : editor.rectangles) if(r.get() == refObj) refObjSP = r;
+                 } else if (refObj->getType() == ObjectType::Triangle) {
+                    for(auto& t : editor.triangles) if(t.get() == refObj) refObjSP = t;
+                 } else if (refObj->getType() == ObjectType::Polygon) {
+                    for(auto& p : editor.polygons) if(p.get() == refObj) refObjSP = p;
+                 } else if (refObj->getType() == ObjectType::RegularPolygon) {
+                    for(auto& rp : editor.regularPolygons) if(rp.get() == refObj) refObjSP = rp;
+                 }
+
+                 if (refObjSP) {
+                     refDirection = edges[bestEdgeIndex].to_vector();
+                     edgeIndex = bestEdgeIndex;
+                     validReferenceFound = true;
+                 }
+             }
         }
 
-        // Store as weak_ptr to avoid circular references
-        editor.m_perpendicularReferenceLine = lineSharedPtr;
-
-        // Now use the weak_ptr safely
-        if (auto refLine = editor.m_perpendicularReferenceLine.lock()) {
-          if (!refLine->isValid()) {
-            std::cerr << "Perp: Selected reference line is invalid." << std::endl;
-            editor.resetPerpendicularLineToolState();
-            return;
-          }
-
-          try {
-            Point_2 p1 = refLine->getStartPoint();
-            Point_2 p2 = refLine->getEndPoint();
-            if (!CGAL::is_finite(p1.x()) || !CGAL::is_finite(p1.y()) || !CGAL::is_finite(p2.x()) ||
-                !CGAL::is_finite(p2.y())) {
-              std::cerr << "Perp: Reference line endpoints are not finite." << std::endl;
-              editor.resetPerpendicularLineToolState();
-              return;
-            }
-            if (p1 == p2) {
-              std::cerr << "Perp: Reference line endpoints are coincident." << std::endl;
-              editor.resetPerpendicularLineToolState();
-              return;
-            }
-            editor.m_perpendicularReferenceDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
-            if (editor.m_perpendicularReferenceDirection.squared_length() <
-                Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
-              std::cerr << "Perp: Reference line direction is too small." << std::endl;
-              editor.resetPerpendicularLineToolState();
-              return;
-            }
-          } catch (const std::exception &e) {
-            std::cerr << "Perp: Error getting ref line points/direction: " << e.what() << std::endl;
-            editor.resetPerpendicularLineToolState();
-            return;
-          }
-
-          editor.m_isPlacingPerpendicular = true;
-          editor.setGUIMessage("Perp: Reference selected. Click to place line.");
-        } else {
-          std::cerr << "Perp: Reference line no longer exists." << std::endl;
-          editor.resetPerpendicularLineToolState();
-          return;
+        if (validReferenceFound) {
+             if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
+                 editor.setGUIMessage("Perp: Edge too short.");
+                 editor.resetPerpendicularLineToolState();
+                 return;
+             }
+             
+             editor.m_perpendicularReference.object = refObjSP;
+             editor.m_perpendicularReference.edgeIndex = edgeIndex;
+             editor.m_perpendicularReferenceDirection = refDirection;
+             
+             editor.m_isPlacingPerpendicular = true;
+             editor.setGUIMessage("Perp: Ref selected. Click to place line.");
+             return;
         }
-      } else {
-        // Check for axis lines
-        bool isHorizontalAxis = false;
-        bool isVerticalAxis = false;
+      }
 
-        // Check if clicking near X-axis (horizontal line through origin)
-        if (std::abs(worldPos_sfml.y) <= tolerance) {
-          isHorizontalAxis = true;
-        }
-        // Check if clicking near Y-axis (vertical line through origin)
-        else if (std::abs(worldPos_sfml.x) <= tolerance) {
-          isVerticalAxis = true;
-        }
+      // Fallback: Axis Check
+      bool isHorizontalAxis = false;
+      bool isVerticalAxis = false;
+      // ... Axis logic ... 
+      if (std::abs(worldPos_sfml.y) <= tolerance) isHorizontalAxis = true;
+      else if (std::abs(worldPos_sfml.x) <= tolerance) isVerticalAxis = true;
 
-        if (isHorizontalAxis) {
-          editor.m_perpendicularReferenceLine.reset();  // ✅ Use .reset() instead of = nullptr
-          editor.m_perpendicularReferenceDirection = Vector_2(1, 0);  // X-axis direction
+      if (isHorizontalAxis) {
+          editor.m_perpendicularReference.reset();
+          editor.m_perpendicularReferenceDirection = Vector_2(1, 0);
           editor.m_isPlacingPerpendicular = true;
           editor.setGUIMessage("Perp: X-Axis selected. Click to place line.");
-        } else if (isVerticalAxis) {
-          editor.m_perpendicularReferenceLine.reset();  // ✅ Use .reset() instead of = nullptr
-          editor.m_perpendicularReferenceDirection = Vector_2(0, 1);  // Y-axis direction
+      } else if (isVerticalAxis) {
+          editor.m_perpendicularReference.reset();
+          editor.m_perpendicularReferenceDirection = Vector_2(0, 1);
           editor.m_isPlacingPerpendicular = true;
           editor.setGUIMessage("Perp: Y-Axis selected. Click to place line.");
-        } else {
-          editor.setGUIMessage("Perp: Click on a line or axis to select reference.");
-        }
+      } else {
+          editor.setGUIMessage("Select a line or edge to invoke Perpendicular Tool.");
       }
     } else {  // Second click: Place the perpendicular line
       if (editor.m_perpendicularReferenceDirection == Vector_2(0, 0)) {
@@ -1403,21 +1490,83 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
         return;
       }
 
-      // Find if clicking on an existing point or line for snapping
+      // Find if clicking on an existing anchor point (vertex/free/object point)
       Point_2 anchorPos_cgal = cgalWorldPos;
       std::shared_ptr<Point> clickedExistingPt = nullptr;
 
-      // Check for existing points
-      GeometricObject *clickedPtObj = editor.lookForObjectAt(
-          worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint});
-      if (clickedPtObj) {
-        if (clickedPtObj->getType() == ObjectType::Point) {
-          Point *rawPt = static_cast<Point *>(clickedPtObj);
-          for (auto &pt_sp : editor.points) {
-            if (pt_sp.get() == rawPt) {
-              clickedExistingPt = pt_sp;
-              anchorPos_cgal = pt_sp->getCGALPosition();
+      // Unified anchor search (same as Line tool)
+      std::shared_ptr<Point> anchor =
+          PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
+      if (anchor) {
+        clickedExistingPt = anchor;
+        anchorPos_cgal = anchor->getCGALPosition();
+
+        // If this is a newly created vertex ObjectPoint, register it in the editor
+        bool exists = false;
+        for (const auto &p : editor.points) {
+          if (p == clickedExistingPt) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          for (const auto &p : editor.ObjectPoints) {
+            if (p == clickedExistingPt) {
+              exists = true;
               break;
+            }
+          }
+        }
+        if (!exists) {
+          if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedExistingPt)) {
+            editor.ObjectPoints.push_back(objPt);
+          }
+        }
+      }
+
+      // Check for shape edges or circle circumference (snap to edge)
+      if (!clickedExistingPt) {
+        auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance * 2.0f);
+        if (edgeHit.has_value()) {
+          const auto &hit = edgeHit.value();
+
+          if (Circle *circle = dynamic_cast<Circle *>(hit.host)) {
+            for (auto &circlePtr : editor.circles) {
+              if (circlePtr.get() == circle) {
+                auto objPoint = ObjectPoint::create(circlePtr,
+                                                    hit.relativePosition * 2.0 * M_PI,
+                                                    Constants::OBJECT_POINT_DEFAULT_COLOR);
+                if (objPoint && objPoint->isValid()) {
+                  editor.ObjectPoints.push_back(objPoint);
+                  clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
+                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
+                }
+                break;
+              }
+            }
+          } else {
+            std::shared_ptr<GeometricObject> hostPtr = nullptr;
+            auto findHost = [&](auto &container) {
+              for (auto &shape : container) {
+                if (shape.get() == hit.host) {
+                  hostPtr = std::static_pointer_cast<GeometricObject>(shape);
+                  return true;
+                }
+              }
+              return false;
+            };
+
+            if (findHost(editor.rectangles) || findHost(editor.polygons) ||
+                findHost(editor.regularPolygons) || findHost(editor.triangles)) {
+              if (hostPtr) {
+                auto objPoint =
+                    ObjectPoint::createOnShapeEdge(hostPtr, hit.edgeIndex, hit.relativePosition);
+                if (objPoint && objPoint->isValid()) {
+                  editor.ObjectPoints.push_back(objPoint);
+                  clickedExistingPt = objPoint;
+                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
+                }
+              }
             }
           }
         }
@@ -1426,8 +1575,8 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
       // Check for line intersection to snap to
       if (!clickedExistingPt) {
         for (auto &linePtr : editor.lines) {
-          if (auto refLine = editor.m_perpendicularReferenceLine.lock()) {
-            if (linePtr && linePtr.get() != refLine.get() &&
+          if (auto refObj = editor.m_perpendicularReference.lock()) {
+            if (linePtr && linePtr.get() != refObj.get() &&
                 linePtr->contains(worldPos_sfml, tolerance)) {
               // Project the click point onto this line for better snapping
               try {
@@ -1521,16 +1670,15 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
           editor.lines.push_back(newLine);
 
           // Use weak_ptr safely for setting perpendicular constraint
-          if (auto refLine = editor.m_perpendicularReferenceLine.lock()) {
-            newLine->setAsPerpendicularLine(refLine, editor.m_perpendicularReferenceDirection);
+          if (auto refObj = editor.m_perpendicularReference.lock()) {
+             newLine->setAsPerpendicularLine(refObj, editor.m_perpendicularReference.edgeIndex,
+                                             editor.m_perpendicularReferenceDirection);
           } else {
-            // Axis-based perpendicular line - just set direction constraint
-            // if method exists
-            // newLine->setDirectionConstraint(perp_to_ref_dir);
-            Vector_2 perpDir(-editor.m_perpendicularReferenceDirection.y(),
-                             editor.m_perpendicularReferenceDirection.x());
-            newLine->setAsPerpendicularLine(nullptr, editor.m_perpendicularReferenceDirection);
-            std::cout << "Perpendicular line created relative to axis" << std::endl;
+            // Axis-based perpendicular line
+             Vector_2 perpDir(-editor.m_perpendicularReferenceDirection.y(),
+                              editor.m_perpendicularReferenceDirection.x());
+             newLine->setAsPerpendicularLine(nullptr, -1, editor.m_perpendicularReferenceDirection);
+             std::cout << "Perpendicular line created relative to axis" << std::endl;
           }
 
           editor.setGUIMessage("Perp: Line placed. Select new reference.");
@@ -2763,15 +2911,30 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
         editor.hasPreviewLineOverlay = false;
 
         // Check if we have a reference line (weak_ptr)
-        if (auto refLine = editor.m_parallelReferenceLine.lock()) {
-          if (refLine->isValid()) {
+        // Check if we have a reference (weak_ptr)
+        if (auto refObj = editor.m_parallelReference.lock()) {
+          if (refObj->isValid()) {
             Point_2 mouse_cgal_pos = cgalWorldPos;
-            Direction_2 refDirection = refLine->getDirection();
+            
+            // Get current direction dynamically
+            Vector_2 currentRefVec = editor.m_parallelReferenceDirection;
+            if (editor.m_parallelReference.edgeIndex == -1) {
+                 if (auto line = std::dynamic_pointer_cast<Line>(refObj)) {
+                     if (line->isValid()) {
+                         currentRefVec = line->getDirection().vector(); 
+                     }
+                 }
+            } else {
+                 auto edges = refObj->getEdges();
+                 if (editor.m_parallelReference.edgeIndex >= 0 && editor.m_parallelReference.edgeIndex < static_cast<int>(edges.size())) {
+                     currentRefVec = edges[editor.m_parallelReference.edgeIndex].to_vector();
+                 }
+            }
 
             // Lightweight parallel overlay through current mouse position
             {
-              const double dx = CGAL::to_double(refDirection.vector().x());
-              const double dy = CGAL::to_double(refDirection.vector().y());
+              const double dx = CGAL::to_double(currentRefVec.x());
+              const double dy = CGAL::to_double(currentRefVec.y());
               sf::Vector2f dir_sf(static_cast<float>(dx), static_cast<float>(dy));
               const float len = std::sqrt(dir_sf.x * dir_sf.x + dir_sf.y * dir_sf.y);
               if (len > 1e-6f) {
@@ -2792,9 +2955,9 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
             }
 
             if (!previewCreated) {
-              // ✅ FIX: Use vector() method to get proper Vector_2 from Direction_2
-              Vector_2 offsetVector(refDirection.vector().x() * 100.0,
-                                    refDirection.vector().y() * 100.0);
+              // Use vector() method to get proper Vector_2 from Direction_2
+              Vector_2 offsetVector(currentRefVec.x() * 100.0,
+                                    currentRefVec.y() * 100.0);
 
               Point_2 p1_preview = mouse_cgal_pos;
               Point_2 p2_preview = mouse_cgal_pos + offsetVector;
@@ -2894,13 +3057,29 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
       try {
         bool previewCreated = false;
 
-        if (auto refLine = editor.m_perpendicularReferenceLine.lock()) {
-          if (refLine->isValid()) {
+        if (auto refObj = editor.m_perpendicularReference.lock()) {
+          if (refObj->isValid()) {
+             // Get current direction dynamically
+            Vector_2 currentRefVec = editor.m_perpendicularReferenceDirection;
+            if (editor.m_perpendicularReference.edgeIndex == -1) {
+                 if (auto line = std::dynamic_pointer_cast<Line>(refObj)) {
+                     if (line->isValid()) {
+                         currentRefVec = line->getDirection().vector(); 
+                     }
+                 }
+            } else {
+                 auto edges = refObj->getEdges();
+                 if (editor.m_perpendicularReference.edgeIndex >= 0 && editor.m_perpendicularReference.edgeIndex < static_cast<int>(edges.size())) {
+                     currentRefVec = edges[editor.m_perpendicularReference.edgeIndex].to_vector();
+                 }
+            }
+
+            // Calculate perpendicular vector (-y, x)
+            Vector_2 perpVec(-currentRefVec.y(), currentRefVec.x());
+
             // Overlay: perpendicular through mouse
-            Direction_2 refDirection = refLine->getDirection();
-            Direction_2 perpDirection = refDirection.perpendicular(CGAL::COUNTERCLOCKWISE);
-            const double dx = CGAL::to_double(perpDirection.vector().x());
-            const double dy = CGAL::to_double(perpDirection.vector().y());
+            const double dx = CGAL::to_double(perpVec.x());
+            const double dy = CGAL::to_double(perpVec.y());
             sf::Vector2f dir_sf(static_cast<float>(dx), static_cast<float>(dy));
             const float len = std::sqrt(dir_sf.x * dir_sf.x + dir_sf.y * dir_sf.y);
             if (len > 1e-6f) {
@@ -2920,9 +3099,8 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
             }
             if (!previewCreated) {
               Point_2 mouse_cgal_pos = cgalWorldPos;
-              // ✅ FIX: Use perpendicular direction components correctly
-              Vector_2 offsetVector(perpDirection.vector().x() * 100.0,
-                                    perpDirection.vector().y() * 100.0);
+              Vector_2 offsetVector(perpVec.x() * 100.0,
+                                    perpVec.y() * 100.0);
 
               Point_2 p1_preview = mouse_cgal_pos;
               Point_2 p2_preview = mouse_cgal_pos + offsetVector;

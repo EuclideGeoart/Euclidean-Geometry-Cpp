@@ -384,12 +384,22 @@ class GeometryEditor {
   bool m_isInIntersectionMode = false;
   GeometricObject *m_firstIntersectionObject = nullptr;
 
+  // Helper struct for storing a reference to an object's edge (or the object itself)
+  struct EdgeReference {
+      std::weak_ptr<GeometricObject> object;
+      int edgeIndex = -1; // -1 for the object itself (if it's a line), >= 0 for shape edges
+      
+      void reset() { object.reset(); edgeIndex = -1; }
+      std::shared_ptr<GeometricObject> lock() const { return object.lock(); }
+      bool isValid() const { return !object.expired(); }
+  };
+
   // Add these for parallel/perpendicular tool state
-  std::weak_ptr<Line> m_parallelReferenceLine;
+  EdgeReference m_parallelReference;
   bool m_isPlacingParallel = false;
   std::shared_ptr<Line> m_parallelPreviewLine;  // For visual feedback during placement
   Vector_2 m_parallelReferenceDirection;
-  std::weak_ptr<Line> m_perpendicularReferenceLine;
+  EdgeReference m_perpendicularReference;
   bool m_isPlacingPerpendicular = false;
   std::shared_ptr<Line> m_perpendicularPreviewLine;  // For visual feedback
   Vector_2 m_perpendicularReferenceDirection;

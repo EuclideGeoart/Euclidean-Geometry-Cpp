@@ -761,6 +761,32 @@ void GeometryEditor::update(sf::Time deltaTime) {
     previewCircle->update();
   }
 
+  // Update all geometric objects to ensure constraints and states are maintained
+  for (const auto &obj : lines) {
+    if (obj) obj->update();
+  }
+  for (const auto &obj : circles) {
+     if (obj) obj->update();
+  }
+  for (const auto &obj : rectangles) {
+     if (obj) obj->update();
+  }
+  for (const auto &obj : polygons) {
+     if (obj) obj->update();
+  }
+  for (const auto &obj : regularPolygons) {
+     if (obj) obj->update();
+  }
+  for (const auto &obj : triangles) {
+     if (obj) obj->update();
+  }
+  for (const auto &obj : points) {
+     if (obj) obj->update();
+  }
+  for (const auto &obj : ObjectPoints) {
+     if (obj) obj->update();
+  }
+
   // Always update existing intersections to maintain correct positions
   // regardless of whether auto-intersections is enabled
   DynamicIntersection::updateAllIntersections();
@@ -789,7 +815,7 @@ void GeometryEditor::resetCreationStates() {
 }
 
 void GeometryEditor::resetParallelLineToolState() {
-  m_parallelReferenceLine.reset();
+  m_parallelReference.reset();
   m_isPlacingParallel = false;
   
   // ✅ FIX: Properly cleanup preview line before reset to prevent crashes
@@ -806,7 +832,7 @@ void GeometryEditor::resetParallelLineToolState() {
 }
 
 void GeometryEditor::resetPerpendicularLineToolState() {
-  m_perpendicularReferenceLine.reset();
+  m_perpendicularReference.reset();
   m_isPlacingPerpendicular = false;
   
   // ✅ FIX: Properly cleanup preview line before reset to prevent crashes
@@ -1807,13 +1833,13 @@ void GeometryEditor::safeDeleteLine(std::shared_ptr<Line> lineToDelete) {
     }
 
     // Clear tool references
-    if (auto refLine = m_parallelReferenceLine.lock()) {
-      if (refLine == lineToDelete) {
+    if (auto refObj = m_parallelReference.lock()) {
+      if (refObj == lineToDelete) {
         resetParallelLineToolState();
       }
     }
-    if (auto refLine = m_perpendicularReferenceLine.lock()) {
-      if (refLine == lineToDelete) {
+    if (auto refObj = m_perpendicularReference.lock()) {
+      if (refObj == lineToDelete) {
         resetPerpendicularLineToolState();
       }
     }

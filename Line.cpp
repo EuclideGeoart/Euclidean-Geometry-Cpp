@@ -73,7 +73,8 @@ Line::Line(std::shared_ptr<Point> startPoint, std::shared_ptr<Point> endPoint, b
       m_isUnderDirectManipulation(false),
       m_isParallelLine(false),
       m_isPerpendicularLine(false),
-      m_referenceLine(),
+      m_constraintRefObject(),
+      m_constraintRefEdgeIndex(-1),
       m_thickness(Constants::LINE_THICKNESS),
       m_dashed(false),
       m_dashLength(Constants::LINE_DASH_LENGTH),
@@ -147,7 +148,8 @@ Line::Line(std::shared_ptr<Point> start, std::shared_ptr<Point> end, bool isSegm
       m_isUnderDirectManipulation(false),
       m_isParallelLine(false),
       m_isPerpendicularLine(false),
-      m_referenceLine(),
+      m_constraintRefObject(),
+      m_constraintRefEdgeIndex(-1),
       m_dashed(false),
       m_dashLength(Constants::LINE_DASH_LENGTH),
       m_gapLength(Constants::LINE_DASH_GAP),
@@ -202,10 +204,13 @@ void Line::prepareForDestruction() {
         // CRITICAL: Clear constraint relationships safely
         
         // 1. Remove this line from any reference line's observers
-        if (!m_referenceLine.expired()) {
-            if (auto refLine = m_referenceLine.lock()) {
-                std::cout << "Removing self from reference line's observers" << std::endl;
-                refLine->removeConstraintObserver(self);
+        if (!m_constraintRefObject.expired()) {
+            if (auto refObj = m_constraintRefObject.lock()) {
+                // Only Lines support generic observer list for now, we'll cast to check
+                if (auto refLine = std::dynamic_pointer_cast<Line>(refObj)) {
+                    std::cout << "Removing self from reference line's observers" << std::endl;
+                    refLine->removeConstraintObserver(self);
+                }
             }
         }
         
@@ -229,7 +234,8 @@ void Line::prepareForDestruction() {
         }
         
         // 3. Clear our own relationships
-        m_referenceLine.reset();
+        m_constraintRefObject.reset();
+        m_constraintRefEdgeIndex = -1;
         m_constraintObservers.clear();
         
         // 4. Reset constraint flags
@@ -260,7 +266,8 @@ Line::~Line() {
 
     // Clear constraint relationships WITHOUT calling shared_from_this()
     // All cleanup requiring shared_from_this() should have been done in prepareForDestruction()
-    m_referenceLine.reset();
+    m_constraintRefObject.reset();
+    m_constraintRefEdgeIndex = -1;
     m_constraintObservers.clear();
     
     // Reset constraint state
@@ -1016,20 +1023,22 @@ void Line::update() {
     updateCGALLine();
 
     if ((m_isParallelLine || m_isPerpendicularLine) && !m_isUnderDirectManipulation) {
-      bool has_line_ref = false;
-      if (auto ref_sp = m_referenceLine.lock()) {
-        if (ref_sp.get() != this) {  // Valid, non-self reference line
-          has_line_ref = true;
-        }
+      bool has_ref_obj = false;
+      if (auto ref_sp = m_constraintRefObject.lock()) {
+         if (ref_sp.get() != this) { // Valid non-self reference
+            has_ref_obj = true;
+         }
       }
 
-      // Condition: EITHER a valid line reference OR a valid axis constraint
-      // direction
-      if (has_line_ref || (m_constraintDirection != Vector_2(0, 0) && m_referenceLine.expired())) {
+      // Condition: EITHER a valid reference OR a valid axis constraint direction
+      if (has_ref_obj || (m_constraintDirection != Vector_2(0, 0) && m_constraintRefObject.expired())) {
         if (Constants::DEBUG_CONSTRAINTS) {
+          std::string refId = "None/Axis";
+          if (auto ref = m_constraintRefObject.lock()) {
+             refId = std::to_string(ref->getID());
+          }
           std::cout << "Line::update: Calling maintainConstraints for Line " << getID() << " (Ref: "
-                    << (has_line_ref ? std::to_string(m_referenceLine.lock()->getID())
-                                     : "None/Axis")
+                    << refId
                     << ")" << std::endl;
         }
         maintainConstraints();
@@ -1693,180 +1702,142 @@ Direction_2 Line::getDirection() const {
   return Direction_2(m_endPoint->getCGALPosition() - m_startPoint->getCGALPosition());
 }
 
-void Line::setAsParallelLine(std::shared_ptr<Line> referenceLine, const Vector_2 &direction) {
+void Line::setAsParallelLine(std::shared_ptr<GeometricObject> refObj, int edgeIndex,
+                             const Vector_2 &referenceDirection) {
   try {
     // 1. Clear from old reference if it exists
-    if (auto old_ref_sp = m_referenceLine.lock()) {
-      // Only remove if the new reference is different or null
-      if (!referenceLine || referenceLine.get() != old_ref_sp.get()) {
-        old_ref_sp->removeConstraintObserver(shared_from_this());
+    if (auto old_ref_sp = m_constraintRefObject.lock()) {
+      if (m_constraintRefEdgeIndex == -1) {  // Was a whole object (Line) constraint
+        if (auto old_line_sp = std::dynamic_pointer_cast<Line>(old_ref_sp)) {
+            // Only remove observer if we are changing to a new reference or null
+             if (!refObj || refObj != old_ref_sp) {
+                 old_line_sp->removeConstraintObserver(shared_from_this());
+             }
+        }
       }
     }
-    m_referenceLine.reset();  // Clear old weak_ptr before setting new one or
-    // if new one is null
+    m_constraintRefObject.reset();
 
     // 2. Set new constraint type
     m_isParallelLine = true;
     m_isPerpendicularLine = false;
 
     // 3. Set new reference and direction
-    if (referenceLine) {
-      if (referenceLine.get() == this) {
-        std::cerr << "Line::setAsParallelLine: Cannot set self as reference. "
-                     "Constraint not applied."
-                  << std::endl;
-        m_isParallelLine = false;  // Revert
-        m_constraintDirection = Vector_2(0, 0);
-        update();
-        return;
-      }
-      m_referenceLine = referenceLine;
-      m_constraintDirection = direction;  // This is the direction OF the reference line
+    if (refObj) {
+        if (refObj.get() == this) {
+            std::cerr << "Line::setAsParallelLine: Cannot set self as reference. Constraint not applied." << std::endl;
+            m_isParallelLine = false;
+            m_constraintDirection = Vector_2(0, 0);
+            update();
+            return;
+        }
 
-      // 4. Add self as observer to the new reference line
-      referenceLine->addConstraintObserver(shared_from_this());
+        m_constraintRefObject = refObj;
+        m_constraintRefEdgeIndex = edgeIndex;
+        m_constraintDirection = referenceDirection; // Initial direction (will be updated)
 
-      if (Constants::DEBUG_CONSTRAINTS) {
-        std::cout << "Line " << getID() << " (" << this << ") setAsParallelLine to Line "
-                  << referenceLine->getID() << " (" << referenceLine << "). RefDir: ("
-                  << CGAL::to_double(direction.x()) << ", " << CGAL::to_double(direction.y()) << ")"
-                  << std::endl;
-      }
-    } else {                              // Axis-parallel
-      m_constraintDirection = direction;  // This is the target parallel
-      // direction (e.g., (1,0) or (0,1))
-      if (m_constraintDirection == Vector_2(0, 0)) {
-        std::cerr << "Line::setAsParallelLine: No reference line and invalid/zero "
-                     "direction provided. Constraint not fully set."
-                  << std::endl;
-        m_isParallelLine = false;
-      } else if (Constants::DEBUG_CONSTRAINTS) {
-        std::cout << "Line " << getID() << " (" << this
-                  << ") setAsParallelLine (Axis-Parallel). TargetDir: ("
-                  << CGAL::to_double(m_constraintDirection.x()) << ", "
-                  << CGAL::to_double(m_constraintDirection.y()) << ")" << std::endl;
-      }
+        // 4. Add self as observer IF it's a Line object (optimization)
+        if (edgeIndex == -1) {
+            if (auto lineRef = std::dynamic_pointer_cast<Line>(refObj)) {
+                lineRef->addConstraintObserver(shared_from_this());
+            }
+        }
+
+        if (Constants::DEBUG_CONSTRAINTS) {
+            std::cout << "Line " << getID() << " setAsParallelLine to Object Type " 
+                      << static_cast<int>(refObj->getType()) << ". Index: " << edgeIndex << std::endl;
+        }
+
+    } else {
+        // Axis-Parallel logic (unchanged essentially, just using m_constraintDirection)
+         m_constraintDirection = referenceDirection;
+          if (m_constraintDirection == Vector_2(0, 0)) {
+            std::cerr << "Line::setAsParallelLine: No reference and zero direction." << std::endl;
+             m_isParallelLine = false;
+          }
     }
 
     if (!m_startPoint || !m_endPoint || !m_startPoint->isValid() || !m_endPoint->isValid()) {
-      std::cerr << "Line::setAsParallelLine: Invalid or null endpoints. Cannot "
-                   "apply constraint."
-                << std::endl;
-      m_isParallelLine = false;
-      m_referenceLine.reset();
-      m_constraintDirection = Vector_2(0, 0);
-      update();
-      return;
+       // ... error handling
+       m_isParallelLine = false; 
+       m_constraintRefObject.reset();
+       update();
+       return;
     }
-    // ... (finite checks for constraintDirection if it's directly used for
-    // logic beyond storage)
 
     // 5. Immediately apply constraint
     update();
 
-  } catch (const std::bad_weak_ptr &bwp) {
-    std::cerr << "Line::setAsParallelLine: Bad weak_ptr exception (likely "
-                 "shared_from_this on temp object): "
-              << bwp.what() << std::endl;
-    m_isParallelLine = false;
-    m_referenceLine.reset();
-    m_constraintDirection = Vector_2(0, 0);
   } catch (const std::exception &e) {
-    std::cerr << "Line::setAsParallelLine: Unhandled exception: " << e.what() << std::endl;
+    std::cerr << "Line::setAsParallelLine: Exception: " << e.what() << std::endl;
     m_isParallelLine = false;
-    m_referenceLine.reset();
-    m_constraintDirection = Vector_2(0, 0);
-  } catch (...) {
-    std::cerr << "Line::setAsParallelLine: Unknown exception." << std::endl;
-    m_isParallelLine = false;
-    m_referenceLine.reset();
-    m_constraintDirection = Vector_2(0, 0);
+    m_constraintRefObject.reset();
   }
 }
 
-void Line::setAsPerpendicularLine(std::shared_ptr<Line> referenceLine,
+void Line::setAsPerpendicularLine(std::shared_ptr<GeometricObject> refObj, int edgeIndex,
                                   const Vector_2 &referenceDirection) {
   try {
     // 1. Clear from old reference if it exists
-    if (auto old_ref_sp = m_referenceLine.lock()) {
-      if (!referenceLine || referenceLine.get() != old_ref_sp.get()) {  // Updated comparison
-        old_ref_sp->removeConstraintObserver(shared_from_this());
-      }
+    if (auto old_ref_sp = m_constraintRefObject.lock()) {
+       if (m_constraintRefEdgeIndex == -1) {
+           if (auto old_line_sp = std::dynamic_pointer_cast<Line>(old_ref_sp)) {
+             if (!refObj || refObj != old_ref_sp) {
+                 old_line_sp->removeConstraintObserver(shared_from_this());
+             }
+           }
+       }
     }
-    m_referenceLine.reset();
+    m_constraintRefObject.reset();
 
     // 2. Set new constraint type
     m_isParallelLine = false;
     m_isPerpendicularLine = true;
 
     // 3. Set new reference and direction
-    if (referenceLine) {
-      if (referenceLine.get() == this) {
-        std::cerr << "Line::setAsPerpendicularLine: Cannot set self as "
-                     "reference. Constraint not applied."
-                  << std::endl;
-        m_isPerpendicularLine = false;
-        m_constraintDirection = Vector_2(0, 0);
-        update();
-        return;
-      }
-      m_referenceLine = referenceLine->shared_from_this();
-      m_constraintDirection = referenceDirection;  // Direction OF the reference line
+    if (refObj) {
+       if (refObj.get() == this) {
+            std::cerr << "Line::setAsPerpendicularLine: Cannot set self as reference." << std::endl;
+            m_isPerpendicularLine = false;
+            update();
+            return;
+        }
 
-      // 4. Add self as observer to the new reference line
-      referenceLine->addConstraintObserver(shared_from_this());
+        m_constraintRefObject = refObj;
+        m_constraintRefEdgeIndex = edgeIndex;
+        m_constraintDirection = referenceDirection;
 
-      if (Constants::DEBUG_CONSTRAINTS) {
-        std::cout << "Line " << getID() << " (" << this << ") setAsPerpendicularLine to Line "
-                  << referenceLine->getID() << " (" << referenceLine << "). RefDir: ("
-                  << CGAL::to_double(referenceDirection.x()) << ", "
-                  << CGAL::to_double(referenceDirection.y()) << ")" << std::endl;
-      }
-    } else {                                       // Axis-perpendicular
-      m_constraintDirection = referenceDirection;  // Axis direction (e.g., (1,0) means this line
-      // becomes Y-aligned)
-      if (m_constraintDirection == Vector_2(0, 0)) {
-        std::cerr << "Line::setAsPerpendicularLine: No reference line and "
-                     "invalid/zero axis direction. Constraint not fully set."
-                  << std::endl;
-        m_isPerpendicularLine = false;
-      } else if (Constants::DEBUG_CONSTRAINTS) {
-        std::cout << "Line " << getID() << " (" << this
-                  << ") setAsPerpendicularLine (Axis-Perpendicular). AxisDir: ("
-                  << CGAL::to_double(m_constraintDirection.x()) << ", "
-                  << CGAL::to_double(m_constraintDirection.y()) << ")" << std::endl;
-      }
+        // 4. Add self as observer
+        if (edgeIndex == -1) {
+            if (auto lineRef = std::dynamic_pointer_cast<Line>(refObj)) {
+                lineRef->addConstraintObserver(shared_from_this());
+            }
+        }
+        
+        if (Constants::DEBUG_CONSTRAINTS) {
+             std::cout << "Line " << getID() << " setAsPerpendicularLine to Object Type " 
+                      << static_cast<int>(refObj->getType()) << ". Index: " << edgeIndex << std::endl;
+        }
+
+    } else {
+        m_constraintDirection = referenceDirection;
+         if (m_constraintDirection == Vector_2(0, 0)) {
+            m_isPerpendicularLine = false;
+         }
     }
 
     if (!m_startPoint || !m_endPoint || !m_startPoint->isValid() || !m_endPoint->isValid()) {
-      std::cerr << "Line::setAsPerpendicularLine: Invalid or null endpoints. "
-                   "Cannot apply constraint."
-                << std::endl;
-      m_isPerpendicularLine = false;
-      m_referenceLine.reset();
-      m_constraintDirection = Vector_2(0, 0);
-      update();
-      return;
+       m_isPerpendicularLine = false;
+       m_constraintRefObject.reset();
+       update();
+       return;
     }
 
-    // 5. Immediately apply constraint
     update();
-  } catch (const std::bad_weak_ptr &bwp) {
-    std::cerr << "Line::setAsPerpendicularLine: Bad weak_ptr exception: " << bwp.what()
-              << std::endl;
-    m_isPerpendicularLine = false;
-    m_referenceLine.reset();
-    m_constraintDirection = Vector_2(0, 0);
   } catch (const std::exception &e) {
     std::cerr << "Line::setAsPerpendicularLine: Exception: " << e.what() << std::endl;
     m_isPerpendicularLine = false;
-    m_referenceLine.reset();
-    m_constraintDirection = Vector_2(0, 0);
-  } catch (...) {
-    std::cerr << "Line::setAsPerpendicularLine: Unknown exception" << std::endl;
-    m_isPerpendicularLine = false;
-    m_referenceLine.reset();
-    m_constraintDirection = Vector_2(0, 0);
+    m_constraintRefObject.reset();
   }
 }
 
@@ -1912,41 +1883,49 @@ void Line::maintainConstraints() {
     bool has_valid_reference_for_constraint = false;
 
     // Get reference direction - ALWAYS get the CURRENT direction from reference
-    // line
-    if (auto ref_line_sp = m_referenceLine.lock()) {
-      if (ref_line_sp.get() == this) {
-        if (localDebug) {
-          std::cout << "  Self-referential constraint. Aborting." << std::endl;
-        }
-        m_isParallelLine = false;
-        m_isPerpendicularLine = false;
-        m_referenceLine.reset();
-        m_inConstraint = false;
-        return;
+    if (auto ref_obj_sp = m_constraintRefObject.lock()) {
+      if (ref_obj_sp.get() == this) {
+         m_isParallelLine = false; m_isPerpendicularLine = false;
+         m_constraintRefObject.reset();
+         m_inConstraint = false;
+         return;
       }
-      if (ref_line_sp->isValid()) {
+
+      if (ref_obj_sp->isValid()) {
         try {
-          // CRITICAL: Always get the CURRENT positions from the reference line
-          Point_2 refStart = ref_line_sp->getStartPoint();  // This calls getCGALPosition() on
-          // the reference line's points
-          Point_2 refEnd = ref_line_sp->getEndPoint();
-
-          if (refStart != refEnd) {
-            actual_ref_dir_for_constraint =
-                Vector_2(refEnd.x() - refStart.x(), refEnd.y() - refStart.y());
-            has_valid_reference_for_constraint = true;
-
-            // UPDATE: Store the current reference direction for consistency
-            m_constraintDirection = actual_ref_dir_for_constraint;
-
-            if (localDebug) {
-              CGALSafeUtils::debug_cgal_vector(actual_ref_dir_for_constraint,
-                                               "  CURRENT Reference Line Direction",
-                                               "MaintainConstraints");
+            if (m_constraintRefEdgeIndex == -1) {
+                // Was a Line/Segment object
+                if (auto refLine = std::dynamic_pointer_cast<Line>(ref_obj_sp)) {
+                    Point_2 refStart = refLine->getStartPoint();
+                    Point_2 refEnd = refLine->getEndPoint();
+                     if (refStart != refEnd) {
+                        actual_ref_dir_for_constraint = Vector_2(refEnd.x() - refStart.x(), refEnd.y() - refStart.y());
+                        has_valid_reference_for_constraint = true;
+                     }
+                }
+            } else {
+                // Edge of a complex shape
+                std::vector<Segment_2> edges = ref_obj_sp->getEdges();
+                if (m_constraintRefEdgeIndex >= 0 && m_constraintRefEdgeIndex < static_cast<int>(edges.size())) {
+                    const Segment_2& seg = edges[m_constraintRefEdgeIndex];
+                    actual_ref_dir_for_constraint = seg.to_vector();
+                     if (actual_ref_dir_for_constraint != Vector_2(0,0)) {
+                         has_valid_reference_for_constraint = true;
+                     }
+                }
             }
-          }
+            
+            if (has_valid_reference_for_constraint) {
+                m_constraintDirection = actual_ref_dir_for_constraint;
+                 if (localDebug) {
+                    CGALSafeUtils::debug_cgal_vector(actual_ref_dir_for_constraint,
+                                                "  CURRENT Reference Direction",
+                                                "MaintainConstraints");
+                 }
+            }
+
         } catch (const std::exception &e) {
-          std::cerr << "  Exception getting reference line points: " << e.what() << std::endl;
+          std::cerr << "  Exception getting reference object edges: " << e.what() << std::endl;
         }
       }
     }
@@ -1962,7 +1941,7 @@ void Line::maintainConstraints() {
         if (localDebug) std::cout << "  No valid reference. Clearing constraints." << std::endl;
         m_isParallelLine = false;
         m_isPerpendicularLine = false;
-        m_referenceLine.reset();
+        m_constraintRefObject.reset();
         m_inConstraint = false;
         return;
       }
@@ -2231,11 +2210,12 @@ void Line::removeConstraintObserver(std::shared_ptr<Line> observer) {
 }
 
 void Line::clearConstraintReference(Line *disappearingRef) {
-  if (auto ref_line = m_referenceLine.lock()) {
-    if (ref_line.get() == disappearingRef) {
+  if (auto ref_obj = m_constraintRefObject.lock()) {
+    if (ref_obj.get() == disappearingRef) {
       m_isParallelLine = false;
       m_isPerpendicularLine = false;
-      m_referenceLine.reset();  // Clear the weak_ptr
+      m_constraintRefObject.reset();
+      m_constraintRefEdgeIndex = -1;
     }
   }
 }
@@ -2346,10 +2326,11 @@ void Line::clearConstraintReference(std::shared_ptr<Line> lineBeingDestroyed) {
                   << lineBeingDestroyed.get() << " from Line " << this << std::endl;
         
         // Check if the line being destroyed is our reference line
-        if (auto currentRef = m_referenceLine.lock()) {
+        if (auto currentRef = m_constraintRefObject.lock()) {
             if (currentRef == lineBeingDestroyed) {
                 std::cout << "Clearing reference line relationship" << std::endl;
-                m_referenceLine.reset();
+                m_constraintRefObject.reset();
+                m_constraintRefEdgeIndex = -1;
                 
                 // Reset constraint state
                 m_isParallelLine = false;
