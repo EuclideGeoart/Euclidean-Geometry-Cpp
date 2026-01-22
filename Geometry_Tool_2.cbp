@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="GeometryTool2" />
+		<Option pch_mode="2" />
+		<Option compiler="llvm-clang-80bit" />
+		<Build>
+			<Target title="Debug Win32">
+				<Option output="./Debug/GeometryTool2" prefix_auto="1" extension_auto="1" />
+				<Option object_output="Debug/" />
+				<Option deps_output="./Debug/" />
+				<Option type="0" />
+				<Option compiler="llvm-clang-80bit" />
+				<Compiler>
+					<Add option="/D_UNICODE /DUNICODE" />
+					<Add option="/Zi" />
+					<Add option="/DWIN32" />
+					<Add option="/D_DEBUG" />
+					<Add option="/D_CONSOLE" />
+					<Add option="/W3" />
+				</Compiler>
+				<Linker>
+					<Add option="/debug" />
+					<Add library="winmm.lib" />
+					<Add library="comctl32.lib" />
+					<Add library="kernel32.lib" />
+					<Add library="user32.lib" />
+					<Add library="gdi32.lib" />
+					<Add library="winspool.lib" />
+					<Add library="comdlg32.lib" />
+					<Add library="advapi32.lib" />
+					<Add library="shell32.lib" />
+					<Add library="ole32.lib" />
+					<Add library="oleaut32.lib" />
+					<Add library="uuid.lib" />
+					<Add library="odbc32.lib" />
+					<Add library="odbccp32.lib" />
+				</Linker>
+			</Target>
+			<Target title="Debug x64">
+				<Option output="./Debug/GeometryTool2" prefix_auto="1" extension_auto="1" />
+				<Option object_output="Debug/" />
+				<Option deps_output="./Debug/" />
+				<Option type="0" />
+				<Option compiler="copy_of_clang_cclang64" />
+				<Compiler>
+					<Add option="/D_UNICODE /DUNICODE" />
+					<Add option="/Zi" />
+					<Add option="/D_DEBUG" />
+					<Add option="/D_CONSOLE" />
+					<Add option="/MDd" />
+					<Add option="/W3" />
+				</Compiler>
+				<Linker>
+					<Add option="/debug" />
+					<Add library="sfml-graphics-d.lib" />
+					<Add library="sfml-window-d.lib" />
+					<Add library="sfml-audio-d.lib" />
+					<Add library="sfml-network-d.lib" />
+					<Add library="sfml-system-d.lib" />
+					<Add library="winmm.lib" />
+					<Add library="comctl32.lib" />
+					<Add library="kernel32.lib" />
+					<Add library="user32.lib" />
+					<Add library="gdi32.lib" />
+					<Add library="winspool.lib" />
+					<Add library="comdlg32.lib" />
+					<Add library="advapi32.lib" />
+					<Add library="shell32.lib" />
+					<Add library="ole32.lib" />
+					<Add library="oleaut32.lib" />
+					<Add library="uuid.lib" />
+					<Add library="odbc32.lib" />
+					<Add library="odbccp32.lib" />
+				</Linker>
+			</Target>
+			<Target title="Release x64">
+				<Option output="./Release/GeometryTool2" prefix_auto="1" extension_auto="1" />
+				<Option object_output="Release/" />
+				<Option deps_output="./Release/" />
+				<Option type="0" />
+				<Option compiler="copy_of_clang_cclang64" />
+				<Compiler>
+					<Add option="/D_UNICODE /DUNICODE" />
+					<Add option="/DNDEBUG" />
+					<Add option="/D_CONSOLE" />
+					<Add option="/D_HAS_AUTO_PTR_ETC=1" />
+					<Add option="/D_CRT_SECURE_NO_WARNINGS" />
+					<Add option="/DNDEBUG_DISABLE_INTEL_GPU_ACCELERATION=1" />
+					<Add option="-Wno-microsoft-enum-value" />
+					<Add option="-Wno-c++98-compat-pedantic" />
+					<Add option="/MD" />
+					<Add option="/W3" />
+				</Compiler>
+				<Linker>
+					<Add option="/debug" />
+					<Add library="sfml-graphics.lib" />
+					<Add library="sfml-window.lib" />
+					<Add library="sfml-audio.lib" />
+					<Add library="sfml-network.lib" />
+					<Add library="sfml-system.lib" />
+					<Add library="winmm.lib" />
+					<Add library="comctl32.lib" />
+					<Add library="kernel32.lib" />
+					<Add library="user32.lib" />
+					<Add library="gdi32.lib" />
+					<Add library="winspool.lib" />
+					<Add library="comdlg32.lib" />
+					<Add library="advapi32.lib" />
+					<Add library="shell32.lib" />
+					<Add library="ole32.lib" />
+					<Add library="oleaut32.lib" />
+					<Add library="uuid.lib" />
+					<Add library="odbc32.lib" />
+					<Add library="odbccp32.lib" />
+					<Add directory="C:/dev/vcpkg/installed/x64-windows/lib/" />
+				</Linker>
+			</Target>
+			<Target title="Release Win32">
+				<Option output="./Release/GeometryTool2" prefix_auto="1" extension_auto="1" />
+				<Option object_output="Release/" />
+				<Option deps_output="./Release/" />
+				<Option type="0" />
+				<Option compiler="llvm-clang-80bit" />
+				<Compiler>
+					<Add option="/D_UNICODE /DUNICODE" />
+					<Add option="/DWIN32" />
+					<Add option="/DNDEBUG" />
+					<Add option="/D_CONSOLE" />
+					<Add option="/W3" />
+				</Compiler>
+				<Linker>
+					<Add option="/debug" />
+					<Add library="winmm.lib" />
+					<Add library="comctl32.lib" />
+					<Add library="kernel32.lib" />
+					<Add library="user32.lib" />
+					<Add library="gdi32.lib" />
+					<Add library="winspool.lib" />
+					<Add library="comdlg32.lib" />
+					<Add library="advapi32.lib" />
+					<Add library="shell32.lib" />
+					<Add library="ole32.lib" />
+					<Add library="oleaut32.lib" />
+					<Add library="uuid.lib" />
+					<Add library="odbc32.lib" />
+					<Add library="odbccp32.lib" />
+				</Linker>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add directory="." />
+		</Compiler>
+		<ResourceCompiler>
+			<Add directory="." />
+		</ResourceCompiler>
+		<Linker>
+			<Add option="/pdb:$(TARGET_OUTPUT_DIR)$(TARGET_OUTPUT_BASENAME).pdb" />
+		</Linker>
+		<Unit filename="CGALErrorHandler.h" />
+		<Unit filename="Circle.cpp" />
+		<Unit filename="Circle.h" />
+		<Unit filename="Command.h" />
+		<Unit filename="CommandManager.h" />
+		<Unit filename="CompilerFIxes.h" />
+		<Unit filename="Config.cpp" />
+		<Unit filename="Config.h" />
+		<Unit filename="Constants.h" />
+		<Unit filename="ForwardDeclarations.h" />
+		<Unit filename="GMP_exception_handler.h" />
+		<Unit filename="GUI.cpp" />
+		<Unit filename="GUI.h" />
+		<Unit filename="GenericDeleteCommand.h" />
+		<Unit filename="GeometricObject.cpp" />
+		<Unit filename="GeometricObject.h" />
+		<Unit filename="GeometryEditor.cpp" />
+		<Unit filename="GeometryEditor.h" />
+		<Unit filename="GeometryFactory.h" />
+		<Unit filename="Grid.cpp" />
+		<Unit filename="Grid.h" />
+		<Unit filename="HandleEvents.cpp" />
+		<Unit filename="HandleEvents.h" />
+		<Unit filename="Intersection.cpp" />
+		<Unit filename="Intersection.h" />
+		<Unit filename="Line.cpp" />
+		<Unit filename="Line.h" />
+		<Unit filename="LineToolMode.cpp" />
+		<Unit filename="LineToolMode.h" />
+		<Unit filename="ObjectPoint.cpp" />
+		<Unit filename="ObjectPoint.h" />
+		<Unit filename="ObjectType.h" />
+		<Unit filename="Point.cpp" />
+		<Unit filename="Point.h" />
+		<Unit filename="ProjectionUtils.h" />
+		<Unit filename="Transforms.cpp" />
+		<Unit filename="Transforms.h" />
+		<Unit filename="Types.h" />
+		<Unit filename="cgal_error_handler.h" />
+		<Unit filename="main.cpp" />
+		<Extensions>
+			<lib_finder disable_auto="1" />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>

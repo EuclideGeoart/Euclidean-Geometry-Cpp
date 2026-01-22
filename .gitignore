@@ -1,0 +1,32 @@
+# --- Visual Studio & VS Code ---
+.vs/
+.vscode/
+*.user
+*.suo
+*.opensdf
+*.sdf
+*.cache
+*.pdb
+*.ipch
+
+# --- Build Output ---
+build/
+bin/
+debug/
+release/
+x64/
+x86/
+*.exe
+*.dll
+*.o
+*.obj
+*.lib
+*.a
+
+# --- OS Files ---
+.DS_Store
+Thumbs.db
+
+
+build*/
+CMakeFiles/

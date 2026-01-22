@@ -1,0 +1,672 @@
+#include "Circle.h"
+#include "Constants.h"
+#include "GeometryEditor.h"
+#include "Line.h"
+#include "ObjectPoint.h"
+#include "Point.h"
+#include "Types.h" // For Point_2, Line_2, etc.
+#include "gtest/gtest.h"
+#include <SFML/Graphics.hpp> // For sf::Color
+
+// Mocking SFML window or event handling is complex for this scope.
+// Tests will focus on the internal logic of GeometryEditor where possible.
+// It's assumed that the GeometryEditor constructor can run in a test
+// environment. If not, further mocking or refactoring of GeometryEditor might
+// be needed.
+
+class GeometryEditorTest : public ::testing::Test {
+protected:
+  GeometryEditor editor;
+
+  // Helper to add a free Point to the editor
+  Point *addFreePoint(double x, double y,
+                      const sf::Color &color = Constants::POINT_DEFAULT_COLOR) {
+    auto point = std::make_unique<Point>(Point_2(x, y), color);
+    Point *rawPtr = point.get();
+    editor.points.push_back(std::move(point));
+    return rawPtr;
+  }
+
+  // Helper to add a Line to the editor using CGAL points
+  Line *addLine(const Point_2 &p1_cgal, const Point_2 &p2_cgal,
+                const sf::Color &color = Constants::LINE_DEFAULT_COLOR) {
+    auto line = std::make_unique<Line>(p1_cgal, p2_cgal, color);
+    Line *rawPtr = line.get();
+    editor.lines.push_back(std::move(line));
+    return rawPtr;
+  }
+
+  // Helper to add a Line to the editor using existing Point objects
+  Line *addLine(Point *p1_obj, Point *p2_obj,
+                const sf::Color &color = Constants::LINE_DEFAULT_COLOR) {
+    auto line = std::make_unique<Line>(p1_obj, p2_obj, color);
+    Line *rawPtr = line.get();
+    editor.lines.push_back(std::move(line));
+    return rawPtr;
+  }
+
+  // Helper to add a Circle to the editor
+  Circle *addCircle(const Point_2 &center_cgal, double radius,
+                    const sf::Color &color = Constants::CIRCLE_DEFAULT_COLOR) {
+    // Assuming Circle constructor: Circle(const Point_2& center, double radius,
+    // const sf::Color& outlineColor) Adjust if your Circle constructor is
+    // different (e.g., takes fill color too)
+    auto circle = std::make_unique<Circle>(center_cgal, radius, color);
+    Circle *rawPtr = circle.get();
+    editor.circles.push_back(std::move(circle));
+    return rawPtr;
+  }
+
+public:
+  GeometryEditorTest() {
+    // It's crucial that Button::loadFont() is called successfully before
+    // GeometryEditor constructor, or hoverMessageText might not initialize
+    // correctly. For tests, ensure font can be loaded or mock this dependency
+    // if it causes issues.
+    Button::loadFont(); // Attempt to load font
+  }
+};
+
+// Test constructor (basic check)
+TEST_F(GeometryEditorTest, ConstructorInitializes) {
+  ASSERT_TRUE(editor.window.isOpen()); // Basic check that window object exists
+  ASSERT_EQ(editor.m_currentToolType, ObjectType::None); // Default tool
+  ASSERT_FALSE(editor.isPanning);
+  ASSERT_FALSE(editor.isDragging);
+}
+
+TEST_F(GeometryEditorTest, SetCurrentTool) {
+  editor.setCurrentTool(ObjectType::Point);
+  ASSERT_EQ(editor.m_currentToolType, ObjectType::Point);
+  ASSERT_TRUE(editor.gui.isButtonActive("Point"));
+
+  editor.setCurrentTool(ObjectType::Line);
+  ASSERT_EQ(editor.m_currentToolType, ObjectType::Line);
+  ASSERT_TRUE(editor.gui.isButtonActive("Line"));
+  ASSERT_FALSE(editor.gui.isButtonActive("Point"));
+
+  // Test toggling off a tool by selecting it again
+  editor.setCurrentTool(ObjectType::Line);
+  ASSERT_EQ(editor.m_currentToolType, ObjectType::None);
+  ASSERT_TRUE(editor.gui.isButtonActive("Move"));
+  ASSERT_FALSE(editor.gui.isButtonActive("Line"));
+}
+
+TEST_F(GeometryEditorTest, ToggleGrid) {
+  bool initialVisibility = editor.grid.isVisible();
+  editor.toggleGrid();
+  ASSERT_NE(editor.grid.isVisible(), initialVisibility);
+  editor.toggleGrid();
+  ASSERT_EQ(editor.grid.isVisible(), initialVisibility);
+}
+
+TEST_F(GeometryEditorTest, LookForObjectAt_FindsPoint) {
+  Point *p1 = addFreePoint(10.0, 10.0);
+  ASSERT_NE(p1, nullptr);
+
+  float tolerance = editor.getScaledTolerance(editor.getDrawingView());
+  GeometricObject *found = editor.lookForObjectAt(
+      sf::Vector2f(10.0f, 10.0f), tolerance, {ObjectType::Point});
+  ASSERT_EQ(found, static_cast<GeometricObject *>(p1));
+
+  GeometricObject *notFound = editor.lookForObjectAt(
+      sf::Vector2f(100.0f, 100.0f), tolerance, {ObjectType::Point});
+  ASSERT_EQ(notFound, nullptr);
+}
+
+TEST_F(GeometryEditorTest, LookForObjectAt_FindsLine) {
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 100));
+  ASSERT_NE(line1, nullptr);
+
+  float tolerance = editor.getScaledTolerance(editor.getDrawingView());
+  // Test a point on the line
+  GeometricObject *found = editor.lookForObjectAt(
+      sf::Vector2f(50.0f, 50.0f), tolerance, {ObjectType::Line});
+  ASSERT_EQ(found, static_cast<GeometricObject *>(line1));
+
+  // Test a point far from the line
+  GeometricObject *notFound = editor.lookForObjectAt(
+      sf::Vector2f(200.0f, 50.0f), tolerance, {ObjectType::Line});
+  ASSERT_EQ(notFound, nullptr);
+}
+
+TEST_F(GeometryEditorTest, LookForObjectAt_FindsCircle) {
+  // This test relies on Circle having isCenterPointHovered and
+  // isCircumferenceHovered methods.
+  Circle *circle1 = addCircle(Point_2(200, 200), 50.0);
+  ASSERT_NE(circle1, nullptr);
+
+  float tolerance = editor.getScaledTolerance(editor.getDrawingView());
+
+  // Test point on circumference (e.g., 200+50, 200)
+  // Ensure Circle::isCircumferenceHovered is implemented and works for this to
+  // pass.
+  GeometricObject *foundOnCircumference = editor.lookForObjectAt(
+      sf::Vector2f(250.0f, 200.0f), tolerance, {ObjectType::Circle});
+  ASSERT_EQ(foundOnCircumference, static_cast<GeometricObject *>(circle1));
+
+  // Test point at center
+  // Ensure Circle::isCenterPointHovered is implemented and works.
+  GeometricObject *foundAtCenter = editor.lookForObjectAt(
+      sf::Vector2f(200.0f, 200.0f), tolerance, {ObjectType::Circle});
+  ASSERT_EQ(foundAtCenter, static_cast<GeometricObject *>(circle1));
+
+  // Test point inside but not center (relies on Circle::contains)
+  GeometricObject *foundInside = editor.lookForObjectAt(
+      sf::Vector2f(210.0f, 210.0f), tolerance, {ObjectType::Circle});
+  ASSERT_EQ(foundInside, static_cast<GeometricObject *>(circle1));
+
+  // Test point outside
+  GeometricObject *notFound = editor.lookForObjectAt(
+      sf::Vector2f(500.0f, 500.0f), tolerance, {ObjectType::Circle});
+  ASSERT_EQ(notFound, nullptr);
+}
+
+TEST_F(GeometryEditorTest, LookForObjectAt_RespectsAllowedTypes) {
+  Point *p1 = addFreePoint(10.0, 10.0);
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 100));
+
+  float tolerance = editor.getScaledTolerance(editor.getDrawingView());
+
+  // Look for only points
+  GeometricObject *foundPoint = editor.lookForObjectAt(
+      sf::Vector2f(10.0f, 10.0f), tolerance, {ObjectType::Point});
+  ASSERT_EQ(foundPoint, static_cast<GeometricObject *>(p1));
+  GeometricObject *foundLineAsPoint = editor.lookForObjectAt(
+      sf::Vector2f(50.0f, 50.0f), tolerance, {ObjectType::Point});
+  ASSERT_EQ(foundLineAsPoint,
+            nullptr); // Should not find line if only Point is allowed
+
+  // Look for only lines
+  GeometricObject *foundLine = editor.lookForObjectAt(
+      sf::Vector2f(50.0f, 50.0f), tolerance, {ObjectType::Line});
+  ASSERT_EQ(foundLine, static_cast<GeometricObject *>(line1));
+  GeometricObject *foundPointAsLine = editor.lookForObjectAt(
+      sf::Vector2f(10.0f, 10.0f), tolerance, {ObjectType::Line});
+  ASSERT_EQ(foundPointAsLine,
+            nullptr); // Should not find point if only Line is allowed
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_LineLine) {
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 100));
+  Line *line2 = addLine(Point_2(0, 100), Point_2(100, 0));
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(line1, line2); // Intersect at (50,50)
+
+  ASSERT_EQ(editor.points.size(), initialPointCount + 1);
+  Point_2 expectedIntersection(50, 50);
+  bool found = false;
+  for (const auto &p_uniq : editor.points) {
+    if (CGAL::squared_distance(p_uniq->getCGALPosition(),
+                               expectedIntersection) < 1e-9) {
+      found = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found);
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_LineCircle) {
+  Line *line1 =
+      addLine(Point_2(-100, 50), Point_2(100, 50)); // Horizontal line y=50
+  Circle *circle1 =
+      addCircle(Point_2(0, 0), 50.0); // Circle centered at origin, radius 50
+                                      // Intersects at (0,50)
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(line1, circle1);
+
+  // This specific case is a tangent, should create 1 point.
+  // If it were secant, it would create 2.
+  ASSERT_EQ(editor.points.size(), initialPointCount + 1);
+  Point_2 expectedIntersection(0, 50);
+  bool found = false;
+  for (const auto &p_uniq : editor.points) {
+    if (CGAL::squared_distance(p_uniq->getCGALPosition(),
+                               expectedIntersection) < 1e-9) {
+      found = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found);
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_CircleCircle) {
+  Circle *circle1 = addCircle(Point_2(0, 0), 50.0);
+  Circle *circle2 = addCircle(Point_2(100, 0), 50.0); // Intersect at (50,0)
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(circle1, circle2);
+
+  ASSERT_EQ(editor.points.size(), initialPointCount + 1); // Tangent case
+  Point_2 expectedIntersection(50, 0);
+  bool found = false;
+  for (const auto &p_uniq : editor.points) {
+    if (CGAL::squared_distance(p_uniq->getCGALPosition(),
+                               expectedIntersection) < 1e-9) {
+      found = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found);
+}
+
+TEST_F(GeometryEditorTest, DeleteSelected_SinglePoint) {
+  Point *p1 = addFreePoint(10, 10);
+  editor.selectedObject = p1;
+  p1->setSelected(true);
+
+  ASSERT_EQ(editor.points.size(), 1);
+  editor.deleteSelected();
+  ASSERT_EQ(editor.points.size(), 0);
+  ASSERT_EQ(editor.selectedObject, nullptr);
+}
+
+TEST_F(GeometryEditorTest, DeleteSelected_PointUsedByLine_ShouldNotDelete) {
+  Point *p1 = addFreePoint(0, 0);
+  Point *p2 = addFreePoint(100, 0);
+  Line *line1 = addLine(p1, p2);
+
+  editor.selectedObject = p1; // Select p1
+  p1->setSelected(true);
+
+  ASSERT_EQ(editor.points.size(), 2);
+  ASSERT_EQ(editor.lines.size(), 1);
+  editor.deleteSelected(); // Attempt to delete p1
+
+  ASSERT_EQ(editor.points.size(), 2); // p1 should NOT be deleted
+  ASSERT_EQ(editor.lines.size(), 1);  // line should still exist
+  ASSERT_NE(editor.selectedObject,
+            nullptr); // p1 should still be selected (or selection cleared by
+                      // failed delete) The current implementation keeps
+                      // selectedObject if delete fails.
+  ASSERT_TRUE(p1->isSelected());
+}
+
+TEST_F(GeometryEditorTest, DeleteSelected_MultipleObjects) {
+  Point *p1 = addFreePoint(10, 10);
+  Point *p2 = addFreePoint(20, 20); // Will not be deleted
+  Line *l1 = addLine(Point_2(30, 30), Point_2(40, 40));
+
+  p1->setSelected(true);
+  l1->setSelected(true);
+  // editor.selectedObject remains nullptr for multi-select scenario in
+  // deleteSelected
+
+  ASSERT_EQ(editor.points.size(), 2);
+  ASSERT_EQ(editor.lines.size(), 1);
+
+  editor.deleteSelected();
+
+  ASSERT_EQ(editor.points.size(), 1); // p1 deleted, p2 remains
+  ASSERT_EQ(editor.lines.size(), 0);  // l1 deleted
+
+  bool p2_found = false;
+  for (const auto &p_uniq : editor.points) {
+    if (p_uniq.get() == p2)
+      p2_found = true;
+  }
+  ASSERT_TRUE(p2_found);
+  ASSERT_FALSE(p2->isSelected()); // Should be deselected if not deleted
+}
+
+TEST_F(GeometryEditorTest, CancelCurrentOperation) {
+  editor.isCreatingCircle = true;
+  editor.previewCircle =
+      std::make_unique<Circle>(Point_2(0, 0), 10, Constants::PREVIEW_COLOR);
+  Point *p1 = addFreePoint(0, 0);
+  editor.lineCreationPoint1 = p1;
+  p1->setSelected(true);
+  editor.m_currentToolType = ObjectType::Circle;
+
+  editor.cancelCurrentOperation();
+
+  ASSERT_FALSE(editor.isCreatingCircle);
+  ASSERT_EQ(editor.previewCircle, nullptr);
+  ASSERT_EQ(editor.lineCreationPoint1, nullptr);
+  if (p1) { // p1 itself is not deleted by cancel, just its role in line
+            // creation
+    ASSERT_FALSE(p1->isSelected());
+  }
+  ASSERT_EQ(editor.m_currentToolType, ObjectType::None); // Should reset tool
+}
+
+TEST_F(GeometryEditorTest, ResetApplicationState) {
+  addFreePoint(10, 10);
+  editor.selectedObject = editor.points[0].get();
+  editor.m_currentToolType = ObjectType::Point;
+  editor.isCreatingCircle = true;
+
+  editor.resetApplicationState();
+
+  // Check a few key states
+  ASSERT_EQ(editor.selectedObject, nullptr);
+  ASSERT_EQ(editor.m_currentToolType, ObjectType::None);
+  ASSERT_FALSE(editor.isCreatingCircle);
+  // Note: resetApplicationState does NOT clear the geometric objects
+  // themselves, only interaction states and views.
+  ASSERT_EQ(editor.points.size(), 1);
+}
+
+TEST_F(GeometryEditorTest, CoordinateConversion) {
+  Point_2 cgal_p(12.5, -34.2);
+  sf::Vector2f sfml_v = editor.toSFMLVector(cgal_p);
+  ASSERT_FLOAT_EQ(sfml_v.x, 12.5f);
+  ASSERT_FLOAT_EQ(sfml_v.y, -34.2f);
+
+  sf::Vector2f sfml_v2(56.0f, 78.9f);
+  Vector_2 cgal_vec = editor.toCGALVector(
+      sfml_v2); // Assuming Vector_2 is CGAL::Vector_2<Kernel>
+  ASSERT_DOUBLE_EQ(CGAL::to_double(cgal_vec.x()), 56.0);
+  ASSERT_DOUBLE_EQ(CGAL::to_double(cgal_vec.y()), 78.9);
+}
+
+TEST_F(GeometryEditorTest, GetScaledTolerance) {
+  // Default view size should match window constants
+  float defaultTolerance = Constants::MOUSE_OVER_TOLERANCE;
+  ASSERT_FLOAT_EQ(editor.getScaledTolerance(editor.getDrawingView()),
+                  defaultTolerance);
+
+  sf::View zoomedView = editor.getDrawingView();
+  zoomedView.zoom(0.5f); // Zoom in (view size is halved)
+  // Tolerance should scale with view size / window width.
+  // If view.getSize().x is halved, tolerance should be halved.
+  ASSERT_FLOAT_EQ(editor.getScaledTolerance(zoomedView),
+                  defaultTolerance * 0.5f);
+
+  sf::View pannedView = editor.getDrawingView();
+  pannedView.move(100, 100); // Panning should not change scaled tolerance
+  ASSERT_FLOAT_EQ(editor.getScaledTolerance(pannedView), defaultTolerance);
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_LineLine_Parallel) {
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 0));   // y = 0
+  Line *line2 = addLine(Point_2(0, 50), Point_2(100, 50)); // y = 50
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(line1, line2);
+
+  ASSERT_EQ(editor.points.size(),
+            initialPointCount); // Parallel lines, no intersection points
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_LineLine_Coincident) {
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 100));
+  Line *line2 = addLine(Point_2(0, 0), Point_2(50, 50)); // Coincident segment
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(line1, line2);
+
+  ASSERT_EQ(editor.points.size(),
+            initialPointCount); // Coincident lines, no unique point
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_LineCircle_TwoPoints) {
+  Line *line1 =
+      addLine(Point_2(-100, 0), Point_2(100, 0)); // Horizontal line y=0
+  Circle *circle1 =
+      addCircle(Point_2(0, 0), 50.0); // Circle centered at origin, radius 50
+                                      // Intersects at (-50,0) and (50,0)
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(line1, circle1);
+
+  ASSERT_EQ(editor.points.size(), initialPointCount + 2);
+  Point_2 expected1(-50, 0);
+  Point_2 expected2(50, 0);
+  bool found1 = false;
+  bool found2 = false;
+  for (const auto &p_uniq : editor.points) {
+    if (CGAL::squared_distance(p_uniq->getCGALPosition(), expected1) < 1e-9) {
+      found1 = true;
+    } else if (CGAL::squared_distance(p_uniq->getCGALPosition(), expected2) <
+               1e-9) {
+      found2 = true;
+    }
+  }
+  ASSERT_TRUE(found1 && found2);
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_LineCircle_NoIntersection) {
+  Line *line1 =
+      addLine(Point_2(-100, 100), Point_2(100, 100)); // Horizontal line y=100
+  Circle *circle1 =
+      addCircle(Point_2(0, 0), 50.0); // Circle centered at origin, radius 50
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(line1, circle1);
+
+  ASSERT_EQ(editor.points.size(), initialPointCount);
+}
+
+TEST_F(GeometryEditorTest, CreateIntersectionPoint_CircleCircle_TwoPoints) {
+  Circle *circle1 = addCircle(Point_2(0, 0), 50.0);
+  Circle *circle2 = addCircle(Point_2(60, 0), 50.0); // Intersect at two points
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(circle1, circle2);
+
+  // Based on CGAL::intersection for two circles, it should produce two points
+  ASSERT_EQ(editor.points.size(), initialPointCount + 2);
+  // Verification of exact points can be complex, relying on CGAL's correctness
+  // here. For a more robust test, calculate expected points manually or use
+  // known values. Example expected points for C1(0,0,R=50), C2(60,0,R=50):
+  // x=30, y= +/- sqrt(50^2 - 30^2) = +/- 40
+  Point_2 expected1(30, 40);
+  Point_2 expected2(30, -40);
+  bool found1 = false;
+  bool found2 = false;
+  for (const auto &p_uniq : editor.points) {
+    if (CGAL::squared_distance(p_uniq->getCGALPosition(), expected1) < 1e-9) {
+      found1 = true;
+    } else if (CGAL::squared_distance(p_uniq->getCGALPosition(), expected2) <
+               1e-9) {
+      found2 = true;
+    }
+  }
+  ASSERT_TRUE(found1 && found2);
+}
+
+TEST_F(GeometryEditorTest,
+       CreateIntersectionPoint_CircleCircle_NoIntersection) {
+  Circle *circle1 = addCircle(Point_2(0, 0), 20.0);
+  Circle *circle2 = addCircle(Point_2(100, 0), 20.0); // Far apart
+
+  size_t initialPointCount = editor.points.size();
+  editor.createIntersectionPoint(circle1, circle2);
+
+  ASSERT_EQ(editor.points.size(), initialPointCount);
+}
+
+TEST_F(GeometryEditorTest, CalculateIntersectionBetween_Dispatcher) {
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 100));
+  Line *line2 =
+      addLine(Point_2(0, 100), Point_2(100, 0)); // Intersect at (50,50)
+  Circle *circle1 =
+      addCircle(Point_2(0, 0),
+                50.0); // Intersects line1 at (sqrt(1250), sqrt(1250)) etc.
+                       // Intersects line2 at (50,0) if line2 was y=0
+                       // For this setup, line1 intersects circle1 at 2 points.
+
+  size_t initialPointCount = editor.points.size();
+  editor.calculateIntersectionBetween(line1, line2);
+  ASSERT_EQ(editor.points.size(),
+            initialPointCount + 1); // Line-Line intersection
+
+  initialPointCount = editor.points.size();
+  editor.calculateIntersectionBetween(line1,
+                                      circle1); // Line-Circle intersection
+  ASSERT_EQ(editor.points.size(),
+            initialPointCount +
+                2); // Should be 2 points for y=x and x^2+y^2=50^2
+
+  // Clean up points for next check if needed or use separate test instances
+  editor.points.clear();
+  initialPointCount = editor.points.size(); // Should be 0
+  Circle *circle2 =
+      addCircle(Point_2(60, 0), 50.0); // Intersects circle1 at 2 points
+  editor.calculateIntersectionBetween(circle1,
+                                      circle2); // Circle-Circle intersection
+  ASSERT_EQ(editor.points.size(), initialPointCount + 2);
+}
+
+TEST_F(GeometryEditorTest, CalculateIntersectionBetween_NullObjects) {
+  Line *line1 = addLine(Point_2(0, 0), Point_2(100, 100));
+  size_t initialPointCount = editor.points.size();
+
+  editor.calculateIntersectionBetween(nullptr, line1);
+  ASSERT_EQ(editor.points.size(), initialPointCount);
+
+  editor.calculateIntersectionBetween(line1, nullptr);
+  ASSERT_EQ(editor.points.size(), initialPointCount);
+
+  editor.calculateIntersectionBetween(nullptr, nullptr);
+  ASSERT_EQ(editor.points.size(), initialPointCount);
+}
+
+TEST_F(GeometryEditorTest, PanningOperations) {
+  sf::Vector2f initialCenter = editor.drawingView.getCenter();
+  sf::Vector2f mouseStartPos(10.f, 20.f);
+
+  editor.startPanning(mouseStartPos);
+  ASSERT_TRUE(editor.isPanning);
+  ASSERT_EQ(editor.lastMousePos_sfml, mouseStartPos);
+
+  sf::Vector2f panDelta(
+      -5.f,
+      10.f); // Corresponds to mouse moving from (10,20) to (5,30)
+             // View should move by (-5, 10) if delta is view coords
+             // If delta is mouse movement, then view moves by -(mouse_current -
+             // mouse_last) Assuming panView takes delta in view coordinates
+  editor.panView(panDelta);
+  ASSERT_EQ(editor.drawingView.getCenter().x, initialCenter.x + panDelta.x);
+  ASSERT_EQ(editor.drawingView.getCenter().y, initialCenter.y + panDelta.y);
+
+  editor.stopPanning();
+  ASSERT_FALSE(editor.isPanning);
+}
+
+TEST_F(GeometryEditorTest, ResetParallelLineToolStateTest) {
+  // Setup some dummy state for parallel line tool
+  editor.m_parallelReferenceLine = addLine(Point_2(0, 0), Point_2(1, 1));
+  editor.m_isPlacingParallel = true;
+  editor.m_parallelPreviewLine = std::make_unique<Line>(
+      Point_2(0, 0), Point_2(10, 10), Constants::PREVIEW_COLOR);
+
+  editor.resetParallelLineToolState();
+
+  ASSERT_EQ(editor.m_parallelReferenceLine, nullptr);
+  ASSERT_FALSE(editor.m_isPlacingParallel);
+  ASSERT_EQ(editor.m_parallelPreviewLine, nullptr);
+}
+
+TEST_F(GeometryEditorTest, ResetPerpendicularLineToolStateTest) {
+  // Setup some dummy state for perpendicular line tool
+  editor.m_perpendicularReferenceLine = addLine(Point_2(0, 0), Point_2(1, 1));
+  editor.m_isPlacingPerpendicular = true;
+  editor.m_perpendicularPreviewLine = std::make_unique<Line>(
+      Point_2(0, 0), Point_2(10, 10), Constants::PREVIEW_COLOR);
+
+  editor.resetPerpendicularLineToolState();
+
+  ASSERT_EQ(editor.m_perpendicularReferenceLine, nullptr);
+  ASSERT_FALSE(editor.m_isPlacingPerpendicular);
+  ASSERT_EQ(editor.m_perpendicularPreviewLine, nullptr);
+}
+
+TEST_F(GeometryEditorTest, HasSelectedObjectTest) {
+  ASSERT_FALSE(editor.hasSelectedObject());
+  Point *p1 = addFreePoint(0, 0);
+  editor.selectedObject = p1;
+  ASSERT_TRUE(editor.hasSelectedObject());
+  editor.selectedObject = nullptr;
+  ASSERT_FALSE(editor.hasSelectedObject());
+}
+
+TEST_F(GeometryEditorTest, GetCurrentToolNameTest) {
+  editor.setCurrentTool(ObjectType::None);
+  ASSERT_EQ(editor.getCurrentToolName(), "Move/Select");
+
+  editor.setCurrentTool(ObjectType::Point);
+  ASSERT_EQ(editor.getCurrentToolName(), "Point");
+
+  editor.setCurrentTool(ObjectType::Line);
+  ASSERT_EQ(editor.getCurrentToolName(), "Line");
+
+  editor.setCurrentTool(ObjectType::Intersection);
+  ASSERT_EQ(editor.getCurrentToolName(), "Intersection");
+
+  // Reset tool to None to avoid affecting other tests if setCurrentTool has
+  // side effects
+  editor.setCurrentTool(ObjectType::None);
+}
+
+TEST_F(GeometryEditorTest, ObjectExistsInAnyListTest) {
+  Point *p1 = addFreePoint(10, 10);
+  Line *l1 = addLine(Point_2(0, 0), Point_2(1, 1));
+  Circle *c1 = addCircle(Point_2(5, 5), 2);
+  Point *pNotInList = new Point(
+      Point_2(100, 100), Constants::POINT_DEFAULT_COLOR); // Not added to editor
+
+  ASSERT_TRUE(editor.objectExistsInAnyList(p1));
+  ASSERT_TRUE(editor.objectExistsInAnyList(l1));
+  ASSERT_TRUE(editor.objectExistsInAnyList(c1));
+  ASSERT_FALSE(editor.objectExistsInAnyList(pNotInList));
+  ASSERT_FALSE(editor.objectExistsInAnyList(nullptr));
+
+  delete pNotInList; // Clean up manually created object
+}
+
+TEST_F(GeometryEditorTest, HandleResizeTest) {
+  unsigned int newWidth = 1200;
+  unsigned int newHeight = 900;
+
+  editor.handleResize(newWidth, newHeight);
+
+  ASSERT_FLOAT_EQ(editor.drawingView.getSize().x, static_cast<float>(newWidth));
+  ASSERT_FLOAT_EQ(editor.drawingView.getSize().y,
+                  static_cast<float>(newHeight));
+  ASSERT_FLOAT_EQ(editor.drawingView.getCenter().x,
+                  static_cast<float>(newWidth) / 2.f);
+  ASSERT_FLOAT_EQ(editor.drawingView.getCenter().y,
+                  static_cast<float>(newHeight) / 2.f);
+
+  ASSERT_FLOAT_EQ(editor.guiView.getSize().x, static_cast<float>(newWidth));
+  ASSERT_FLOAT_EQ(editor.guiView.getSize().y, static_cast<float>(newHeight));
+  // guiView center is typically (width/2, height/2) as well, or (0,0) if its
+  // rect is (0,0,width,height) Assuming it's also centered like drawingView for
+  // this test. If guiView is meant to be static at (0,0) origin with size
+  // (width,height), its center would be (width/2, height/2).
+  ASSERT_FLOAT_EQ(editor.guiView.getCenter().x,
+                  static_cast<float>(newWidth) / 2.f);
+  ASSERT_FLOAT_EQ(editor.guiView.getCenter().y,
+                  static_cast<float>(newHeight) / 2.f);
+
+  // Test with zero dimensions (should do nothing)
+  sf::Vector2f prevSize = editor.drawingView.getSize();
+  editor.handleResize(0, 0);
+  ASSERT_FLOAT_EQ(editor.drawingView.getSize().x, prevSize.x);
+  ASSERT_FLOAT_EQ(editor.drawingView.getSize().y, prevSize.y);
+}
+TEST_F(GeometryEditorTest, StartPanningClearsHover) {
+  Point *p1 = addFreePoint(10, 10);
+  editor.hoveredObject = p1;
+  p1->setHovered(true);
+  editor.showHoverMessage = true;
+
+  editor.startPanning(sf::Vector2f(0, 0));
+
+  ASSERT_TRUE(editor.isPanning);
+  ASSERT_EQ(editor.hoveredObject, nullptr);
+  ASSERT_FALSE(p1->isHovered()); // Assuming GeometricObject has isHovered()
+  ASSERT_FALSE(editor.showHoverMessage);
+}
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  // SFML might require a window context for some operations, even if not
+  // visible. This setup can be tricky in a pure CI environment. For local
+  // testing, it should generally work.
+  return RUN_ALL_TESTS();
+}

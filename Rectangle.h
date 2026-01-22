@@ -1,0 +1,101 @@
+#pragma once
+
+#ifdef CGAL_USE_SSE2
+#undef CGAL_USE_SSE2
+#warning "CGAL_USE_SSE2 was defined, now undefined locally for testing"
+#endif
+
+#include "GeometricObject.h"
+#include "Types.h"
+#include <SFML/Graphics.hpp>
+#include <memory>
+#include <vector>
+
+/**
+ * @brief Rectangle class supporting both axis-aligned and rotatable variants
+ */
+class Rectangle : public GeometricObject {
+ public:
+  /**
+   * @brief Constructor for axis-aligned rectangle
+   * @param corner1 First corner (CGAL point)
+   * @param corner2 Opposite corner (CGAL point)
+   * @param isRotatable Whether the rectangle is rotatable
+   * @param color Fill color
+   * @param id Unique identifier
+   */
+  Rectangle(const Point_2 &corner1, const Point_2 &corner2, bool isRotatable = false,
+            const sf::Color &color = sf::Color::White, unsigned int id = 0);
+
+  /**
+   * @brief Constructor for rotatable rectangle
+   * @param corner First corner (CGAL point)
+   * @param adjacentPoint Point defining one side and rotation
+   * @param width Width of the rectangle
+   * @param color Fill color
+   * @param id Unique identifier
+   */
+  Rectangle(const Point_2 &corner, const Point_2 &adjacentPoint, double width,
+            const sf::Color &color = sf::Color::White, unsigned int id = 0);
+
+  virtual ~Rectangle() = default;
+
+  // GeometricObject interface
+  virtual void draw(sf::RenderWindow &window) const override;
+  virtual void setColor(const sf::Color &color) override;
+  virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
+  virtual std::string getTypeString() const { return "Rectangle"; }
+  virtual void translate(const Vector_2 &translation) override;
+  virtual Point_2 getCGALPosition() const override;
+  virtual void setCGALPosition(const Point_2 &newPos) override;
+  virtual void setPosition(const sf::Vector2f &newSfmlPos) override;
+  virtual sf::FloatRect getGlobalBounds() const override;
+  
+  // Point/Edge provider interface overrides
+  std::vector<Point_2> getInteractableVertices() const override;
+  std::vector<Segment_2> getEdges() const override;
+
+  // Additional methods (not overrides)
+  sf::Color getColor() const { return m_color; }
+  Point_2 getCenter() const;
+  bool isWithinDistance(const sf::Vector2f &screenPos, float tolerance) const;
+  void rotateCCW(const Point_2 &center, double angleRadians);
+
+  // Rectangle-specific getters
+  Point_2 getCorner1() const { return m_corner1; }
+  Point_2 getCorner2() const { return m_corner2; }
+  bool isRotatable() const { return m_isRotatable; }
+  double getWidth() const { return m_width; }
+  double getHeight() const { return m_height; }
+  double getRotationAngle() const { return m_rotationAngle; }
+  std::vector<Point_2> getVertices() const;
+  std::vector<sf::Vector2f> getVerticesSFML() const;
+  void setVertexPosition(size_t index, const Point_2 &value);
+  void setHoveredVertex(int index) { m_hoveredVertex = index; }
+  void setActiveVertex(int index) { m_activeVertex = index; }
+  int getHoveredVertex() const { return m_hoveredVertex; }
+  int getActiveVertex() const { return m_activeVertex; }
+
+  // Rectangle-specific setters
+  void setCorners(const Point_2 &corner1, const Point_2 &corner2);
+  void setRotation(double angleRadians);
+
+ private:
+  Point_2 m_corner1;        // First corner in CGAL coordinates
+  Point_2 m_corner2;        // Second corner in CGAL coordinates
+  bool m_isRotatable;       // True if rectangle can be rotated
+  double m_width;           // Width of the rectangle
+  double m_height;          // Height of the rectangle
+  double m_rotationAngle;   // Rotation angle in radians (for rotatable rectangles)
+  Point_2 m_center;         // Geometric center (authoritative for rotatable rectangles)
+  sf::Color m_color;        // Fill color
+  sf::RectangleShape m_sfmlShape;  // SFML shape for rendering
+  int m_hoveredVertex = -1;
+  int m_activeVertex = -1;
+
+  // Helper methods
+  void updateSFMLShape();
+  void updateDimensionsFromCorners();
+  void updateCornerPositions();
+  void drawVertexHandles(sf::RenderWindow &window) const;
+};
