@@ -64,7 +64,7 @@ public:
   //---- enum class for LineType ----
   enum class LineType { Infinite, Segment, Ray };
   // --- GeometricObject Overrides ---
-  void draw(sf::RenderWindow &window) const override;
+  virtual void draw(sf::RenderWindow &window, float scale) const override;
   bool
   contains(const sf::Vector2f &worldPos_sfml,
            float tolerance = Constants::LINE_INTERACTION_RADIUS) const override;
@@ -104,10 +104,19 @@ public:
                          const Vector_2 &referenceDirection);
   void setAsPerpendicularLine(std::shared_ptr<GeometricObject> refObj, int edgeIndex,
                               const Vector_2 &referenceDirection);
-  void maintainConstraints();
+  bool maintainConstraints();  // Returns true if geometry changed
   void forceConstraintUpdate();
+  
+  // Constraint reference getters for serialization
+  std::shared_ptr<GeometricObject> getConstraintRefObject() const {
+    return m_constraintRefObject.lock();
+  }
+  int getConstraintRefEdgeIndex() const { return m_constraintRefEdgeIndex; }
+
+
 
   // --- Endpoint Manipulation ---
+  void setPoints(std::shared_ptr<Point> start, std::shared_ptr<Point> end);
   void moveEndpointToStart(const Point_2 &newPos);
   void moveEndpointToEnd(const Point_2 &newPos);
 
@@ -125,10 +134,6 @@ public:
   void updateCGALLine();
   void validate() const; // For debugging
   void setIsUnderDirectManipulation(bool isManipulated);
-  // --- Appearance Methods ---
-  const sf::Color &getColor() const;
-  void setThickness(float thickness);
-  float getThickness() const;
   void setAsConstructionLine();
   bool isConstructionLine() const;
   void setColor(const sf::Color &color) override;

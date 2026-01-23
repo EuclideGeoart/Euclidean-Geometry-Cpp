@@ -42,6 +42,7 @@
 #include "Polygon.h"      // User-drawn polygons
 #include "RegularPolygon.h"  // Regular N-sided polygons
 #include "Triangle.h"        // General triangles
+#include "PointUtils.h"      // For EdgeHitResult and anchor point detection
 
 // Note: Headers like "HandleEvents.h" (if it was a .h file for functions) are
 // not typically included if GeometryEditor itself implements the event handling
@@ -131,6 +132,10 @@ class GeometryEditor {
   GeometricObject *hoveredObject = nullptr;  // Object currently under mouse for hover feedback
     int hoveredVertexIndex = -1;
     GeometricObject *hoveredVertexShape = nullptr;
+    
+  // Edge hover tracking for universal snapping
+  std::optional<EdgeHitResult> m_hoveredEdge;  // Currently hovered edge (if any)
+  
   GeometricObject *lookForObjectAt(const sf::Vector2f &worldPos_sfml, float tolerance,
                                    const std::vector<ObjectType> &allowedTypes = {});
 
@@ -182,6 +187,15 @@ class GeometryEditor {
   // --- Preview Overlay (lightweight, no CGAL) ---
   sf::VertexArray previewLineOverlay{sf::Lines, 2};
   bool hasPreviewLineOverlay = false;
+  std::shared_ptr<sf::CircleShape> m_ghostCursor; // Visual feedback for tools (e.g., Smart Point)
+  bool m_isHoveringIntersection = false;
+  Point_2 m_hoveredIntersectionPos = Point_2(FT(0), FT(0));
+  std::shared_ptr<Line> m_hoveredIntersectionLine1;
+  std::shared_ptr<Line> m_hoveredIntersectionLine2;
+  bool m_isHoveringLine = false;
+  std::shared_ptr<Line> m_hoveredLine;
+  Point_2 m_hoveredLineSnapPos = Point_2(FT(0), FT(0));
+  PointUtils::SnapState m_snapState;
 
   // --- Panning State (primarily used by event handling logic) ---
   bool isPanning = false;
@@ -221,6 +235,12 @@ class GeometryEditor {
   void updateAllGeometry();
   void updateScaleFactor();
   void updateConstraintsOnly();
+  
+  // --- Project Save/Load/Export ---
+  void saveProject(const std::string& filepath = "project.json");
+  void loadProject(const std::string& filepath = "project.json");
+  void exportSVG(const std::string& filepath = "export.svg");
+  void clearScene();  // Clear all objects from the scene
   // Zoom limits
   const float MAX_ZOOM_IN = 0.05f;
   const float MAX_ZOOM_OUT = 10.0f;
@@ -263,6 +283,10 @@ class GeometryEditor {
   void deleteSelectedObject();  // Or deleteSelectedObjects if multi-select is planned
   void safeDeleteLine(std::shared_ptr<Line> lineToDelete);
   void clearHoverReferences(GeometricObject* obj);
+  
+  // Helper to find shared_ptr from raw pointer
+  std::shared_ptr<GeometricObject> findSharedPtr(GeometricObject* raw);
+  
   // Snapping (could be moved to a SnapManager class later)
   std::optional<Point_2> findSnapPoint(const Point_2 &currentCgalPos, float snapRadiusWorld);
 

@@ -56,25 +56,27 @@ void RegularPolygon::updateSFMLShapeInternal() {
   m_sfmlShape.setOutlineColor(sf::Color::Black);
 }
 
-void RegularPolygon::draw(sf::RenderWindow &window) const {
-  window.draw(m_sfmlShape);
+void RegularPolygon::draw(sf::RenderWindow &window, float scale) const {
+  sf::ConvexShape shape = m_sfmlShape;
+  shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+  window.draw(shape);
 
   // Draw selection highlight if selected
   if (isSelected()) {
     sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(3.0f);
+    highlight.setOutlineThickness(3.0f * scale);
     highlight.setOutlineColor(sf::Color::Yellow);
     window.draw(highlight);
   } else if (isHovered()) {
     sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(2.0f);
+    highlight.setOutlineThickness(2.0f * scale);
     highlight.setOutlineColor(sf::Color::Cyan); // Cyan for hover
     window.draw(highlight);
   }
 
-  drawVertexHandles(window);
+  drawVertexHandles(window, scale);
 }
 
 void RegularPolygon::setColor(const sf::Color &color) {
@@ -144,8 +146,8 @@ std::vector<sf::Vector2f> RegularPolygon::getVerticesSFML() const {
   return verts;
 }
 
-void RegularPolygon::drawVertexHandles(sf::RenderWindow &window) const {
-  const float handleRadius = 4.0f;
+void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) const {
+  const float handleRadius = 4.0f * scale;
   
   // Draw center point (creation point 0)
   {
@@ -162,13 +164,13 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window) const {
       base = sf::Color::Yellow;
     }
     handle.setFillColor(base);
-    handle.setOutlineThickness(1.0f);
+    handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
     VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), "C");
   }
   
-  // Draw first vertex (creation point 1, handles scaling)
+  // Draw first vertex
   if (!m_vertices.empty()) {
     sf::CircleShape handle(handleRadius);
     handle.setOrigin(handleRadius, handleRadius);
@@ -183,20 +185,20 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window) const {
       base = sf::Color::Yellow;
     }
     handle.setFillColor(base);
-    handle.setOutlineThickness(1.0f);
+    handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
     VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), "V₁");
   }
   
-  // Draw other vertices as non-draggable (smaller, no hover)
+  // Draw other vertices
   for (size_t i = 1; i < m_vertices.size(); ++i) {
     sf::CircleShape handle(handleRadius * 0.6f);  // Smaller
     handle.setOrigin(handleRadius * 0.6f, handleRadius * 0.6f);
     handle.setPosition(static_cast<float>(CGAL::to_double(m_vertices[i].x())),
                        static_cast<float>(CGAL::to_double(m_vertices[i].y())));
     handle.setFillColor(sf::Color(150, 150, 150, 128));  // Semi-transparent
-    handle.setOutlineThickness(0.5f);
+    handle.setOutlineThickness(0.5f * scale);
     handle.setOutlineColor(sf::Color(100, 100, 100));
     window.draw(handle);
   }

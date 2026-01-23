@@ -90,25 +90,28 @@ void Rectangle::updateSFMLShape() {
   }
 }
 
-void Rectangle::draw(sf::RenderWindow &window) const {
-  window.draw(m_sfmlShape);
+void Rectangle::draw(sf::RenderWindow &window, float scale) const {
+  // Scale the main shape's outline
+  sf::RectangleShape scaledShape = m_sfmlShape;
+  scaledShape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+  window.draw(scaledShape);
 
   // Draw selection highlight if selected
   if (isSelected()) {
     sf::RectangleShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(3.0f);
+    highlight.setOutlineThickness(3.0f * scale);
     highlight.setOutlineColor(sf::Color::Yellow);
     window.draw(highlight);
   } else if (isHovered()) {
     sf::RectangleShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(2.0f); // Thinner than selection
+    highlight.setOutlineThickness(2.0f * scale); // Thinner than selection
     highlight.setOutlineColor(sf::Color::Cyan); // Cyan for hover
     window.draw(highlight);
   }
 
-  drawVertexHandles(window);
+  drawVertexHandles(window, scale);
 }
 
 void Rectangle::setColor(const sf::Color &color) {
@@ -308,8 +311,8 @@ void Rectangle::setPosition(const sf::Vector2f &newSfmlPos) {
   translate(delta);
 }
 
-void Rectangle::drawVertexHandles(sf::RenderWindow &window) const {
-  const float handleRadius = 4.0f;
+void Rectangle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
+  const float handleRadius = 4.0f * scale;
   auto verts = getVertices();
   const char* labels[] = {"A", "B", "C", "D"};
   
@@ -327,7 +330,7 @@ void Rectangle::drawVertexHandles(sf::RenderWindow &window) const {
       base = sf::Color::Yellow;
     }
     handle.setFillColor(base);
-    handle.setOutlineThickness(1.0f);
+    handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
     

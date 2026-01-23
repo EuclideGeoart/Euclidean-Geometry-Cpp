@@ -15,6 +15,7 @@
 #include <iostream>
 #include <memory>
 #include <unordered_map>
+#include <algorithm>
 
 double GEOMETRY_DBL_EPSILON = 1e-10;
 
@@ -233,6 +234,24 @@ void disableAutoIntersections() {
 }
 
 bool isAutoIntersectionsEnabled() { return g_autoUpdateIntersections; }
+
+void removeIntersectionsInvolving(Line *line) {
+  if (!line) return;
+
+  lineLineIntersections.erase(
+      std::remove_if(lineLineIntersections.begin(), lineLineIntersections.end(),
+                     [line](const LineLineIntersection &item) {
+                       return item.line1 == line || item.line2 == line;
+                     }),
+      lineLineIntersections.end());
+
+  lineCircleIntersections.erase(
+      std::remove_if(lineCircleIntersections.begin(), lineCircleIntersections.end(),
+                     [line](const LineCircleIntersection &item) {
+                       return item.line == line;
+                     }),
+      lineCircleIntersections.end());
+}
 
 // Implementation for standard intersection creation (persistent)
 Point *createLineLineIntersection(Line *line1, Line *line2) {

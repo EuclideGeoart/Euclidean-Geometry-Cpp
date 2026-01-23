@@ -54,7 +54,7 @@ constexpr float GRID_SIZE = 50.0f;                           // Base size for gr
 const sf::Color GRID_COLOR = sf::Color(200, 200, 200, 150);  // Light grey, semi-transparent
 const sf::Color GRID_AXIS_COLOR = sf::Color(0, 0, 0, 200);   // Darker grey for axes
 const unsigned int GRID_LABEL_FONT_SIZE = 16;
-const sf::Color AXIS_LABEL_COLOR = sf::Color(200, 200, 200, 200);
+const sf::Color AXIS_LABEL_COLOR = sf::Color(0, 0, 0, 255);  // Solid black for visibility
 const sf::Color LOCKED_COLOR = sf::Color(128, 0, 128, 200);  // Changed to const
 
 // --- Fonts ---
@@ -71,8 +71,8 @@ const sf::Color HOVER_UNIVERSAL_COLOR =
 
 // --- Object Visuals & Interaction ---
 // (General outline thicknesses for selected/hovered objects)
-const float SELECTION_OUTLINE_THICKNESS = 1.5f;  // New constant
-const float HOVER_OUTLINE_THICKNESS = 1.5f;      // New constant
+const float SELECTION_OUTLINE_THICKNESS = 1.5f;
+const float HOVER_OUTLINE_THICKNESS = 1.5f;
 
 // --- Point Visuals & Interaction ---
 constexpr float POINT_RADIUS = 5.0f;  // Make points larger for visibility
@@ -84,6 +84,7 @@ const sf::Color POINT_FILL_COLOR = sf::Color(255, 0, 0);  // Red for better visi
 constexpr float POINT_RADIUS_SELECTED = 7.0f;             // Selected point radius
 
 const sf::Color LINE_DEFAULT_COLOR = sf::Color(0, 0, 255);            // Blue for lines
+constexpr float LINE_THICKNESS_DEFAULT = 2.0f; // Scale invariant thickness
 const sf::Color CONSTRUCTION_LINE_COLOR = sf::Color(0, 0, 255, 150);  // Blue
 const sf::Color CIRCLE_DEFAULT_COLOR = sf::Color(255, 105, 180);      // Hot Pink
 const sf::Color OBJECT_POINT_DEFAULT_COLOR = sf::Color(255, 165, 0);  // Orange
@@ -91,11 +92,12 @@ const sf::Color OBJECT_POINT_OUTLINE_COLOR = sf::Color(50, 75, 200);
 
 const float OBJECT_POINT_INTERACTION_PADDING = 2.0f;
 const sf::Color INTERSECTION_POINT_COLOR = sf::Color(255, 0, 255);  // Magenta
+const sf::Color POINT_INTERSECTION_COLOR = sf::Color(255, 0, 255);  // Alias for code compatibility
 const sf::Color SELECTION_COLOR = sf::Color::Red;
 const sf::Color HOVER_COLOR = sf::Color(0, 255, 0, 100);  // Semi-transparent Green
 const float GUI_MESSAGE_POSITION = 10.0f;                 // Example position for GUI messages
 const unsigned int GUI_MESSAGE_FONT_SIZE = 16;            // Message font size
-const sf::Color GUI_MESSAGE_COLOR = sf::Color::White;
+const sf::Color GUI_MESSAGE_COLOR = sf::Color::Black;
 // Point specific visual constants
 const float POINT_INTERACTION_RADIUS = 10.0f;  // Larger interaction radius for easier selection
 const float POINT_SIZE = 5.0f;                 // Used for scaled drawing
@@ -185,6 +187,7 @@ const float CIRCLE_CENTER_VISUAL_RADIUS = 3.0f;
 const sf::Color CIRCLE_CENTER_VISUAL_COLOR = sf::Color(255, 255, 255);
 const float CIRCLE_ALPHA = 30;  // Transparency for circle fills
 
+
 // -- Coordinate precision for intersection points
 // (The duplicate definition of COORDINATE_PRECISION was here and has been
 // removed)
@@ -207,20 +210,22 @@ const float CIRCLE_ALPHA = 30;  // Transparency for circle fills
 // = 5.0f; // Could be same as LINE_INTERACTION_RADIUS
 
 // Add this line among other constants:
+inline constexpr bool LIFECYCLE = false;
 inline constexpr bool DEBUG_LINE_DRAWING = false;  // Set to true only when needed
 inline constexpr bool DEBUG_POINT_DRAWING = false;
 inline constexpr bool DEBUG_POINT_UPDATE = false;
 inline constexpr bool DEBUG_CGAL_POINT = false;
 inline constexpr bool DEBUG_CIRCLE_DRAWING = false;
 inline constexpr bool DEBUG_OBJECT_POINT_DRAWING = false;
-inline constexpr bool DEBUG_OBJECT_POINT_UPDATE = true;
+inline constexpr bool DEBUG_OBJECT_POINT_UPDATE = false;
 inline constexpr bool DEBUG_GRID_DRAWING = false;
 inline constexpr bool DEBUG_GEOMETRY_UPDATES = false;
-inline constexpr bool DEBUG_CONSTRAINTS = true;
-inline constexpr bool DEBUG_DRAGGING = true;
-inline constexpr bool DEBUG_SELECTION = true;
-inline constexpr bool DEBUG_DELETION = true;
-inline constexpr bool DEBUG_OBJECT_CREATION = true;
+inline constexpr bool DEBUG_CONSTRAINTS = false;
+inline constexpr bool DEBUG_DRAGGING = false;
+inline constexpr bool DEBUG_SELECTION = false;
+inline constexpr bool DEBUG_DELETION = false;
+inline constexpr bool DEBUG_OBJECT_CREATION = false;
+inline constexpr bool DEBUG_LINE_CREATION = false;  // New flag for debugging line creation
 
 // Add this new constant for circle center point color if it doesn't exist
 inline const sf::Color CIRCLE_CENTER_COLOR = sf::Color(255, 165, 0, 255);  // Orange for visibility
@@ -249,7 +254,7 @@ const float MAX_CENTER_POINT_VISUAL_RADIUS =
             // Default length for constructing lines like perpendiculars
 
 // Debug flags
-static const bool DEBUG_LINE_CREATION = false;  // New flag for debugging line creation
+
 const double MIN_DISTANCE_SQUARED_LINE_CREATION =
     1.0;  // Or a smaller value like 1.0e-6 if very close points are allowed
 }  // namespace Constants

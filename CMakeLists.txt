@@ -97,7 +97,9 @@ add_executable(GeometryTool2
     Rectangle.cpp
     Polygon.cpp
     RegularPolygon.cpp
+    RegularPolygon.cpp
     ObjectPoint.cpp
+    Triangle.cpp
     GUI.cpp
     Grid.cpp
     HandleEvents.cpp
@@ -110,6 +112,7 @@ add_executable(GeometryTool2
     ContextMenu.cpp
     VertexLabelManager.cpp
     PointUtils.cpp
+    ProjectSerializer.cpp
 )
 
 # Platform-specific linking for main executable

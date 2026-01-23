@@ -16,11 +16,15 @@ Grid::Grid(float size, bool visible)
         if (Button::getFontLoaded()) {
             m_font = Button::getFont(); // Get the loaded font
             m_fontLoaded = true;
+            m_axisText.setFont(m_font);
+            m_axisLabelText.setFont(m_font);
         } else {
             std::cerr << "Grid: Font not loaded by Button class!" << std::endl;
             // Attempt to load a fallback font or handle error
             if (m_font.loadFromFile("arial.ttf")) { // Ensure arial.ttf is accessible
                 m_fontLoaded = true;
+                m_axisText.setFont(m_font);
+                m_axisLabelText.setFont(m_font);
                 std::cout << "Grid: Fallback font arial.ttf loaded." << std::endl;
             } else {
                 std::cerr << "Grid: Failed to load fallback font arial.ttf." << std::endl;
@@ -53,10 +57,10 @@ void Grid::update(const sf::View &view, const sf::Vector2u &/* windowSize */) {
       view.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
 
   // Extra guard for extreme zoom levels
-  if (zoomLevel < 0.001f || zoomLevel > 1000.0f) {
-    m_gridLines.clear(); // Clear grid to prevent artifacts
-    return;
-  }
+  // if (zoomLevel < 0.001f || zoomLevel > 1000.0f) {
+  //   m_gridLines.clear(); // Clear grid to prevent artifacts
+  //   return;
+  // }
 
   // Calculate appropriate grid spacing based on zoom level
   // This creates a dynamic grid that adjusts with zoom
@@ -82,7 +86,7 @@ void Grid::update(const sf::View &view, const sf::Vector2u &/* windowSize */) {
   m_gridLines.clear();
 
   // Only create grid if not at extreme zoom levels
-  if (zoomLevel >= 0.01f && zoomLevel <= 100.0f) {
+  //if (zoomLevel >= 0.01f && zoomLevel <= 100.0f)
     // Create vertical grid lines
     for (float x = std::floor((left - margin) / gridSpacing) * gridSpacing;
          x <= right + margin; x += gridSpacing) {
@@ -118,7 +122,6 @@ void Grid::update(const sf::View &view, const sf::Vector2u &/* windowSize */) {
       m_gridLines.back()[0] = line[0];
       m_gridLines.back()[1] = line[1];
     }
-  }
 }
 
 void Grid::setupGridLines(const sf::View &currentView, const sf::Vector2u &) {
@@ -201,14 +204,14 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
 
   // Skip grid rendering at extreme zoom levels to prevent performance issues
   // or visual artifacts that might cause the red screen
-  const float MIN_GRID_RENDER_ZOOM = 0.01f;
-  const float MAX_GRID_RENDER_ZOOM = 50.0f;
+  // const float MIN_GRID_RENDER_ZOOM = 0.01f;
+  // const float MAX_GRID_RENDER_ZOOM = 50.0f;
 
-  if (zoomLevel < MIN_GRID_RENDER_ZOOM || zoomLevel > MAX_GRID_RENDER_ZOOM) {
-    // At extreme zoom levels, just render a simple background
-    // This prevents potential rendering artifacts
-    return;
-  }
+  // if (zoomLevel < MIN_GRID_RENDER_ZOOM || zoomLevel > MAX_GRID_RENDER_ZOOM) {
+  //   // At extreme zoom levels, just render a simple background
+  //   // This prevents potential rendering artifacts
+  //   return;
+  // }
 
   // Draw grid lines using drawingView
   window.setView(drawingView);
@@ -236,6 +239,8 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
 
     m_axisText.setCharacterSize(
         Constants::GRID_LABEL_FONT_SIZE); // Fixed pixel size
+    m_axisText.setFont(m_font);
+    m_axisText.setFillColor(Constants::AXIS_LABEL_COLOR);
 
     // Add a check to prevent rendering too many labels at extreme zoom levels
     if (dynamicGridSize < 0.0001f) {

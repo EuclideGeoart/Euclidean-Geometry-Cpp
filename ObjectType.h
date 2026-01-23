@@ -16,7 +16,9 @@ enum class ObjectType {
   Polygon,                 // General polygon (user-drawn vertices)
   RegularPolygon,          // Regular polygon with N sides
   Triangle,                // General triangle (3 arbitrary vertices)
+
   Intersection,            // Intersection tool
+  IntersectionPoint,       // Resulting intersection point
   ParallelLine,            // Tool for creating parallel lines
   PerpendicularLine        // Tool for creating perpendicular lines
                            // Add more object types as needed

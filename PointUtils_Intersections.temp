@@ -1,0 +1,16 @@
+
+#include "IntersectionPoint.h"
+
+// In PointUtils.h (add this struct)
+struct IntersectionHit {
+  Point_2 position;
+  std::shared_ptr<Line> line1;
+  std::shared_ptr<Line> line2;
+  double distanceSquared;
+};
+
+// In PointUtils class
+static std::optional<IntersectionHit> getClosestIntersection(
+    GeometryEditor& editor, 
+    const sf::Vector2f& worldPos_sfml, 
+    float tolerance);

@@ -64,9 +64,31 @@ void Circle::setCenter(const Point_2 &newCenter) {
 }
 
 // GeometricObject overrides
-void Circle::draw(sf::RenderWindow &window) const {
-  window.draw(m_sfmlShape);
-  window.draw(m_centerVisual);
+void Circle::draw(sf::RenderWindow &window, float scale) const {
+  // Clone and scale main circle
+  sf::CircleShape circleShape = m_sfmlShape;
+  
+  float baseOutlineThickness = 1.0f;
+  if (isSelected()) baseOutlineThickness = 3.0f;
+  else if (isHovered()) baseOutlineThickness = 3.0f;
+  
+  circleShape.setOutlineThickness(baseOutlineThickness * scale);
+  window.draw(circleShape);
+
+  // Clone and scale center visual
+  sf::CircleShape centerShape = m_centerVisual;
+  float baseCenterRadius = 3.0f; // Corresponds to Constants::CIRCLE_CENTER_VISUAL_RADIUS
+  
+  // Recalculate position to handle scaling from center properly
+  // We use the center point directly to be precise
+  Point_2 center = getCenterPoint();
+  auto sfmlCenter = Point::cgalToSFML(center);
+  
+  centerShape.setRadius(baseCenterRadius * scale);
+  centerShape.setOrigin(baseCenterRadius * scale, baseCenterRadius * scale);
+  centerShape.setPosition(sfmlCenter);
+  
+  window.draw(centerShape);
 }
 
 bool Circle::contains(const sf::Vector2f &worldPos, float tolerance) const {

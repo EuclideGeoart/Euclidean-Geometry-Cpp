@@ -14,6 +14,7 @@
 class GeometryEditor;
 class Point;
 class ObjectPoint;
+class Line;
 class GeometricObject;
 
 /**
@@ -37,6 +38,34 @@ struct EdgeHitResult {
  */
 class PointUtils {
 public:
+  struct SnapState {
+    enum class Kind { None, ExistingPoint, Intersection, ShapeVertex, ShapeEdge, Line };
+    Kind kind = Kind::None;
+    Point_2 position = Point_2(FT(0), FT(0));
+    std::shared_ptr<Point> point;
+    std::shared_ptr<Line> line1;
+    std::shared_ptr<Line> line2;
+    std::shared_ptr<Line> line;
+    std::shared_ptr<GeometricObject> shape;
+    size_t edgeIndex = 0;
+    double edgeRelative = 0.0;
+    double lineRelative = 0.0;
+  };
+
+  static SnapState checkSnapping(
+      GeometryEditor &editor,
+      const sf::Vector2f &worldPos_sfml,
+      float tolerance);
+
+  static void drawSnappingVisuals(
+      sf::RenderWindow &window,
+      const SnapState &state);
+
+  static std::shared_ptr<Point> createSmartPoint(
+      GeometryEditor &editor,
+      const sf::Vector2f &worldPos_sfml,
+      float tolerance);
+
   /**
    * @brief Find any point-like entity at the given position
    * 
@@ -91,6 +120,19 @@ public:
     float tolerance,
     GeometricObject*& outShape,
     size_t& outVertexIndex);
+
+struct IntersectionHit {
+  Point_2 position;
+  std::shared_ptr<Line> line1;
+  std::shared_ptr<Line> line2;
+  double distanceSquared;
+};
+
+// NEW: Intersection detection
+static std::optional<IntersectionHit> getHoveredIntersection(
+    GeometryEditor& editor, 
+    const sf::Vector2f& worldPos_sfml, 
+    float tolerance);
     
   /**
    * @brief Project a point onto a segment

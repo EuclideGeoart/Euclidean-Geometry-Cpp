@@ -1,0 +1,49 @@
+
+#include "IntersectionPoint.h"
+#include <CGAL/intersections.h>
+
+std::optional<IntersectionHit> PointUtils::getClosestIntersection(
+    GeometryEditor& editor, 
+    const sf::Vector2f& worldPos_sfml, 
+    float tolerance) {
+        
+    std::optional<IntersectionHit> bestHit;
+    double minDistSq = tolerance * tolerance;
+    Point_2 cursorCgal = editor.toCGALPoint(worldPos_sfml);
+
+    // Naive O(N^2) check - sufficient for N < 1000 lines typical in this tool
+    // For large N, we'd want a spatial index (e.g., AABB tree)
+    const auto& lines = editor.lines;
+    
+    for (size_t i = 0; i < lines.size(); ++i) {
+        if (!lines[i]->isValid()) continue;
+        
+        for (size_t j = i + 1; j < lines.size(); ++j) {
+            if (!lines[j]->isValid()) continue;
+            
+            // Get CGAL lines
+            Line_2 l1 = lines[i]->getCGALLine();
+            Line_2 l2 = lines[j]->getCGALLine();
+            
+            // Check intersection
+            CGAL::Object result = CGAL::intersection(l1, l2);
+            if (const Point_2* ip = CGAL::object_cast<Point_2>(&result)) {
+                // Calculate distance to cursor
+                double distSq = CGAL::to_double(CGAL::squared_distance(*ip, cursorCgal));
+                
+                // If it's the closest so far within tolerance
+                if (distSq < minDistSq) {
+                    minDistSq = distSq;
+                    IntersectionHit hit;
+                    hit.position = *ip;
+                    hit.line1 = lines[i];
+                    hit.line2 = lines[j];
+                    hit.distanceSquared = distSq;
+                    bestHit = hit;
+                }
+            }
+        }
+    }
+    
+    return bestHit;
+}

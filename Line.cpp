@@ -136,6 +136,9 @@ Line::Line(std::shared_ptr<Point> startPoint, std::shared_ptr<Point> endPoint, b
     throw;
   }
 }
+
+
+
 // ------ctr cgal with ID------
 Line::Line(std::shared_ptr<Point> start, std::shared_ptr<Point> end, bool isSegment,
            const sf::Color &color, unsigned int id)
@@ -254,8 +257,9 @@ void Line::prepareForDestruction() {
 }
 // ------dtor------
 Line::~Line() {
+  if (Constants::LIFECYCLE) {
   std::cout << "Line::~Line: ENTERED for Line " << this << std::endl;
-
+  }
   try {
     // Clear hosted ObjectPoints first
     if (!m_hostedObjectPoints.empty()) {
@@ -668,8 +672,7 @@ void Line::setTemporaryPreviewPoints(std::shared_ptr<Point> p1, std::shared_ptr<
   updateSFMLShape();
 }
 // --- GeometricObject Overrides ---
-void Line::draw(sf::RenderWindow &window) const {
-  // Add more simplified and robust drawing code
+void Line::draw(sf::RenderWindow &window, float scale) const {
   try {
     // Set colors based on state
     sf::Color drawColor = m_color;
@@ -679,75 +682,61 @@ void Line::draw(sf::RenderWindow &window) const {
       drawColor = Constants::HOVER_COLOR;
     }
 
-    // Always draw the sfmlShape for segments
-    if (m_isSegment) {
-      // Create a copy we can safely modify
-      sf::VertexArray drawShape = m_sfmlShape;
-      drawShape[0].color = drawColor;
-      drawShape[1].color = drawColor;
-      window.draw(drawShape);
-      return;
+    // Determine thickness
+    float basePixelThickness = Constants::LINE_THICKNESS_DEFAULT; // e.g. 2.0 or 3.0
+    if (m_selected) basePixelThickness = 4.0f; // Thicker when selected
+    else if (m_hovered) basePixelThickness = 3.0f; 
+
+    // Convert screen pixel thickness to world units
+    float worldThickness = basePixelThickness * scale;
+
+    // Get endpoints from the shape (updated by updateSFMLShape)
+    sf::Vector2f p1 = m_sfmlShape[0].position;
+    sf::Vector2f p2 = m_sfmlShape[1].position;
+    
+    // If infinite, extend
+    if (!m_isSegment) {
+       sf::View currentView = window.getView();
+       sf::Vector2f viewSize = currentView.getSize();
+       float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
+       
+       sf::Vector2f dir = p2 - p1;
+       float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+       if (len > 1e-9f) {
+           dir /= len; // Normalize
+           float extension = viewDiagonal * 2.0f;
+           // Extend both ways from the center or just extend the segment? 
+           // m_sfmlShape typically stores a robust segment for the infinite line. 
+           // Let's just extend p1 and p2 deeply.
+           p1 = p1 - dir * extension;
+           p2 = p2 + dir * extension;
+       }
     }
 
-    // For infinite lines
-    if (!m_startPoint || !m_endPoint) {
-      // Fall back to drawing the stored sfmlShape if endpoints are invalid
-      sf::VertexArray drawShape = m_sfmlShape;
-      drawShape[0].color = drawColor;
-      drawShape[1].color = drawColor;
-      window.draw(drawShape);
-      return;
-    }
+    // Draw as a thick line (Quad)
+    sf::Vector2f dir = p2 - p1;
+    float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+    
+    if (length < 1e-5f) return; // Degenerate
 
-    // Get the view for extending the line
-    sf::View currentView = window.getView();
-    sf::Vector2f viewSize = currentView.getSize();
-    float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
+    sf::Vector2f normal(-dir.y / length, dir.x / length);
+    sf::Vector2f offset = normal * (worldThickness * 0.5f);
 
-    // Get endpoints
-    sf::Vector2f start = m_sfmlShape[0].position;
-    sf::Vector2f end = m_sfmlShape[1].position;
+    sf::VertexArray quad(sf::Quads, 4);
+    quad[0].position = p1 + offset;
+    quad[1].position = p2 + offset;
+    quad[2].position = p2 - offset;
+    quad[3].position = p1 - offset;
+    
+    quad[0].color = drawColor;
+    quad[1].color = drawColor;
+    quad[2].color = drawColor;
+    quad[3].color = drawColor;
+    
+    window.draw(quad);
 
-    // Calculate direction
-    sf::Vector2f direction = end - start;
-    float dirLength = std::sqrt(direction.x * direction.x + direction.y * direction.y);
-
-    // Skip if degenerate
-    if (dirLength < 0.0001f) {
-      sf::VertexArray drawShape = m_sfmlShape;
-      drawShape[0].color = drawColor;
-      drawShape[1].color = drawColor;
-      window.draw(drawShape);
-      return;
-    }
-
-    // Normalize and extend
-    direction /= dirLength;
-    float extensionLength = viewDiagonal * 2.0f;
-
-    sf::Vector2f extendedStart = start - direction * extensionLength;
-    sf::Vector2f extendedEnd = end + direction * extensionLength;
-
-    // Draw the extended line
-    sf::VertexArray extended(sf::Lines, 2);
-    extended[0].position = extendedStart;
-    extended[1].position = extendedEnd;
-    extended[0].color = drawColor;
-    extended[1].color = drawColor;
-    window.draw(extended);
-
-    // Optionally draw the original segment more prominently
-    sf::VertexArray original = m_sfmlShape;
-    original[0].color = drawColor;
-    original[1].color = drawColor;
-    window.draw(original);
   } catch (const std::exception &e) {
     std::cerr << "Exception in Line::draw: " << e.what() << std::endl;
-    // Fall back to drawing the basic SFML shape
-    sf::VertexArray fallback = m_sfmlShape;
-    fallback[0].color = m_color;
-    fallback[1].color = m_color;
-    window.draw(fallback);
   }
 }
 /* void Line::draw(sf::RenderWindow &window) const {
@@ -1041,29 +1030,27 @@ void Line::update() {
                     << refId
                     << ")" << std::endl;
         }
-        maintainConstraints();
-        updateCGALLine();  // Re-update CGAL line if maintainConstraints
-        // changed points
-      } else if (Constants::DEBUG_CONSTRAINTS) {
-        std::cout << "Line::update: SKIPPING maintainConstraints for Line " << getID()
-                  << ". Reason: No valid referenceLine or axis constraint "
-                     "direction (isUnderDirectManipulation="
-                  << m_isUnderDirectManipulation << ")." << std::endl;
+        
+        bool changed = maintainConstraints(); // Capture result
+        
+        if (changed) {
+            updateCGALLine();  
+            updateSFMLShape(); // Update visual only if changed
+            updateHostedPoints();
+            notifyConstraintObserversOfChange(); // Break loop if false
+        }
+      } else {
+         // Standard update path for non-constrained or failed constraint lines
+         updateSFMLShape();
+         updateHostedPoints();
+         notifyConstraintObserversOfChange();
       }
-    } else if (Constants::DEBUG_CONSTRAINTS && (m_isParallelLine || m_isPerpendicularLine)) {
-      std::cout << "Line::update: SKIPPING maintainConstraints for Line " << getID()
-                << ". Reason: isUnderDirectManipulation=" << m_isUnderDirectManipulation
-                << std::endl;
+    } else {
+         // Standard update path
+         updateSFMLShape();
+         updateHostedPoints();
+         notifyConstraintObserversOfChange();
     }
-
-    updateSFMLShape();
-    updateHostedPoints();
-
-    if (Constants::DEBUG_CONSTRAINTS && !m_constraintObservers.empty()) {
-      std::cout << "Line::update: Notifying " << m_constraintObservers.size()
-                << " observers. Line: " << getID() << " (" << this << ")" << std::endl;
-    }
-    notifyConstraintObserversOfChange();
 
   } catch (const std::exception &e) {
     std::cerr << "Line::update: Exception during update cycle: " << e.what() << " Line: " << getID()
@@ -1091,10 +1078,16 @@ void Line::forceConstraintUpdate() {
     bool wasUpdating = m_isUpdatingInternally;
     m_isUpdatingInternally = false;
 
-    maintainConstraints();
-    updateCGALLine();
-    updateSFMLShape();
-    updateHostedPoints();
+    // CIRCUIT BREAKER: Only update visuals if geometry actually changed
+    bool geometryChanged = maintainConstraints();
+    if (geometryChanged) {
+      updateCGALLine();
+      updateSFMLShape();
+      updateHostedPoints();
+    } else if (Constants::DEBUG_CONSTRAINTS) {
+      std::cout << "Line::forceConstraintUpdate: NO CHANGE - skipping visual updates for Line "
+                << getID() << std::endl;
+    }
 
     m_isUpdatingInternally = wasUpdating;
   }
@@ -1841,17 +1834,19 @@ void Line::setAsPerpendicularLine(std::shared_ptr<GeometricObject> refObj, int e
   }
 }
 
-void Line::maintainConstraints() {
+bool Line::maintainConstraints() {
   if (s_updatingLines.find(this) != s_updatingLines.end()) {
-    return;  // Already updating this line in the current call stack
+    return false;  // Already updating this line in the current call stack
   }
 
   if (m_inConstraint) {
-    return;
+    return false;
   }
 
   s_updatingLines.insert(this);
   m_inConstraint = true;
+
+  bool geometryChanged = false;
 
   bool localDebug = Constants::DEBUG_CONSTRAINTS;
 
@@ -1868,7 +1863,7 @@ void Line::maintainConstraints() {
       }
       m_inConstraint = false;
       s_updatingLines.erase(this);
-      return;
+      return false;
     }
 
     if (!m_startPoint || !m_endPoint || !m_startPoint->isValid() || !m_endPoint->isValid()) {
@@ -1877,7 +1872,7 @@ void Line::maintainConstraints() {
       }
       m_inConstraint = false;
       s_updatingLines.erase(this);
-      return;
+      return false;
     }
     Vector_2 actual_ref_dir_for_constraint;
     bool has_valid_reference_for_constraint = false;
@@ -1888,7 +1883,8 @@ void Line::maintainConstraints() {
          m_isParallelLine = false; m_isPerpendicularLine = false;
          m_constraintRefObject.reset();
          m_inConstraint = false;
-         return;
+         s_updatingLines.erase(this);
+         return false;
       }
 
       if (ref_obj_sp->isValid()) {
@@ -1943,7 +1939,8 @@ void Line::maintainConstraints() {
         m_isPerpendicularLine = false;
         m_constraintRefObject.reset();
         m_inConstraint = false;
-        return;
+        s_updatingLines.erase(this);
+        return false;
       }
     }
 
@@ -1953,7 +1950,8 @@ void Line::maintainConstraints() {
         std::cout << "  Reference direction is zero. Aborting." << std::endl;
       }
       m_inConstraint = false;
-      return;
+      s_updatingLines.erase(this);
+      return false;
     }
 
     try {
@@ -1982,14 +1980,16 @@ void Line::maintainConstraints() {
       if (!point_to_be_adjusted_sp || !point_to_be_adjusted_sp->isValid()) {
         std::cerr << "  Point to be adjusted is null or invalid. Aborting." << std::endl;
         m_inConstraint = false;
-        return;
+        s_updatingLines.erase(this);
+        return false;
       }
 
       if (!CGAL::is_finite(authoritative_anchor_pos.x()) ||
           !CGAL::is_finite(authoritative_anchor_pos.y())) {
         std::cerr << "  Authoritative anchor position is not finite. Aborting." << std::endl;
         m_inConstraint = false;
-        return;
+        s_updatingLines.erase(this);
+        return false;
       }
 
       // Use current distance between points to maintain relative positioning
@@ -2023,7 +2023,8 @@ void Line::maintainConstraints() {
       if (unit_target_dir.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED / 100.0)) {
         std::cerr << "  Unit target direction is zero after normalization. Aborting." << std::endl;
         m_inConstraint = false;
-        return;
+        s_updatingLines.erase(this);
+        return false;
       }
 
       // Determine direction: if the current adjusted point is "behind" the
@@ -2044,16 +2045,34 @@ void Line::maintainConstraints() {
       if (!CGAL::is_finite(new_adjusted_pos.x()) || !CGAL::is_finite(new_adjusted_pos.y())) {
         std::cerr << "  Calculated new_adjusted_pos is not finite. Aborting." << std::endl;
         m_inConstraint = false;
-        return;
+        s_updatingLines.erase(this);
+        return false;
       }
 
-      // CRITICAL: Always update for constraint lines, even for small changes
-      // This ensures real-time constraint updates
+      // EPSILON GUARD: Prevent infinite recursion by checking if position actually changed
+      // Floating-point precision errors can cause tiny differences (e.g., 1e-15) that
+      // trigger update cascades even when the position is mathematically identical.
+      Kernel::FT distSq = CGAL::squared_distance(current_adjusted_pos, new_adjusted_pos);
+      const double EPSILON_THRESHOLD = 1e-12; // Squared distance threshold (Loop Killer)
+      
+      if (CGAL::to_double(distSq) < EPSILON_THRESHOLD) {
+        // NO MEANINGFUL CHANGE - break the update cycle
+        if (localDebug) {
+          std::cout << "  EPSILON GUARD: Position unchanged (distSq=" 
+                    << CGAL::to_double(distSq) << " < " << EPSILON_THRESHOLD 
+                    << "). Skipping update." << std::endl;
+        }
+        m_inConstraint = false;
+        s_updatingLines.erase(this);
+        return false;
+      }
+      
       if (localDebug) {
         CGALSafeUtils::debug_cgal_point(current_adjusted_pos, "  Old adjusted pos",
                                         "MaintainConstraints");
         CGALSafeUtils::debug_cgal_point(new_adjusted_pos, "  New adjusted pos",
                                         "MaintainConstraints");
+        std::cout << "  Delta squared distance: " << CGAL::to_double(distSq) << std::endl;
       }
 
       // Temporarily clear m_externallyMovedEndpoint before this call
@@ -2061,6 +2080,7 @@ void Line::maintainConstraints() {
       m_externallyMovedEndpoint = nullptr;
 
       point_to_be_adjusted_sp->setCGALPosition(new_adjusted_pos);
+      geometryChanged = true;
 
       m_externallyMovedEndpoint = tempExternalMove;
 
@@ -2080,6 +2100,7 @@ void Line::maintainConstraints() {
 
   m_inConstraint = false;
   s_updatingLines.erase(this);
+  return geometryChanged;  // True only if geometry was actually updated
 }
 
 void Line::notifyObjectPoints() {
@@ -2089,13 +2110,7 @@ void Line::notifyObjectPoints() {
 
 void Line::updateSFMLShape() {
   QUICK_PROFILE("Line::updateSFMLShape");
-
-  std::cout << "=== updateSFMLShape() CALLED ===" << std::endl;
-  std::cout << "  Line: " << this << std::endl;
-  std::cout << "  m_deferSFMLUpdates: " << m_deferSFMLUpdates << std::endl;
-  std::cout << "  Stack trace: (add breakpoint here and check call stack)" << std::endl;
   if (m_deferSFMLUpdates) {
-    std::cout << "DEFERRED: updateSFMLShape() skipped!" << std::endl;
     m_pendingSFMLUpdate = true;
     return;
   }
@@ -2104,17 +2119,11 @@ void Line::updateSFMLShape() {
         [[maybe_unused]] auto test = m_color;  // This will crash here if object is destroyed
         
         if (!m_startPoint || !m_endPoint) {
-            std::cout << "updateSFMLShape: Missing endpoints!" << std::endl;
             m_sfmlShape.clear();
             return;
         }
-  std::cout << "EXECUTING: updateSFMLShape() called (m_deferSFMLUpdates=" << m_deferSFMLUpdates
-            << ")" << std::endl;
-  std::cout << "Line::updateSFMLShape() called" << std::endl;
-
   // clear if endpoints missing
   if (!m_startPoint || !m_endPoint) {
-    std::cout << "updateSFMLShape: Missing endpoints!" << std::endl;
     m_sfmlShape.clear();
     return;
   }
@@ -2129,10 +2138,7 @@ void Line::updateSFMLShape() {
   try {
     p1 = toSF(m_startPoint->getCGALPosition());
     p2 = toSF(m_endPoint->getCGALPosition());
-    std::cout << "updateSFMLShape: p1=(" << p1.x << "," << p1.y << "), p2=(" << p2.x << "," << p2.y
-              << ")" << std::endl;
   } catch (const std::exception &e) {
-    std::cout << "updateSFMLShape: Exception getting positions: " << e.what() << std::endl;
     return;
   }
 
@@ -2143,7 +2149,6 @@ void Line::updateSFMLShape() {
   if (m_isSegment) {
     m_sfmlShape[0].position = p1;
     m_sfmlShape[1].position = p2;
-    std::cout << "updateSFMLShape: Created segment" << std::endl;
   } else {
     // direction unit‐vector for infinite line
     sf::Vector2f dir = p2 - p1;
@@ -2153,9 +2158,7 @@ void Line::updateSFMLShape() {
       const float EXT = 10000.f;
       m_sfmlShape[0].position = p1 - dir * EXT;
       m_sfmlShape[1].position = p1 + dir * EXT;
-      std::cout << "updateSFMLShape: Created infinite line" << std::endl;
     } else {
-      std::cout << "updateSFMLShape: Zero-length line detected!" << std::endl;
       return;
     }
   }
@@ -2164,14 +2167,9 @@ void Line::updateSFMLShape() {
   for (std::size_t i = 0; i < m_sfmlShape.getVertexCount(); ++i) {
     m_sfmlShape[i].color = m_color;
   }
-
-  std::cout << "updateSFMLShape: Applied color (" << (int)m_color.r << ","
-            << (int)m_color.g << "," << (int)m_color.b << ")" << std::endl;
   } catch (const std::exception &e) {
-        std::cerr << "updateSFMLShape: Exception (object likely destroyed): " << e.what() << std::endl;
         return;
     } catch (...) {
-        std::cerr << "updateSFMLShape: Unknown exception (object likely destroyed)" << std::endl;
         return;
     }
 }
@@ -2405,3 +2403,20 @@ void Line::clearConstraintReference(std::shared_ptr<Line> lineBeingDestroyed) {
 //     m_hostedObjectPoints.clear();
 //   }
 // }
+void Line::setPoints(std::shared_ptr<Point> start, std::shared_ptr<Point> end) {
+    if (!start || !end) {
+        throw std::invalid_argument("Line::setPoints: Pointers cannot be null");
+    }
+    
+    // Cleanup old connections if necessary (though registerWithEndpoints handles new ones)
+    safeResetEndpoints(); // Clear old connections safely
+
+    m_startPoint = start;
+    m_endPoint = end;
+    
+    // CRITICAL: Register as listener
+    registerWithEndpoints();
+
+    updateCGALLine();
+    updateSFMLShape();
+}

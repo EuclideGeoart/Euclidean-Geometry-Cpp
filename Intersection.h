@@ -44,6 +44,7 @@ std::vector<Point *> createLineCircleIntersection(Line *line, Circle *circle);
 std::vector<Point *> createCircleCircleIntersection(Circle *circle1,
                                                     Circle *circle2);
 void updateAllIntersections();
+void removeIntersectionsInvolving(Line *line);
 
 // Add new selective intersection functions
 Point *createLineLineIntersectionSelective(Line *line1, Line *line2);

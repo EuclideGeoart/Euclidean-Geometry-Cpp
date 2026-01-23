@@ -157,6 +157,9 @@ class Button {
   bool isHovered() const;
   void setHovered(bool hover);  // Added missing declaration
 
+  void setPosition(sf::Vector2f pos);  // Added for responsive layout
+  void setSize(sf::Vector2f size);     // Added for justified layout
+
  private:
   void centerText();
   static sf::Font font;
@@ -186,6 +189,7 @@ class GUI {
   bool handleEvent(sf::RenderWindow &window, const sf::Event &event, GeometryEditor &editor);
   void updateView(const sf::View &newGuiView);            // Updates the GUI's own view
   void setView(const sf::View &view) { guiView = view; }  // Sets the GUI's view
+  void updateLayout(float windowWidth);                   // Updates button positions based on width
   void update(sf::Time deltaTime);                        // Add declaration for update method
 
   bool isGridActive() const;

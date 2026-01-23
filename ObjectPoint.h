@@ -73,7 +73,7 @@ public:
   void projectOntoHost(const Point_2 &clickPos);
 
   // --- GeometricObject Overrides ---
-  void draw(sf::RenderWindow &window) const override;
+  virtual void draw(sf::RenderWindow &window, float scale) const override;
   bool contains(const sf::Vector2f &worldPos, float tolerance) const override;
   void setSelected(bool sel) override;
   ObjectType getType() const override { return ObjectType::ObjectPoint; }

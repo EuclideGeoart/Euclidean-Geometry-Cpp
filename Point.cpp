@@ -100,6 +100,10 @@ Point::Point(const Point_2 &cgal_point, float initialZoomFactor, const sf::Color
 }
 // Implement a safe destructor for Point
 Point::~Point() {
+  if (Constants::LIFECYCLE) {
+    std::cout << "Point::~Point: Destroying point " << this << " with ID " << getID()
+              << std::endl;
+  }
   try {
     std::cerr << "Point::~Point: Starting destruction of point " << this << " with ID " << getID()
               << std::endl;
@@ -400,7 +404,8 @@ void Point::translate(const Vector_2 &offset) {
 sf::FloatRect Point::getGlobalBounds() const { return m_sfmlShape.getGlobalBounds(); }
 
 // --- GeometricObject Overrides ---
-void Point::draw(sf::RenderWindow &window) const {
+void Point::draw(sf::RenderWindow &window, float scale) const {
+  if (!m_visible) return;
   if (!m_isValid) return;  // Don't draw if invalid
 
   if (Constants::DEBUG_POINT_DRAWING) {
@@ -410,50 +415,32 @@ void Point::draw(sf::RenderWindow &window) const {
               << " World Radius: " << m_radius << " IsHovered: " << m_isHovered << std::endl;
   }
 
-  sf::View currentView = window.getView();
-  float viewHeight = currentView.getSize().y;
-  float zoomFactor = Constants::WINDOW_HEIGHT / viewHeight;  // Corrected zoomFactor calculation
-  if (zoomFactor <= 0) zoomFactor = 1.0f;
+  // m_sfmlShape should already have its correct colors and base properties
+  sf::CircleShape pointToDraw = m_sfmlShape;  // Make a copy to modify for drawing
 
-  // m_sfmlShape should already have its correct colors and base outline thickness
-  // set by updateSFMLShape() based on its state (selected, hovered, locked, normal).
-  sf::CircleShape pointToDraw = m_sfmlShape;  // Make a copy to potentially modify for drawing
-
-  // Ensure position and radius are directly from current state for drawing,
-  // in case m_sfmlShape wasn't updated immediately before draw for some reason.
-  // (Though updateSFMLShape should be called on state changes)
   pointToDraw.setPosition(cgalToSFML(m_cgalPosition));
-  pointToDraw.setRadius(m_radius);
-  pointToDraw.setOrigin(m_radius, m_radius);
+  
+  // Apply visual invariance: scale screen pixels to world units
+  float currentRadius = m_desiredScreenRadius * scale;
+  pointToDraw.setRadius(currentRadius);
+  pointToDraw.setOrigin(currentRadius, currentRadius);
 
-  // Outline thickness scaling for screen consistency.
-  // The color of the outline is already set on pointToDraw (copied from m_sfmlShape).
-  float baseScreenOutlineThickness =
-      Constants::POINT_OUTLINE_THICKNESS;  // Default desired screen pixels
+  // Outline thickness scaling
+  float baseScreenOutlineThickness = Constants::POINT_OUTLINE_THICKNESS;
 
   if (m_selected) {
-    baseScreenOutlineThickness =
-        Constants::SELECTION_THICKNESS_POINT;  // This should be desired screen pixels
-  } else if (m_isHovered) {                    // Use the standardized m_isHovered
-    baseScreenOutlineThickness =
-        Constants::HOVER_THICKNESS_POINT;  // This should be desired screen pixels
+    baseScreenOutlineThickness = Constants::SELECTION_THICKNESS_POINT;
+  } else if (m_isHovered) {
+    baseScreenOutlineThickness = Constants::HOVER_THICKNESS_POINT;
   }
-  // If locked points have a different thickness:
-  // else if (m_isLocked) {
-  //   baseScreenOutlineThickness = Constants::LOCKED_THICKNESS_POINT;
-  // }
 
-  float scaledWorldOutlineThickness = baseScreenOutlineThickness / zoomFactor;
-  pointToDraw.setOutlineThickness(scaledWorldOutlineThickness);
-
-  // The fill color is already set on pointToDraw (copied from m_sfmlShape by updateSFMLShape).
-  // No need to re-set fill color here unless there's a draw-specific override
-  // not covered by updateSFMLShape's state logic.
+  pointToDraw.setOutlineThickness(baseScreenOutlineThickness * scale);
 
   window.draw(pointToDraw);
 }
 bool Point::contains(const sf::Vector2f &worldPos_sfml,
                      float tolerance) const {  // Ensure tolerance is used
+  if (!m_visible) return false;
   if (!m_isInitialized) return false;
   // If tolerance is meant to be POINT_INTERACTION_RADIUS by default,
   // it's handled by the header. If it's passed explicitly, use the passed

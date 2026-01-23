@@ -18,10 +18,6 @@ void QuickProfiler::end(const std::string &name) {
     totals[name] += ms;
     counts[name]++;
 
-    // Real-time output for critical operations
-    if (ms > 1.0) { // Only show operations taking >1ms
-      std::cout << "[PERF] " << name << ": " << ms << "ms" << std::endl;
-    }
   }
 }
 

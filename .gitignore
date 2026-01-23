@@ -1,32 +1,29 @@
-# --- Visual Studio & VS Code ---
-.vs/
-.vscode/
-*.user
-*.suo
-*.opensdf
-*.sdf
-*.cache
+# Prerequisites
+*.d
+*.obj
+*.exe
 *.pdb
-*.ipch
+*.ilk
+*.suo
+*.sln
+*.user
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
 
-# --- Build Output ---
+# CMake build folders
 build/
-bin/
-debug/
-release/
+out/
+cmake-build-debug/
+cmake-build-release/
+
+# Visual Studio cache
+.vs/
 x64/
 x86/
-*.exe
-*.dll
-*.o
-*.obj
-*.lib
-*.a
+Debug/
+Release/
 
-# --- OS Files ---
+# OS junk
 .DS_Store
-Thumbs.db
-
-
-build*/
-CMakeFiles/
+Thumbs.db.cache/

@@ -9,11 +9,11 @@
 #include "Circle.h"  // For m_hostCircle
 #include "Constants.h"
 #include "Line.h"  // For m_hostLine
+#include "Polygon.h"        // For Polygon cast in updateFromMousePos
+#include "Rectangle.h"      // For Rectangle cast in updateFromMousePos
+#include "RegularPolygon.h" // For RegularPolygon cast in updateFromMousePos
+#include "Triangle.h"       // For Triangle cast in updateFromMousePos
 #include "ObjectPoint.h"
-#include "Rectangle.h"      // For vertex forwarding
-#include "Triangle.h"       // For vertex forwarding
-#include "Polygon.h"        // For vertex forwarding
-#include "RegularPolygon.h" // For vertex forwarding
 #include "Transforms.h"                                        // For toSFMLVector
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // For Point_2, Vector_2
 #include <CGAL/number_utils.h>                                 // For CGAL::to_double
@@ -264,28 +264,43 @@ ObjectPoint::~ObjectPoint() {
   std::cout << "ObjectPoint::~ObjectPoint: ENTERED for ObjectPoint " << this << std::endl;
 
   try {
-    // Check if weak_ptr is NOT expired
+    // ✅ CORRECT: Check if weak_ptr is NOT expired
     if (!m_hostObject.expired()) {
       // Get raw pointer before clearing weak_ptr
-      // Use locked shared_ptr to safely access the object
-      if (auto host = m_hostObject.lock()) {
-         try {
-           host->removeChildPoint(this);
-           std::cout << "ObjectPoint destructor: Removed self from host" << std::endl;
-         } catch (const std::exception& e) {
-           std::cerr << "ObjectPoint destructor: Exception removing from host: " << e.what() << std::endl;
-         }
-      }
-      
-      // Clear the host reference
+      GeometricObject *rawHost = m_hostObject.lock().get();
+
+      // ✅ Clear the host reference FIRST to prevent circular calls
       m_hostObject.reset();
       m_hostType = ObjectType::None;
+
+      // ✅ Then remove from host's collection using raw pointer comparison
+      if (Line *hostLine = dynamic_cast<Line *>(rawHost)) {
+        std::cout << "ObjectPoint destructor: Removing self from Line host" << std::endl;
+        try {
+          hostLine->removeChildPoint(this);
+        } catch (const std::exception &e) {
+          std::cerr << "ObjectPoint destructor: Exception removing from Line host: " << e.what()
+                    << std::endl;
+        }
+      }
+      // ✅ Handle Circle hosts
+      else if (Circle *hostCircle = dynamic_cast<Circle *>(rawHost)) {
+        std::cout << "ObjectPoint destructor: Removing self from Circle host" << std::endl;
+        try {
+          hostCircle->removeChildPoint(this);
+        } catch (const std::exception &e) {
+          std::cerr << "ObjectPoint destructor: Exception removing from Circle host: " << e.what()
+                    << std::endl;
+        }
+      } else {
+        std::cout << "ObjectPoint destructor: Unknown host type" << std::endl;
+      }
     }
 
-    // Clear weak pointers
+    // ✅ Clear weak pointers (they should already be cleared but just to be
+    // safe)
     m_hostLine.reset();
     m_hostCircle.reset();
-    m_hostShape.reset();
 
     std::cout << "ObjectPoint::~ObjectPoint: COMPLETED for ObjectPoint " << this << std::endl;
 
@@ -297,21 +312,36 @@ ObjectPoint::~ObjectPoint() {
 }
 
 void ObjectPoint::clearHost() {
+  // ✅ CORRECT: Check if weak_ptr is NOT expired
   if (m_hostObject.expired()) return;
 
   try {
-    if (auto host = m_hostObject.lock()) {
-      host->removeChildPoint(this);
-    }
-    
-    m_hostObject.reset();
+    // Store the host type before clearing
+    ObjectType hostType = m_hostType;
+
+    // Clear the host reference first to prevent recursion
+    m_hostObject.reset();  // Clear the weak_ptr
     m_hostType = ObjectType::None;
-    
+
+    // Now safely remove from host's child list
+    if (hostType == ObjectType::Line || hostType == ObjectType::LineSegment) {
+      if (auto line = m_hostLine.lock()) {
+        // Cast the shared_ptr<Point> to shared_ptr<ObjectPoint>
+        auto selfPtr = std::static_pointer_cast<ObjectPoint>(Point::shared_from_this());
+        line->removeChildPoint(selfPtr.get());
+      }
+    } else if (hostType == ObjectType::Circle) {
+      if (auto circle = m_hostCircle.lock()) {
+        // Cast the shared_ptr<Point> to shared_ptr<ObjectPoint> first, then get
+        // raw pointer
+        auto selfPtr = std::static_pointer_cast<ObjectPoint>(Point::shared_from_this());
+        circle->removeChildPoint(selfPtr.get());
+      }
+    }
+
     // Clear the weak pointers
     m_hostLine.reset();
     m_hostCircle.reset();
-    m_hostShape.reset();
-    m_isShapeEdgeAttachment = false;
 
   } catch (const std::exception &e) {
     std::cerr << "Exception in ObjectPoint::clearHost: " << e.what() << std::endl;
@@ -381,59 +411,6 @@ void ObjectPoint::projectOntoHost(const Point_2 &clickPos) {
         return;  // Abort on error
       }
     }
-  } else if (m_isShapeEdgeAttachment) {
-    // Shape edge attachment - project onto the current edge
-    if (auto hostShape = m_hostShape.lock()) {
-      try {
-        auto edges = hostShape->getEdges();
-        if (m_edgeIndex >= edges.size()) {
-          std::cerr << "ObjectPoint::projectOntoHost (ShapeEdge): Edge index out of bounds." << std::endl;
-          return;
-        }
-        
-        const Segment_2& edge = edges[m_edgeIndex];
-        Point_2 a = edge.source();
-        Point_2 b = edge.target();
-        
-        if (!is_cgal_point_finite_local(a) || !is_cgal_point_finite_local(b)) {
-          std::cerr << "ObjectPoint::projectOntoHost (ShapeEdge): Edge endpoints not finite." << std::endl;
-          return;
-        }
-        
-        // Project clickPos onto the edge segment
-        Vector_2 ab = b - a;
-        double lenSq = CGAL::to_double(ab.squared_length());
-        
-        if (lenSq < 1e-10) {
-          // Degenerate edge, snap to start
-          projectedPos = a;
-          m_edgeRelativePos = 0.0;
-        } else {
-          Vector_2 ap = clickPos - a;
-          double t = CGAL::to_double(ap * ab) / lenSq;
-          
-          // Clamp t to [0, 1] to stay on the segment
-          t = std::max(0.0, std::min(1.0, t));
-          m_edgeRelativePos = t;
-          
-          // Calculate projected position
-          Kernel::FT t_ft(t);
-          projectedPos = Point_2(
-            a.x() + t_ft * (b.x() - a.x()),
-            a.y() + t_ft * (b.y() - a.y())
-          );
-        }
-        
-        std::cout << "[ObjPoint] Slid along edge " << m_edgeIndex << " to t=" << m_edgeRelativePos << std::endl;
-        
-      } catch (const std::exception &e) {
-        std::cerr << "ObjectPoint::projectOntoHost (ShapeEdge): Exception: " << e.what() << std::endl;
-        return;
-      }
-    } else {
-      std::cerr << "ObjectPoint::projectOntoHost (ShapeEdge): Host shape expired." << std::endl;
-      return;
-    }
   }
 
   if (!is_cgal_point_finite_local(projectedPos)) {
@@ -446,9 +423,6 @@ void ObjectPoint::projectOntoHost(const Point_2 &clickPos) {
   m_cgalPosition = projectedPos;    // Update internal position
   calculateAttachmentParameters();  // Recalculate relativePosition or angle
   updateSFMLShape();
-  
-  // Notify connected lines to update
-  updateConnectedLines();
 }
 
 void ObjectPoint::updateSFMLShape() {
@@ -646,6 +620,15 @@ void ObjectPoint::updatePositionFromHost() {
                 << std::endl;
     }
     Point::setCGALPosition(newPos);  // This will call Point::updateSFMLShape()
+
+    // Fix for propagation lag: Force immediate visual update of connected lines
+    // This ensures lines attached to the object point follow smoothly during parent shape updates
+    const auto& connected = getConnectedLines();
+    for (const auto& weakLine : connected) {
+      if (auto line = weakLine.lock()) {
+        line->update();
+      }
+    }
   } catch (const std::exception &e) {
     std::cerr << "ObjectPoint " << this << " updatePositionFromHost: Exception: " << e.what()
               << std::endl;
@@ -699,10 +682,11 @@ Point_2 ObjectPoint::calculatePositionOnHost() const {
       return Point::getCGALPosition();
     }
   } else if (m_hostType == ObjectType::Circle) {
-    // Specific logic for circles using angle
+    // OLD: Circle *circle = dynamic_cast<Circle *>(m_hostObject);
     if (auto circle = m_hostCircle.lock()) {
       Point_2 center = circle->getCenterPoint();
       if (m_isCircleCenterAttachment) {
+        // Attach directly to the circle center
         return center;
       } else {
         double radius = circle->getRadius();
@@ -722,7 +706,7 @@ Point_2 ObjectPoint::calculatePositionOnHost() const {
               const Segment_2& edge = edges[m_edgeIndex];
               Point_2 a = edge.source();
               Point_2 b = edge.target();
-              
+
               Kernel::FT t_ft(m_edgeRelativePos);
               return Point_2(
                   a.x() + t_ft * (b.x() - a.x()),
@@ -731,8 +715,7 @@ Point_2 ObjectPoint::calculatePositionOnHost() const {
           }
       }
   }
-  
-  // Fallback
+  // Fallback in case host type is not recognized.
   return Point::getCGALPosition();
 }
 
@@ -789,16 +772,7 @@ std::shared_ptr<ObjectPoint> ObjectPoint::createOnShapeEdge(
       a.y() + t_ft * (b.y() - a.y())
     );
     
-    // Create an ObjectPoint using the Circle constructor with a dummy nullptr
-    // BUT we need to avoid the null check in the constructor.
-    // WORKAROUND: Use make_shared with a private constructor that allows null hosts.
-    // Since we can't add new constructors, we'll use a different approach:
-    // Create via Circle factory then reset the host
-    
-    // Actually, the cleanest fix is to use a struct-based initialization:
-    // Create the base Point first, then wrap it.
-    
-    // Create the Point part directly
+    // Create the ObjectPoint using private constructor
     auto objPoint = std::shared_ptr<ObjectPoint>(new ObjectPoint());
     
     // Set up shape edge attachment
@@ -811,16 +785,14 @@ std::shared_ptr<ObjectPoint> ObjectPoint::createOnShapeEdge(
     objPoint->m_color = color;
     
     // Set position
-    objPoint->m_cgalPosition = initialPos;
+    objPoint->setCGALPosition(initialPos);
     objPoint->updateSFMLShape();
     
-    // CRITICAL FIX: Register with the host shape so it updates/moves with the shape!
+    // Register with host
     hostShape->addChildPoint(objPoint);
     
     std::cout << "[ObjPoint] Created on shape edge " << edgeIndex 
-              << " at relative pos " << t 
-              << " -> (" << CGAL::to_double(initialPos.x()) 
-              << ", " << CGAL::to_double(initialPos.y()) << ")" << std::endl;
+              << " at relative pos " << t << std::endl;
     
     return objPoint;
     
@@ -940,66 +912,12 @@ void ObjectPoint::validate() const {
 }
 
 // --- SFML Drawable ---
-void ObjectPoint::draw(sf::RenderWindow &window) const {
-  // Add conditional debug output
-  if (Constants::DEBUG_OBJECT_POINT_DRAWING) {  // Add a new debug flag
-    std::cout << "ObjectPoint " << this << " draw: isValid=" << m_isValid;
-    if (m_isValid) {
-      std::cout << ", CGAL Pos: (" << CGAL::to_double(m_cgalPosition.x()) << ", "
-                << CGAL::to_double(m_cgalPosition.y()) << ")";
-    }
-    std::cout << std::endl;
-  }
-
-  if (!m_isValid && !m_hostObject.lock()) {
-    std::cout << "ObjectPoint " << this << " draw: Invalid and no host." << std::endl;
-    return;
-  }
-
-  // Get the current view transformation matrix
-  sf::View currentView = window.getView();
-
-  // Create a temporary shape for drawing with screen-consistent size
-  sf::CircleShape screenSizePoint;
-
-  // Get the current zoom factor - need to calculate this from view
-  // transformation
-  float viewHeight = currentView.getSize().y;
-  float zoomFactor = viewHeight / static_cast<float>(Constants::WINDOW_HEIGHT);
-
-  // Set a fixed screen size for object points regardless of zoom
-  // Making these slightly smaller than regular points
-  float screenRadius = Constants::OBJECT_POINT_RADIUS;
-  float worldRadius = screenRadius / zoomFactor;  // Scale inversely with zoom
-
-  // Configure the point shape
-  screenSizePoint.setRadius(worldRadius);
-  screenSizePoint.setOrigin(worldRadius, worldRadius);
-  screenSizePoint.setPosition(cgalToSFML(m_cgalPosition));
-
-  // Set outline thickness to scale with zoom as well
-  float outlineThickness = Constants::POINT_OUTLINE_THICKNESS / zoomFactor;
-  screenSizePoint.setOutlineThickness(outlineThickness);
-
-  // Set the appropriate colors based on the point's state
-  if (m_selected) {
-    screenSizePoint.setFillColor(Constants::SELECTION_COLOR_POINT_FILL);
-    screenSizePoint.setOutlineColor(Constants::SELECTION_COLOR_POINT_OUTLINE);
-  } else if (m_hovered) {
-    screenSizePoint.setFillColor(m_color);
-    screenSizePoint.setOutlineColor(Constants::HOVER_COLOR_POINT_OUTLINE);
-  } else if (isLocked()) {  // Changed m_isLocked to isLocked()
-    screenSizePoint.setFillColor(Constants::LOCKED_COLOR);
-    screenSizePoint.setOutlineColor(sf::Color(Constants::LOCKED_COLOR.r, Constants::LOCKED_COLOR.g,
-                                              Constants::LOCKED_COLOR.b, 128));
-  } else {
-    screenSizePoint.setFillColor(m_color);
-    screenSizePoint.setOutlineColor(Constants::POINT_DEFAULT_COLOR);
-  }
-
-  // Draw the point with consistent screen size
-  window.draw(screenSizePoint);
+// --- SFML Drawable ---
+void ObjectPoint::draw(sf::RenderWindow &window, float scale) const {
+  // Delegate to base Point drawing for now, which supports scaling
+  Point::draw(window, scale);
 }
+
 
 // --- Interaction ---
 sf::FloatRect ObjectPoint::getGlobalBounds() const {
@@ -1099,8 +1017,8 @@ bool ObjectPoint::isValid() const {
       return false;  // Host shape expired
     }
   } else {
-    // Unknown host type - this shouldn't happen but allow it for flexibility
-    // As long as hostObject is valid, consider it valid
+    // Unknown host type - allow it if hostObject is valid
+    // (This can happen for other attachment types)
     if (!m_hostObject.lock()) return false;
   }
   return is_cgal_point_finite_local(m_cgalPosition);
@@ -1171,18 +1089,18 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
     if (auto hostShape = m_hostShape.lock()) {
       try {
         Point_2 cgalMousePos(mousePos.x, mousePos.y);
-        
+
         // *** CRITICAL: Check CREATION TYPE, not current position ***
         // m_isVertexAnchor = true  -> this is a vertex anchor that resizes shape
         // m_isVertexAnchor = false -> this is an edge slider that only slides
-        
+
         if (m_isVertexAnchor) {
           // === VERTEX FORWARDING: Forward drag to parent shape ===
           // Vertex anchors are always created at m_edgeIndex (t=0.0 = start of edge)
           size_t vertexIndex = m_edgeIndex;
-          
+
           std::cout << "[ObjPoint] Forwarding drag to shape vertex " << vertexIndex << std::endl;
-          
+
           // Call shape-specific setVertexPosition
           switch (hostShape->getType()) {
             case ObjectType::Rectangle:
@@ -1210,11 +1128,11 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
               std::cerr << "[ObjPoint] Unknown shape type for vertex forwarding" << std::endl;
               break;
           }
-          
+
           // Shape's setVertexPosition should call updateHostedPoints() which updates us
           // But force an update just in case
           updatePositionFromHost();
-          
+
         } else {
           // === EDGE SLIDING: Project onto edge and update t parameter ===
           auto edges = hostShape->getEdges();
@@ -1222,28 +1140,28 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
             const Segment_2& edge = edges[m_edgeIndex];
             Point_2 a = edge.source();
             Point_2 b = edge.target();
-            
+
             Vector_2 ab = b - a;
             double lenSq = CGAL::to_double(ab.squared_length());
-            
+
             if (lenSq > 1e-10) {
               Vector_2 ap = cgalMousePos - a;
               double t = CGAL::to_double(ap * ab) / lenSq;
-              
+
               // Clamp t to [0, 1]
               t = std::max(0.0, std::min(1.0, t));
               m_edgeRelativePos = t;
-              
+
               // Calculate new position on edge
               Kernel::FT t_ft(t);
               m_cgalPosition = Point_2(
                 a.x() + t_ft * (b.x() - a.x()),
                 a.y() + t_ft * (b.y() - a.y())
               );
-              
+
               updateSFMLShape();
               updateConnectedLines();
-              
+
               std::cout << "[ObjPoint] Slid to edge position t=" << t << std::endl;
             }
           }

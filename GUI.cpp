@@ -161,6 +161,16 @@ bool Button::isMouseOver(const sf::RenderWindow &window, const sf::View &view) c
   return shape.getGlobalBounds().contains(mouseViewPos);
 }
 
+void Button::setPosition(sf::Vector2f pos) {
+  shape.setPosition(pos);
+  centerText();
+}
+
+void Button::setSize(sf::Vector2f size) {
+  shape.setSize(size);
+  centerText();
+}
+
 // --- GUI Implementation ---
 GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   // Load font first to ensure it's available for text
@@ -169,6 +179,8 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   // Initialize message font for GUI messages
   if (!messageFont.loadFromFile(Constants::DEFAULT_FONT_PATH)) {
     std::cerr << "Error loading GUI message font." << std::endl;
+  } else {
+    m_fontLoaded = true;
   }
 
   guiMessage.setFont(messageFont);
@@ -286,6 +298,26 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Color",
                        Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
                        Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  
+  // Save project button
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Save",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  
+  // Load project button
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Load",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  
+  // Export SVG button
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "SVG",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  
   m_colorPicker = std::make_unique<ColorPicker>(sf::Vector2f(10, 200));
   
   // Initialize Context Menu
@@ -305,12 +337,18 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   m_contextMenu.addItem("Scale Object", [](GeometryEditor&) {
      std::cout << "Scaling tool coming soon..." << std::endl;
   });
+  
+  // Mark GUI as fully initialized
+  m_isInitialized = true;
 }
 bool GUI::isInitialized() const { return m_isInitialized; }
 
 void GUI::setMessage(const std::string &message) {
   if (m_fontLoaded) {
     guiMessage.setString(message);
+    messageActive = true;
+    messageTimer.restart();
+    std::cout << "GUI::setMessage: " << message << std::endl;
   } else {
     std::cerr << "GUI::setMessage: Font not loaded, cannot set message." << std::endl;
   }
@@ -552,6 +590,18 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
                       << std::endl;
           }
           return true;
+        } else if (button.getLabel() == "Save") {
+          std::cout << "Save button clicked!" << std::endl;
+          editor.saveProject("project.json");
+          return true;
+        } else if (button.getLabel() == "Load") {
+          std::cout << "Load button clicked!" << std::endl;
+          editor.loadProject("project.json");
+          return true;
+        } else if (button.getLabel() == "SVG") {
+          std::cout << "SVG Export button clicked!" << std::endl;
+          editor.exportSVG("export.svg");
+          return true;
         }
         // ...existing code for other buttons...
       }
@@ -589,8 +639,7 @@ void GUI::updateView(const sf::View &newGuiView) {
   // system. Example: Reposition message if view size changes
   if (messageActive) {
     sf::FloatRect messageBounds = guiMessage.getLocalBounds();
-    guiMessage.setPosition(guiView.getSize().x / 2.f - messageBounds.width / 2.f,
-                           guiView.getSize().y - messageBounds.height - 20.f);
+    guiMessage.setPosition(10.f, guiView.getSize().y - messageBounds.height - 10.f);
   }
 }
 
@@ -613,11 +662,10 @@ void GUI::displayMessage(const std::string &message) {
   guiMessage.setString(message);
   // Position the message (example: bottom center of guiView)
   sf::FloatRect textRect = guiMessage.getLocalBounds();
-  guiMessage.setOrigin(textRect.left + textRect.width / 2.0f,
-                       textRect.top + textRect.height / 2.0f);
+  guiMessage.setOrigin(0, 0); // Reset origin
   guiMessage.setPosition(
-      guiView.getSize().x / 2.f,
-      guiView.getSize().y - (Constants::BUTTON_SIZE.y / 2.f) - 5.f);  // Adjust y-offset as needed
+      10.f,
+      guiView.getSize().y - textRect.height - 10.f);
 
   messageActive = true;
   messageTimer.restart();
@@ -647,4 +695,29 @@ void GUI::deactivateAllTools() {
   // }
   // Reset other creation-specific states here if any
   std::cout << "GUI: All tools deactivated (except persistent)." << std::endl;
+}
+
+
+
+void GUI::updateLayout(float windowWidth) {
+  if (buttons.empty()) return;
+  
+  float margin = 5.0f;
+  float buttonHeight = 40.0f;
+  
+  // Calculate button width to fill window evenly
+  float totalMargins = margin * (buttons.size() + 1);
+  float availableWidth = windowWidth - totalMargins;
+  float buttonWidth = availableWidth / buttons.size();
+  
+  // Ensure minimum button width for usability
+  if (buttonWidth < 30.0f) {
+    buttonWidth = 30.0f;
+  }
+  
+  // Position and resize all buttons
+  for (size_t i = 0; i < buttons.size(); ++i) {
+    buttons[i].setSize(sf::Vector2f(buttonWidth, buttonHeight));
+    buttons[i].setPosition(sf::Vector2f(margin + i * (buttonWidth + margin), margin));
+  }
 }

@@ -75,12 +75,12 @@ float Constants::CURRENT_ZOOM = 1.0f;
 // Constructor
 GeometryEditor::GeometryEditor()
     : settings(0, 0, 0),
-      window(sf::VideoMode(Constants::WINDOW_WIDTH, Constants::WINDOW_HEIGHT), "Geometry Editor",
+      window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.8f, sf::VideoMode::getDesktopMode().height * 0.8f), "Geometry Editor",
              sf::Style::Default, settings),
-      drawingView(sf::FloatRect(0.f, 0.f, static_cast<float>(Constants::WINDOW_WIDTH),
-                                static_cast<float>(Constants::WINDOW_HEIGHT))),
-      guiView(sf::FloatRect(0.f, 0.f, static_cast<float>(Constants::WINDOW_WIDTH),
-                            static_cast<float>(Constants::WINDOW_HEIGHT))),
+      drawingView(sf::FloatRect(0.f, 0.f, static_cast<float>(sf::VideoMode::getDesktopMode().width * 0.8f),
+                                static_cast<float>(sf::VideoMode::getDesktopMode().height * 0.8f))),
+      guiView(sf::FloatRect(0.f, 0.f, static_cast<float>(sf::VideoMode::getDesktopMode().width * 0.8f),
+                            static_cast<float>(sf::VideoMode::getDesktopMode().height * 0.8f))),
       gui(),
       grid(Constants::GRID_SIZE, true),
       commandManager(),
@@ -93,6 +93,14 @@ GeometryEditor::GeometryEditor()
   setupDefaultViews();
   window.setVerticalSyncEnabled(true);
   window.setFramerateLimit(120);
+  
+  // Center the window on the screen
+  auto desktop = sf::VideoMode::getDesktopMode();
+  auto windowSize = window.getSize();
+  window.setPosition(sf::Vector2i(
+      (desktop.width - windowSize.x) / 2,
+      (desktop.height - windowSize.y) / 2
+  ));
 
   // Initialize hoverMessageText
   if (Button::getFontLoaded()) {
@@ -194,6 +202,35 @@ std::shared_ptr<Line> GeometryEditor::getLineSharedPtr(Line *rawPtr) {
   }
 
   std::cerr << "GeometryEditor::getLineSharedPtr: Line not found in lines vector" << std::endl;
+  return nullptr;
+}
+
+// Helper to find shared_ptr from raw pointer across all object containers
+std::shared_ptr<GeometricObject> GeometryEditor::findSharedPtr(GeometricObject* raw) {
+  if (!raw) return nullptr;
+  
+  // Lambda to check a container
+  auto check = [&](auto& container) -> std::shared_ptr<GeometricObject> {
+    for (auto& ptr : container) {
+      if (ptr.get() == raw) return ptr;
+    }
+    return nullptr;
+  };
+  
+  // Check all containers
+  if (auto p = check(rectangles)) return p;
+  if (auto p = check(polygons)) return p;
+  if (auto p = check(regularPolygons)) return p;
+  if (auto p = check(triangles)) return p;
+  if (auto p = check(circles)) return p;
+  if (auto p = check(lines)) return p;
+  if (auto p = check(points)) return p;
+  
+  // Check ObjectPoints separately (they're shared_ptr<ObjectPoint> not shared_ptr<GeometricObject>)
+  for (auto& ptr : ObjectPoints) {
+    if (ptr.get() == raw) return std::static_pointer_cast<GeometricObject>(ptr);
+  }
+  
   return nullptr;
 }
 
@@ -420,77 +457,84 @@ void GeometryEditor::render() {
     // Draw all geometric objects with safety checks
     window.setView(drawingView);
 
+    // Calculate scale factor for invariant rendering (world units per screen pixel)
+    float scale = drawingView.getSize().y / static_cast<float>(window.getSize().y);
+
     // points
     for (auto &pt : points) {
-      if (pt && pt->isValid()) pt->draw(window);
+      if (pt && pt->isValid()) pt->draw(window, scale);
     }
     // lines
     for (auto &ln : lines) {
-      if (ln && ln->isValid()) ln->draw(window);
+      if (ln && ln->isValid()) ln->draw(window, scale);
     }
     // circles
     for (auto &ci : circles) {
-      if (ci && ci->isValid()) ci->draw(window);
+      if (ci && ci->isValid()) ci->draw(window, scale);
     }
     // rectangles
     for (auto &rc : rectangles) {
-      if (rc && rc->isValid()) rc->draw(window);
+      if (rc && rc->isValid()) rc->draw(window, scale);
     }
     // polygons
     for (auto &pg : polygons) {
-      if (pg && pg->isValid()) pg->draw(window);
+      if (pg && pg->isValid()) pg->draw(window, scale);
     }
     // regular polygons
     for (auto &rp : regularPolygons) {
-      if (rp && rp->isValid()) rp->draw(window);
+      if (rp && rp->isValid()) rp->draw(window, scale);
     }
     // triangles
     for (auto &tr : triangles) {
-      if (tr && tr->isValid()) tr->draw(window);
+      if (tr && tr->isValid()) tr->draw(window, scale);
     }
     // object‐points
     for (auto &op : ObjectPoints) {
-      if (op && op->isValid()) op->draw(window);
+      if (op && op->isValid()) op->draw(window, scale);
     }
 
     // --- Preview lines ---
     // Draw existing preview Line objects without triggering heavy updates
     if (m_parallelPreviewLine) {
-      m_parallelPreviewLine->draw(window);
+      m_parallelPreviewLine->draw(window, scale);
     }
     if (m_perpendicularPreviewLine) {
-      m_perpendicularPreviewLine->draw(window);
+      m_perpendicularPreviewLine->draw(window, scale);
     }
+
     // Draw lightweight overlay that follows the mouse in real-time
     if (hasPreviewLineOverlay) {
       window.draw(previewLineOverlay);
     }
+    
+    // Draw snapping visuals for tool feedback
+    PointUtils::drawSnappingVisuals(window, m_snapState);
 
     // selection box
     if (isDrawingSelectionBox) window.draw(selectionBoxShape);
 
     // preview circle
-    if (isCreatingCircle && previewCircle && previewCircle->isValid()) previewCircle->draw(window);
+    if (isCreatingCircle && previewCircle && previewCircle->isValid()) previewCircle->draw(window, scale);
     
     // preview rectangle
     if (isCreatingRectangle && previewRectangle && previewRectangle->isValid())
-      previewRectangle->draw(window);
+      previewRectangle->draw(window, scale);
     
     // preview rotatable rectangle
     if (isCreatingRotatableRectangle && previewRectangle && previewRectangle->isValid())
-      previewRectangle->draw(window);
+      previewRectangle->draw(window, scale);
     
     // preview polygon
     if (isCreatingPolygon && previewPolygon && previewPolygon->isValid())
-      previewPolygon->draw(window);
+      previewPolygon->draw(window, scale);
     
     // preview regular polygon
     if (isCreatingRegularPolygon && previewRegularPolygon && previewRegularPolygon->isValid())
-      previewRegularPolygon->draw(window);
+      previewRegularPolygon->draw(window, scale);
 
     // preview triangle
     if (isCreatingTriangle && previewTriangle && previewTriangle->isValid())
-      previewTriangle->draw(window);
+      previewTriangle->draw(window, scale);
 
     // hover message
     if (showHoverMessage) {
@@ -929,9 +973,10 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
   // Update the viewport of both views
   drawingView.setSize(static_cast<float>(width), static_cast<float>(height));
   guiView.setSize(static_cast<float>(width), static_cast<float>(height));
+  gui.updateLayout(static_cast<float>(width));
 
-  // Center the drawing view on the new size
-  drawingView.setCenter(static_cast<float>(width) / 2.f, static_cast<float>(height) / 2.f);
+  // Ensure GUI view remains centered relative to the window
+  guiView.setCenter(static_cast<float>(width) / 2.f, static_cast<float>(height) / 2.f);
 
   // Update the grid when the view changes
   grid.update(drawingView, window.getSize());
@@ -1610,6 +1655,10 @@ void GeometryEditor::deleteSelected() {
 
   // Remove Lines
   for (auto &linePtr : linesToDelete) {
+    try {
+      DynamicIntersection::removeIntersectionsInvolving(linePtr.get());
+    } catch (...) {
+    }
     // Prepare line for destruction (clears internal references)
     try {
       linePtr->prepareForDestruction();
@@ -1815,6 +1864,11 @@ void GeometryEditor::safeDeleteLine(std::shared_ptr<Line> lineToDelete) {
   try {
     std::cout << "safeDeleteLine: Starting deletion of Line " << lineToDelete->getID() << std::endl;
 
+    try {
+      DynamicIntersection::removeIntersectionsInvolving(lineToDelete.get());
+    } catch (...) {
+    }
+
     lineToDelete->setDeferSFMLUpdates(true);
 
     if (selectedObject == rawLinePtr) {
@@ -1886,4 +1940,55 @@ void GeometryEditor::clearHoverReferences(GeometricObject *obj) {
   // If HandleEvents.cpp had its own static g_lastHoveredObject, this is where you'd
   // need a way to tell HandleEvents.cpp to clear its static variable.
   // But the better solution is to remove static hover variables from HandleEvents.cpp.
+}
+
+// ============================================================================
+// PROJECT SAVE/LOAD/EXPORT
+// ============================================================================
+
+#include "ProjectSerializer.h"
+
+void GeometryEditor::clearScene() {
+  std::cout << "GeometryEditor::clearScene: Clearing all objects..." << std::endl;
+  
+  // Cancel any ongoing operations
+  cancelOperation();
+  selectedObject = nullptr;
+  hoveredObject = nullptr;
+  
+  // Clear all object containers
+  ObjectPoints.clear();
+  lines.clear();
+  circles.clear();
+  triangles.clear();
+  rectangles.clear();
+  polygons.clear();
+  regularPolygons.clear();
+  points.clear();
+  
+  std::cout << "GeometryEditor::clearScene: Scene cleared." << std::endl;
+}
+
+void GeometryEditor::saveProject(const std::string& filepath) {
+  if (ProjectSerializer::saveProject(*this, filepath)) {
+    setGUIMessage("Project saved: " + filepath);
+  } else {
+    setGUIMessage("Error saving project!");
+  }
+}
+
+void GeometryEditor::loadProject(const std::string& filepath) {
+  if (ProjectSerializer::loadProject(*this, filepath)) {
+    setGUIMessage("Project loaded: " + filepath);
+  } else {
+    setGUIMessage("Error loading project!");
+  }
+}
+
+void GeometryEditor::exportSVG(const std::string& filepath) {
+  if (ProjectSerializer::exportSVG(*this, filepath)) {
+    setGUIMessage("SVG exported: " + filepath);
+  } else {
+    setGUIMessage("Error exporting SVG!");
+  }
 }

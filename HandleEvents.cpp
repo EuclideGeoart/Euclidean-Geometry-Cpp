@@ -56,7 +56,7 @@
 #include "GUI.h"  // For editor.gui
 #include "GeometricObject.h"
 #include "GeometryEditor.h"  // Needs full definition for editor members
-#include "HandleEvents.h"    // Function declarations for this file
+#include "Intersection.h" // Use Master Implementation
 #include "Line.h"
 #include "PointUtils.h"
 #include "Polygon.h"
@@ -536,10 +536,11 @@ void handlePointCreation(GeometryEditor &editor, const sf::Event::MouseButtonEve
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
-
-  // Create a new point at the clicked location
-  auto newPoint = std::make_unique<Point>(cgalWorldPos, 1.0f, editor.getCurrentColor());
-  editor.points.push_back(std::move(newPoint));
+  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+  if (smartPoint && smartPoint->isValid()) {
+    smartPoint->setSelected(true);
+  }
 
   std::cout << "Point created at (" << cgalWorldPos.x() << ", " << cgalWorldPos.y() << ")"
             << std::endl;
@@ -593,222 +594,13 @@ void handleLineCreation(GeometryEditor &editor, const sf::Event::MouseButtonEven
     std::cout << "Line creation: Click at (" << CGAL::to_double(cgalWorldPos.x()) << ", "
               << CGAL::to_double(cgalWorldPos.y()) << ")" << std::endl;
 
-    std::shared_ptr<Point> clickedPoint = nullptr;
-    auto findNearestExistingPoint = [&](float radius) -> std::shared_ptr<Point> {
-      std::shared_ptr<Point> best;
-      float bestDist2 = std::numeric_limits<float>::max();
-      // search free points
-      for (auto &pt : editor.points) {
-        if (pt && pt->isValid()) {
-          sf::Vector2f psf = pt->getSFMLPosition();
-          float dx = psf.x - worldPos_sfml.x;
-          float dy = psf.y - worldPos_sfml.y;
-          float d2 = dx * dx + dy * dy;
-          if (d2 <= radius * radius && d2 < bestDist2) {
-            best = pt;
-            bestDist2 = d2;
-          }
-        }
-      }
-      // search object points
-      for (auto &op : editor.ObjectPoints) {
-        if (op && op->isValid()) {
-          sf::Vector2f psf = op->getSFMLPosition();
-          float dx = psf.x - worldPos_sfml.x;
-          float dy = psf.y - worldPos_sfml.y;
-          float d2 = dx * dx + dy * dy;
-          if (d2 <= radius * radius && d2 < bestDist2) {
-            best = std::static_pointer_cast<Point>(op);
-            bestDist2 = d2;
-          }
-        }
-      }
-      return best;
-    };
-
-    // FIX: Check CIRCLE CENTERS FIRST (highest priority for snapping)
-    for (auto &circlePtr : editor.circles) {
-      // Use expanded tolerance for circle center detection (4x normal)
-      float centerTolerance = tolerance * 4.0f;
-      if (circlePtr && circlePtr->isValid() && circlePtr->isCenterPointHovered(worldPos_sfml, centerTolerance)) {
-        // VISUAL FEEDBACK: Highlight the circle when center is hovered
-        circlePtr->setHovered(true);
-        
-        // Prefer attaching to an ObjectPoint that tracks the circle center
-        Point_2 centerPos = circlePtr->getCenterPoint();
-        std::cout << "[DEBUG] Hovered over circle center at tolerance " << centerTolerance << std::endl;
-
-        // 1) Try existing ObjectPoints hosted by this circle near the center
-        bool foundExisting = false;
-        for (auto &objPt : editor.ObjectPoints) {
-          if (objPt && objPt->isValid() && objPt->getHostType() == ObjectType::Circle) {
-            GeometricObject *hostRaw = objPt->getHostObject();
-            // Compare host to this circle
-            if (hostRaw == circlePtr.get() && objPt->contains(worldPos_sfml, centerTolerance)) {
-              clickedPoint = std::static_pointer_cast<Point>(objPt);
-              foundExisting = true;
-              std::cout << "[DEBUG] Found existing ObjectPoint attached to circle center" << std::endl;
-              break;
-            }
-          }
-        }
-
-        // 2) Fallback: use a free point exactly at center if present
-        if (!foundExisting) {
-          for (auto &pt : editor.points) {
-            if (pt && pt->isValid() &&
-                CGAL::squared_distance(pt->getCGALPosition(), centerPos) < Kernel::FT(0.01)) {
-              clickedPoint = pt;
-              foundExisting = true;
-              std::cout << "[DEBUG] Found existing free point at center" << std::endl;
-              break;
-            }
-          }
-        }
-
-        // 3) Create an ObjectPoint attached to the circle center
-        if (!foundExisting) {
-          std::cout << "[DEBUG] Creating new center-attached ObjectPoint" << std::endl;
-          auto centerObjPt = ObjectPoint::createCenter(circlePtr, Constants::OBJECT_POINT_DEFAULT_COLOR);
-          if (centerObjPt && centerObjPt->isValid()) {
-            std::cout << "[DEBUG] ObjectPoint created successfully and is valid" << std::endl;
-            editor.ObjectPoints.push_back(centerObjPt);
-            clickedPoint = std::static_pointer_cast<Point>(centerObjPt);
-            std::cout << "[DEBUG] Using center-attached ObjectPoint as clicked point" << std::endl;
-          } else {
-            // As last resort, create a free point
-            std::cout << "[DEBUG] ObjectPoint creation failed, falling back to free point" << std::endl;
-            clickedPoint = std::make_shared<Point>(centerPos, 1.0f, Constants::POINT_DEFAULT_COLOR);
-            editor.points.push_back(clickedPoint);
-          }
-        }
-
-        std::cout << "[DEBUG] Clicked on circle center. Point type: " 
-                  << (clickedPoint ? (dynamic_cast<ObjectPoint*>(clickedPoint.get()) ? "ObjectPoint" : "FreePoint") : "NULL") 
-                  << std::endl;
-        
-        // VISUAL FEEDBACK: Set circle as selected for visual indication
-        circlePtr->setSelected(true);
-        
-        // IMPORTANT: Skip all other checks - we found the center!
-        // Jump directly to using this point
-        goto centerFound;
-      }
-    }
-
-    // Unified Snap Logic
-    // 1. Try to find a specific anchor point (Vertex, FreePoint, ObjectPoint, Circle Center)
-    if (!clickedPoint) {
-         std::shared_ptr<Point> anchor = PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
-         if (anchor) {
-             clickedPoint = anchor;
-             std::cout << "[LINE] Snapped via PointUtils::findAnchorPoint" << std::endl;
-             
-             // Check if this point needs to be added to the editor (e.g. newly created for shape vertex)
-             bool exists = false;
-             for(const auto& p : editor.points) if(p == clickedPoint) { exists = true; break; }
-             if(!exists) {
-                 for(const auto& p : editor.ObjectPoints) if(p == clickedPoint) { exists = true; break; }
-             }
-             
-             if (!exists) {
-                 // It's a new ObjectPoint created by findAnchorPoint (e.g. for a shape vertex)
-                 if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedPoint)) {
-                     editor.ObjectPoints.push_back(objPt);
-                     std::cout << "[LINE] Added new Vertex ObjectPoint to editor" << std::endl;
-                 }
-             }
-         }
-    }
-
-    // 2. If no vertex found, check for shape edges using PointUtils
-    if (!clickedPoint) {
-      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance * 2.0f);
-      if (edgeHit.has_value()) {
-        const auto& hit = edgeHit.value();
-        
-        // Check if it's a circle circumference hit
-        if (Circle* circle = dynamic_cast<Circle*>(hit.host)) {
-          // Create ObjectPoint on circle circumference
-          for (auto& circlePtr : editor.circles) {
-            if (circlePtr.get() == circle) {
-              auto objPoint = ObjectPoint::create(circlePtr, hit.relativePosition * 2.0 * M_PI, 
-                                                  Constants::OBJECT_POINT_DEFAULT_COLOR);
-              if (objPoint && objPoint->isValid()) {
-                editor.ObjectPoints.push_back(objPoint);
-                clickedPoint = std::static_pointer_cast<Point>(objPoint);
-                std::cout << "[LINE] Created ObjPoint on circle circumference" << std::endl;
-              }
-              break;
-            }
-          }
-        } else {
-          // Create ObjectPoint on shape edge
-          // First find the shared_ptr to the host shape
-          std::shared_ptr<GeometricObject> hostPtr = nullptr;
-          
-          auto findHost = [&](auto& container) {
-            for (auto& shape : container) {
-              if (shape.get() == hit.host) {
-                hostPtr = std::static_pointer_cast<GeometricObject>(shape);
-                return true;
-              }
-            }
-            return false;
-          };
-          
-          if (findHost(editor.rectangles) || findHost(editor.polygons) || 
-              findHost(editor.regularPolygons) || findHost(editor.triangles)) {
-                  
-               if (hostPtr) {
-                   auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, hit.edgeIndex, hit.relativePosition);
-                   if (objPoint && objPoint->isValid()) {
-                       editor.ObjectPoints.push_back(objPoint);
-                       clickedPoint = objPoint;
-                       std::cout << "[LINE] Created ObjPoint on shape edge" << std::endl;
-                   }
-               }
-          }
-        }
-      }
-    }
-
-
-    centerFound:  // Label for when circle center is found
+    std::shared_ptr<Point> clickedPoint =
+        PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
     if (!editor.lineCreationPoint1) {
       // --- Starting line creation - first point ---
       deselectAllAndClearInteractionState(editor);
 
-      if (clickedPoint) {
-        editor.lineCreationPoint1 = clickedPoint;
-      } else {
-        bool pointSnapActive = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) ||
-                     sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
-        // Try to snap to any nearby object (lines, circles, etc)
-        auto snapResult = trySnapToNearbyObject(editor, worldPos_sfml, cgalWorldPos, tolerance,
-                            pointSnapActive);
-        if (snapResult) {
-          editor.lineCreationPoint1 = snapResult;
-          std::cout << "[LINE] First point snapped to nearby object" << std::endl;
-        } else {
-          // Create free point
-          try {
-            auto newPoint =
-                std::make_shared<Point>(cgalWorldPos, 1.0f, Constants::POINT_DEFAULT_COLOR);
-            if (!newPoint || !newPoint->isValid()) {
-              std::cerr << "Error: Failed to create valid first point for line." << std::endl;
-              return;
-            }
-            editor.lineCreationPoint1 = newPoint;
-            editor.points.push_back(newPoint);
-            std::cout << "[LINE] Created new free point at (" << CGAL::to_double(cgalWorldPos.x())
-                      << ", " << CGAL::to_double(cgalWorldPos.y()) << ")" << std::endl;
-          } catch (const std::exception &e) {
-            std::cerr << "Exception creating first point for line: " << e.what() << std::endl;
-            return;
-          }
-        }
-      }
+      editor.lineCreationPoint1 = clickedPoint;
 
       if (!editor.lineCreationPoint1 || !editor.lineCreationPoint1->isValid()) {
         std::cerr << "Error: First point for line is invalid after "
@@ -831,58 +623,16 @@ void handleLineCreation(GeometryEditor &editor, const sf::Event::MouseButtonEven
         return;
       }
 
-      std::shared_ptr<Point> secondPoint = nullptr;
+      std::shared_ptr<Point> secondPoint = clickedPoint;
 
-      if (clickedPoint) {
-        if (clickedPoint == editor.lineCreationPoint1) {
-          std::cout << "Line creation canceled: same point selected for start "
-                       "and end."
-                    << std::endl;
-          editor.lineCreationPoint1->setSelected(false);
-          editor.lineCreationPoint1 = nullptr;
-          editor.dragMode = DragMode::None;
-          return;
-        }
-        secondPoint = clickedPoint;
-        std::cout << "Using existing point for second endpoint of line." << std::endl;
-      } else {
-        bool pointSnapActive = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) ||
-                   sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
-        // Try to snap to any nearby object (lines, circles, etc)
-        auto snapResult = trySnapToNearbyObject(editor, worldPos_sfml, cgalWorldPos, tolerance,
-                  pointSnapActive);
-        if (snapResult) {
-          secondPoint = snapResult;
-          std::cout << "[LINE] Second point snapped to nearby object" << std::endl;
-        } else {
-          // Magnetic snap: try snapping to nearest existing point before creating a new one
-          if (auto nearest = findNearestExistingPoint(tolerance * Constants::SNAP_MAGNET_RADIUS_MULTIPLIER)) {
-            secondPoint = nearest;
-            std::cout << "[LINE] Magnet-snapped to nearby existing point for second endpoint." << std::endl;
-          } else {
-            try {
-              auto newPoint =
-                  std::make_shared<Point>(cgalWorldPos, 1.0f, Constants::POINT_DEFAULT_COLOR);
-              if (!newPoint || !newPoint->isValid()) {
-                std::cerr << "Error: Failed to create valid second point for line." << std::endl;
-                editor.lineCreationPoint1->setSelected(false);
-                editor.lineCreationPoint1 = nullptr;
-                editor.dragMode = DragMode::None;
-                return;
-              }
-              secondPoint = newPoint;
-              editor.points.push_back(newPoint);
-              std::cout << "[LINE] Created new free point at (" << CGAL::to_double(cgalWorldPos.x())
-                        << ", " << CGAL::to_double(cgalWorldPos.y()) << ")" << std::endl;
-            } catch (const std::exception &e) {
-              std::cerr << "Exception creating second point for line: " << e.what() << std::endl;
-              editor.lineCreationPoint1->setSelected(false);
-              editor.lineCreationPoint1 = nullptr;
-              editor.dragMode = DragMode::None;
-              return;
-            }
-          }
-        }
+      if (secondPoint == editor.lineCreationPoint1) {
+        std::cout << "Line creation canceled: same point selected for start "
+                     "and end."
+                  << std::endl;
+        editor.lineCreationPoint1->setSelected(false);
+        editor.lineCreationPoint1 = nullptr;
+        editor.dragMode = DragMode::None;
+        return;
       }
 
       // Ensure both points are valid before proceeding
@@ -1306,6 +1056,7 @@ void handleParallelLineCreation(GeometryEditor &editor,
           editor.resetParallelLineToolState();
           return;
         }
+        newP2->setVisible(false);
         editor.points.push_back(newP2);
         finalEndPoint = newP2;
       } else {
@@ -1319,6 +1070,7 @@ void handleParallelLineCreation(GeometryEditor &editor,
           editor.resetParallelLineToolState();
           return;
         }
+        newP2->setVisible(false);
         editor.points.push_back(newP1);
         editor.points.push_back(newP2);
         finalStartPoint = newP1;
@@ -1331,6 +1083,7 @@ void handleParallelLineCreation(GeometryEditor &editor,
             std::make_shared<Line>(finalStartPoint, finalEndPoint, false,
                                    Constants::CONSTRUCTION_LINE_COLOR, editor.objectIdCounter++);
         if (newLine && newLine->isValid()) {
+          newLine->registerWithEndpoints(); // Fix propagation lag
           editor.lines.push_back(newLine);
 
           // Use weak_ptr safely for setting parallel constraint
@@ -1490,118 +1243,12 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
         return;
       }
 
-      // Find if clicking on an existing anchor point (vertex/free/object point)
+      // Use smart factory for anchor point
       Point_2 anchorPos_cgal = cgalWorldPos;
-      std::shared_ptr<Point> clickedExistingPt = nullptr;
-
-      // Unified anchor search (same as Line tool)
-      std::shared_ptr<Point> anchor =
-          PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
-      if (anchor) {
-        clickedExistingPt = anchor;
-        anchorPos_cgal = anchor->getCGALPosition();
-
-        // If this is a newly created vertex ObjectPoint, register it in the editor
-        bool exists = false;
-        for (const auto &p : editor.points) {
-          if (p == clickedExistingPt) {
-            exists = true;
-            break;
-          }
-        }
-        if (!exists) {
-          for (const auto &p : editor.ObjectPoints) {
-            if (p == clickedExistingPt) {
-              exists = true;
-              break;
-            }
-          }
-        }
-        if (!exists) {
-          if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedExistingPt)) {
-            editor.ObjectPoints.push_back(objPt);
-          }
-        }
-      }
-
-      // Check for shape edges or circle circumference (snap to edge)
-      if (!clickedExistingPt) {
-        auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance * 2.0f);
-        if (edgeHit.has_value()) {
-          const auto &hit = edgeHit.value();
-
-          if (Circle *circle = dynamic_cast<Circle *>(hit.host)) {
-            for (auto &circlePtr : editor.circles) {
-              if (circlePtr.get() == circle) {
-                auto objPoint = ObjectPoint::create(circlePtr,
-                                                    hit.relativePosition * 2.0 * M_PI,
-                                                    Constants::OBJECT_POINT_DEFAULT_COLOR);
-                if (objPoint && objPoint->isValid()) {
-                  editor.ObjectPoints.push_back(objPoint);
-                  clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
-                }
-                break;
-              }
-            }
-          } else {
-            std::shared_ptr<GeometricObject> hostPtr = nullptr;
-            auto findHost = [&](auto &container) {
-              for (auto &shape : container) {
-                if (shape.get() == hit.host) {
-                  hostPtr = std::static_pointer_cast<GeometricObject>(shape);
-                  return true;
-                }
-              }
-              return false;
-            };
-
-            if (findHost(editor.rectangles) || findHost(editor.polygons) ||
-                findHost(editor.regularPolygons) || findHost(editor.triangles)) {
-              if (hostPtr) {
-                auto objPoint =
-                    ObjectPoint::createOnShapeEdge(hostPtr, hit.edgeIndex, hit.relativePosition);
-                if (objPoint && objPoint->isValid()) {
-                  editor.ObjectPoints.push_back(objPoint);
-                  clickedExistingPt = objPoint;
-                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Check for line intersection to snap to
-      if (!clickedExistingPt) {
-        for (auto &linePtr : editor.lines) {
-          if (auto refObj = editor.m_perpendicularReference.lock()) {
-            if (linePtr && linePtr.get() != refObj.get() &&
-                linePtr->contains(worldPos_sfml, tolerance)) {
-              // Project the click point onto this line for better snapping
-              try {
-                Line_2 hostLine = linePtr->getCGALLine();
-                Point_2 projectedPoint = hostLine.projection(cgalWorldPos);
-                anchorPos_cgal = projectedPoint;
-                break;
-              } catch (const std::exception &e) {
-                std::cerr << "Error projecting to line: " << e.what() << std::endl;
-              }
-            }
-          } else {
-            // No reference line (axis mode), just check all lines
-            if (linePtr && linePtr->contains(worldPos_sfml, tolerance)) {
-              try {
-                Line_2 hostLine = linePtr->getCGALLine();
-                Point_2 projectedPoint = hostLine.projection(cgalWorldPos);
-                anchorPos_cgal = projectedPoint;
-                break;
-              } catch (const std::exception &e) {
-                std::cerr << "Error projecting to line: " << e.what() << std::endl;
-              }
-            }
-          }
-        }
+      std::shared_ptr<Point> clickedExistingPt =
+          PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+      if (clickedExistingPt) {
+        anchorPos_cgal = clickedExistingPt->getCGALPosition();
       }
 
       // Create perpendicular direction
@@ -1642,6 +1289,7 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
           editor.resetPerpendicularLineToolState();
           return;
         }
+        newP2->setVisible(false);
         editor.points.push_back(newP2);
         finalEndPoint = newP2;
       } else {
@@ -1655,6 +1303,7 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
           editor.resetPerpendicularLineToolState();
           return;
         }
+        newP2->setVisible(false);
         editor.points.push_back(newP1);
         editor.points.push_back(newP2);
         finalStartPoint = newP1;
@@ -1667,6 +1316,7 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
             std::make_shared<Line>(finalStartPoint, finalEndPoint, false,
                                    Constants::CONSTRUCTION_LINE_COLOR, editor.objectIdCounter++);
         if (newLine && newLine->isValid()) {
+          newLine->registerWithEndpoints(); // Fix propagation lag
           editor.lines.push_back(newLine);
 
           // Use weak_ptr safely for setting perpendicular constraint
@@ -2214,6 +1864,18 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
     }
   }
 
+  // Intersection tool handling (mirror Point tool intersection creation)
+  if (editor.m_currentToolType == ObjectType::Intersection) {
+    if (mouseEvent.button == sf::Mouse::Left) {
+      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+      if (smartPoint && smartPoint->isValid()) {
+        smartPoint->setSelected(true);
+      }
+      return;
+    }
+  }
+
   // Add parallel line tool handling
   if (editor.m_currentToolType == ObjectType::ParallelLine) {
     if (mouseEvent.button == sf::Mouse::Left) {
@@ -2237,19 +1899,20 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
         // Start circle creation - create the center point first
         sf::Vector2i mousePos = sf::Mouse::getPosition(editor.window);
         sf::Vector2f worldPos = editor.window.mapPixelToCoords(mousePos, editor.drawingView);
-        Point_2 center(worldPos.x, worldPos.y);
+        float tolerance = editor.getScaledTolerance(editor.drawingView);
+        auto centerPoint = PointUtils::createSmartPoint(editor, worldPos, tolerance);
 
+        if (!centerPoint || !centerPoint->isValid()) {
+          return;
+        }
+
+        Point_2 center = centerPoint->getCGALPosition();
         editor.isCreatingCircle = true;
         editor.createStart_cgal = center;
-        
-        // Create center point that will be used for the circle - use selected color
-        sf::Color selectedColor = editor.getCurrentColor();
-        auto centerPoint = std::make_unique<Point>(center, 5.0f, selectedColor);
-        Point *centerPtr = centerPoint.get();
-        editor.points.push_back(std::move(centerPoint));
 
         // Create preview circle using the center point with selected color
-        editor.previewCircle = Circle::create(centerPtr, 0.0, selectedColor);
+        sf::Color selectedColor = editor.getCurrentColor();
+        editor.previewCircle = Circle::create(centerPoint.get(), 0.0, selectedColor);
         std::cout << "Preview circle created at address: " << editor.previewCircle.get()
                   << std::endl;
         std::cout << "Creating circle with center at (" << CGAL::to_double(center.x()) << ", "
@@ -2273,10 +1936,6 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
             }
           } else {
             std::cout << "Circle not created: radius too small." << std::endl;
-            // Remove the center point we created
-            if (!editor.points.empty() && editor.points.back()->getCGALPosition() == center) {
-              editor.points.pop_back();
-            }
           }
         } catch (const std::exception &e) {
           std::cerr << "Error creating circle: " << e.what() << std::endl;
@@ -3187,6 +2846,19 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
       }
     }
   }
+
+        // === UNIVERSAL SMART SNAPPING ===
+        if (editor.m_currentToolType == ObjectType::Point ||
+          editor.m_currentToolType == ObjectType::Line ||
+          editor.m_currentToolType == ObjectType::LineSegment ||
+          editor.m_currentToolType == ObjectType::Circle ||
+          editor.m_currentToolType == ObjectType::Intersection) {
+        float tolerance = editor.getScaledTolerance(editor.drawingView);
+        editor.m_snapState = PointUtils::checkSnapping(editor, worldPos, tolerance);
+        } else {
+        editor.m_snapState = PointUtils::SnapState{};
+        }
+  
   // Update selection box if we're drawing one
   if (editor.isDrawingSelectionBox) {
     sf::Vector2f size = worldPos - editor.selectionBoxStart_sfml;
@@ -3818,6 +3490,33 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
     std::cerr << "Unknown error in hover detection" << std::endl;
   }
 
+  // === EDGE HOVER DETECTION (Universal Snapping) ===
+  // Only check for edge hover if no object is currently hovered
+  try {
+    if (!g_lastHoveredObject && !editor.isDragging) {
+      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos, tolerance);
+      
+      if (edgeHit) {
+        // Store the edge hit for use during click
+        editor.m_hoveredEdge = edgeHit;
+        
+        // Set hover on the parent shape to provide visual feedback
+        if (edgeHit->host && !isObjectBeingDeleted(edgeHit->host)) {
+          edgeHit->host->setHovered(true);
+        }
+      } else {
+        // Clear hovered edge if no edge is near
+        editor.m_hoveredEdge = std::nullopt;
+      }
+    } else {
+      // Clear hovered edge when dragging or hovering over an object
+      editor.m_hoveredEdge = std::nullopt;
+    }
+  } catch (const std::exception &e) {
+    std::cerr << "Error in edge hover detection: " << e.what() << std::endl;
+  }
+
   editor.lastMousePos_sfml = worldPos;
 }
 
@@ -4125,14 +3824,8 @@ void handleZoom(GeometryEditor &editor, float scrollDelta, const sf::Vector2i &m
   // float currentZoomLevel = currentViewHeight / static_cast<float>(Constants::WINDOW_HEIGHT); // Unused
   float projectedZoomLevel = newViewHeight / static_cast<float>(Constants::WINDOW_HEIGHT);
 
-  // Apply zoom limits
-  if (projectedZoomLevel < Constants::VIEW_MIN_ZOOM_LEVEL) {
-    newViewHeight = Constants::VIEW_MIN_ZOOM_LEVEL * static_cast<float>(Constants::WINDOW_HEIGHT);
-    zoomDirection = newViewHeight / currentViewHeight;  // Recalculate actual factor
-  } else if (projectedZoomLevel > Constants::VIEW_MAX_ZOOM_LEVEL) {
-    newViewHeight = Constants::VIEW_MAX_ZOOM_LEVEL * static_cast<float>(Constants::WINDOW_HEIGHT);
-    zoomDirection = newViewHeight / currentViewHeight;  // Recalculate actual factor
-  }
+  // Zoom limits removed for infinite zoom
+  // (Original limit logic removed)
 
   if (std::abs(zoomDirection - 1.0f) <
       Constants::EPSILON) {  // Avoid zooming if factor is effectively 1

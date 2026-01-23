@@ -1,0 +1,125 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "(Windows gdb) Launch GeometryTool2",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/GeometryTool2.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            // Ensure this points to the GDB for your Clang64 toolchain
+            "miDebuggerPath": "C:/msys64/clang64/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            // Use your new specific build task
+            "preLaunchTask": "Build Windows Clang64 Debug",
+            "logging": {
+                "engineLogging": false,
+                "exceptions": true
+            }
+        },
+        {
+            "name": "(Windows lldb) Launch GeometryTool2",
+            "type": "lldb", // LLDB with Clang on Windows can sometimes be tricky; GDB is often more straightforward with MSYS2 Clang
+            "request": "launch",
+            "program": "${workspaceFolder}/build/GeometryTool2.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/build",
+            "stopOnEntry": false,
+            // Use your new specific build task
+            "preLaunchTask": "Build Windows Clang64 Debug", // <--- CHANGED
+            "initCommands": [
+                "settings set target.process.thread.step-avoid-libraries false"
+            ],
+            "env": {}
+        },
+        {
+            "name": "Debug Linux Build",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/GeometryTool2",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "ASAN_OPTIONS",
+                    "value": "detect_leaks=1:abort_on_error=1:print_stacktrace=1:check_initialization_order=1:strict_init_order=1"
+                },
+                {
+                    "name": "UBSAN_OPTIONS", 
+                    "value": "print_stacktrace=1:abort_on_error=1"
+                },
+                {
+                    "name": "MALLOC_CHECK_",
+                    "value": "3"
+                },
+                {
+                    "name": "MALLOC_PERTURB_",
+                    "value": "165"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set breakpoint on abort for AddressSanitizer",
+                    "text": "-exec set breakpoint pending on",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Break on abort",
+                    "text": "-exec break abort",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Build Linux Debug with Sanitizers",
+            "logging": {
+                "engineLogging": true,
+                "programOutput": true
+            }
+        },
+        {
+            "name": "Debug Linux Build (No Sanitizers)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/GeometryTool2",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Build Linux Debug",
+            "logging": {
+                "engineLogging": true,
+                "programOutput": true
+            }
+        }
+    ]
+}

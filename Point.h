@@ -45,7 +45,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   static Point_2 sfmlToCGAL(const sf::Vector2f &p);
 
   // --- GeometricObject Overrides ---
-  virtual void draw(sf::RenderWindow &window) const override;
+  virtual void draw(sf::RenderWindow &window, float scale) const override;
   bool contains(const sf::Vector2f &worldPos,
                 float tolerance = Constants::POINT_INTERACTION_RADIUS) const override;
   void setSelected(bool sel) override;
@@ -68,6 +68,9 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   // Lock status
   void setLocked(bool lockStatus) { m_isLocked = lockStatus; }
   bool isLocked() const;
+
+  void setVisible(bool v) { m_visible = v; }
+  bool isVisible() const { return m_visible; }
 
   // Intersection status
   void setIntersectionPoint(bool isInter) { m_isIntersectionPoint = isInter; }
@@ -156,6 +159,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   bool m_isIntersectionPoint;
   bool m_isInitialized;
   bool m_deferConstraintUpdates;
+  bool m_visible = true;
   std::vector<std::weak_ptr<Line>> m_connectedLines;  // Lines connected to this point
 };
 

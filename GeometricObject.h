@@ -34,7 +34,7 @@ class GeometricObject {
   virtual ObjectType getType() const { return m_type; }
 
   // Geometry operations
-  virtual void draw(sf::RenderWindow &window) const = 0;
+  virtual void draw(sf::RenderWindow &window, float scale) const = 0;
   virtual bool contains(const sf::Vector2f &worldPos, float tolerance) const = 0;
   virtual sf::FloatRect getGlobalBounds() const = 0;
   virtual void update() {}
@@ -62,6 +62,9 @@ class GeometricObject {
   virtual bool isValid() const {
     return m_isValid;
   }
+  
+  // Added getColor for serialization support
+  virtual sf::Color getColor() const { return m_color; }
   
   // Hosted ObjectPoint management (Generic for all shapes)
   virtual void addChildPoint(std::shared_ptr<ObjectPoint> point);

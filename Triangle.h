@@ -33,7 +33,7 @@ public:
     virtual ~Triangle() = default;
 
     // GeometricObject interface
-    virtual void draw(sf::RenderWindow& window) const override;
+    virtual void draw(sf::RenderWindow &window, float scale) const override;
     virtual void setColor(const sf::Color& color) override;
     virtual bool contains(const sf::Vector2f& screenPos, float tolerance) const override;
     virtual std::string getTypeString() const { return "Triangle"; }
@@ -73,5 +73,5 @@ private:
     // Helper methods
     void updateSFMLShape();
     void updateSFMLShapeInternal();
-    void drawVertexHandles(sf::RenderWindow& window) const;
+    void drawVertexHandles(sf::RenderWindow &window, float scale) const;
 };
