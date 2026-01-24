@@ -50,6 +50,8 @@ class GeometricObject {
   // Shapes override these to expose their vertices and edges to all tools
   virtual std::vector<Point_2> getInteractableVertices() const { return {}; }
   virtual std::vector<Segment_2> getEdges() const { return {}; }
+  virtual std::vector<Segment_2> getBoundarySegments() const { return getEdges(); }
+  virtual bool getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const;
   
   // virtual int getIDIfAvailable() const { return m_id; }
   //  Selection/hover state

@@ -123,6 +123,8 @@ public:
 
 struct IntersectionHit {
   Point_2 position;
+  std::shared_ptr<GeometricObject> obj1;
+  std::shared_ptr<GeometricObject> obj2;
   std::shared_ptr<Line> line1;
   std::shared_ptr<Line> line2;
   double distanceSquared;

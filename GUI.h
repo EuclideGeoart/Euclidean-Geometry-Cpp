@@ -20,7 +20,7 @@ class ColorPicker {
   sf::RectangleShape m_colorPreview;
   sf::RectangleShape m_colorPalette[16];  // Pre-defined colors
   sf::Color m_currentColor;
-    float m_alpha = 0.0f;
+  float m_alpha = 255.0f;
   bool m_isOpen = false;
   bool m_isInApplicationMode = false;  // True when picker is open and waiting for object clicks
   sf::Vector2f m_position;
@@ -112,8 +112,8 @@ class ColorPicker {
   void setAlpha(float alpha);
   float getAlpha() const { return m_alpha; }
   void setCurrentColor(sf::Color color) {
-    m_currentColor = color;
-    m_colorPreview.setFillColor(getCurrentColorWithAlpha());
+    m_currentColor = sf::Color(color.r, color.g, color.b);
+    setAlpha(color.a);
   }
 };
 

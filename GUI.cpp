@@ -436,6 +436,9 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         if (editor.fillTarget) {
           editor.fillTarget->setColor(m_currentColor);
         }
+        if (editor.selectedObject) {
+          editor.changeSelectedObjectColor(m_currentColor);
+        }
         return true;
       }
     }
@@ -487,6 +490,9 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         if (editor.fillTarget) {
           editor.fillTarget->setColor(m_currentColor);
         }
+        if (editor.selectedObject) {
+          editor.changeSelectedObjectColor(m_currentColor);
+        }
         return true;
       }
       
@@ -511,6 +517,9 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         editor.setCurrentColor(m_currentColor);
         if (editor.fillTarget) {
           editor.fillTarget->setColor(m_currentColor);
+        }
+        if (editor.selectedObject) {
+          editor.changeSelectedObjectColor(m_currentColor);
         }
         return true;
       }
@@ -586,6 +595,15 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
           std::cout << "Color button clicked!" << std::endl;
           if (m_colorPicker) {
             m_colorPicker->setOpen(!m_colorPicker->isOpen());
+            if (m_colorPicker->isOpen()) {
+              sf::Color baseColor = editor.getCurrentColor();
+              if (editor.selectedObject) {
+                baseColor = editor.selectedObject->getColor();
+              }
+              m_colorPicker->setCurrentColor(baseColor);
+              m_currentColor = m_colorPicker->getCurrentColorWithAlpha();
+              editor.setCurrentColor(m_currentColor);
+            }
             std::cout << "Color picker " << (m_colorPicker->isOpen() ? "opened" : "closed")
                       << std::endl;
           }

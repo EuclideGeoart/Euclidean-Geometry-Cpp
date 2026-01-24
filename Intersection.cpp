@@ -8,45 +8,46 @@
 #include "CGALSafeUtils.h"
 #include "Circle.h"
 #include "Constants.h"
+#include "GeometryEditor.h"
+#include "GeometricObject.h"
+#include "IntersectionSystem.h"
 #include "Line.h"
 #include "Point.h"
 #include <CGAL/Uncertain.h>
 #include <CGAL/intersections.h>
 #include <iostream>
 #include <memory>
-#include <unordered_map>
 #include <algorithm>
 
 double GEOMETRY_DBL_EPSILON = 1e-10;
 
 // Data structure to hold all dynamic intersections
 namespace {
-struct LineLineIntersection {
-  Line *line1;
-  Line *line2;
-  Point *point;
-};
-
-struct LineCircleIntersection {
-  Line *line;
-  Circle *circle;
-  std::vector<Point *> points;
-};
-
-struct CircleCircleIntersection {
-  Circle *circle1;
-  Circle *circle2;
-  std::vector<Point *> points;
-};
-
-// Storage for all registered intersections
-std::vector<LineLineIntersection> lineLineIntersections;
-std::vector<LineCircleIntersection> lineCircleIntersections;
-std::vector<CircleCircleIntersection> circleCircleIntersections;
-
 // Configuration flag for automatic intersection updates
 bool g_autoUpdateIntersections = false; // Default to false
 } // namespace
+
+namespace DynamicIntersection {
+static std::vector<IntersectionConstraint> activeConstraints;
+}
+
+namespace {
+void removePointFromEditor(GeometryEditor &editor, const std::shared_ptr<Point> &pt) {
+  if (!pt) {
+    return;
+  }
+  if (editor.selectedObject == pt.get()) {
+    editor.selectedObject = nullptr;
+  }
+  if (editor.hoveredObject == pt.get()) {
+    editor.hoveredObject = nullptr;
+  }
+  auto &vec = editor.points;
+  vec.erase(std::remove_if(vec.begin(), vec.end(),
+                           [&](const std::shared_ptr<Point> &sp) { return sp == pt; }),
+            vec.end());
+}
+}
 
 // Core intersection computation functions
 
@@ -235,340 +236,218 @@ void disableAutoIntersections() {
 
 bool isAutoIntersectionsEnabled() { return g_autoUpdateIntersections; }
 
-void removeIntersectionsInvolving(Line *line) {
-  if (!line) return;
+void removeIntersectionsInvolving(const std::shared_ptr<Line> &line, GeometryEditor &editor) {
+  if (!line) {
+    return;
+  }
+  removeConstraintsInvolving(line.get(), editor);
+}
 
-  lineLineIntersections.erase(
-      std::remove_if(lineLineIntersections.begin(), lineLineIntersections.end(),
-                     [line](const LineLineIntersection &item) {
-                       return item.line1 == line || item.line2 == line;
-                     }),
-      lineLineIntersections.end());
+void removeConstraintsInvolving(const GeometricObject *obj, GeometryEditor &editor) {
+  auto &constraints = activeConstraints;
+  constraints.erase(
+      std::remove_if(constraints.begin(), constraints.end(),
+                     [&](const IntersectionConstraint &item) {
+                       auto lockA = item.A.lock();
+                       auto lockB = item.B.lock();
+                       if (!lockA || !lockB) {
+                         for (const auto &wp : item.resultingPoints) {
+                           if (auto sp = wp.lock()) {
+                             removePointFromEditor(editor, sp);
+                           }
+                         }
+                         return true;
+                       }
 
-  lineCircleIntersections.erase(
-      std::remove_if(lineCircleIntersections.begin(), lineCircleIntersections.end(),
-                     [line](const LineCircleIntersection &item) {
-                       return item.line == line;
+                       if (obj && (lockA.get() == obj || lockB.get() == obj)) {
+                         for (const auto &wp : item.resultingPoints) {
+                           if (auto sp = wp.lock()) {
+                             removePointFromEditor(editor, sp);
+                           }
+                         }
+                         return true;
+                       }
+                       return false;
                      }),
-      lineCircleIntersections.end());
+      constraints.end());
 }
 
 // Implementation for standard intersection creation (persistent)
-Point *createLineLineIntersection(Line *line1, Line *line2) {
-  if (!line1 || !line2)
-    return nullptr;
-
-  // Check if we already have this intersection
-  for (const auto &intersection : lineLineIntersections) {
-    if ((intersection.line1 == line1 && intersection.line2 == line2) ||
-        (intersection.line1 == line2 && intersection.line2 == line1)) {
-      return intersection.point;
-    }
-  }
-
-  // Find the intersection point
-  auto optIntersect =
-      findIntersection(line1->getCGALLine(), line2->getCGALLine());
-  if (!optIntersect)
-    return nullptr;
-
-  // Create a new point at the intersection
-  auto newPoint =
-      new Point(*optIntersect, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-  newPoint->setIntersectionPoint(true);
-  newPoint->lock(); // Lock intersection points so they can't be moved directly
-
-  // Register the intersection for automatic updates
-  lineLineIntersections.push_back({line1, line2, newPoint});
-
-  return newPoint;
-}
-
-std::vector<Point *> createLineCircleIntersection(Line *line, Circle *circle) {
-  std::vector<Point *> result;
-  if (!line || !circle)
+std::vector<std::shared_ptr<Point>> createGenericIntersection(
+    const std::shared_ptr<GeometricObject> &A,
+    const std::shared_ptr<GeometricObject> &B,
+    GeometryEditor &editor) {
+  std::vector<std::shared_ptr<Point>> result;
+  if (!A || !B) {
     return result;
+  }
 
-  // Check if we already have this intersection
-  for (const auto &intersection : lineCircleIntersections) {
-    if (intersection.line == line && intersection.circle == circle) {
-      return intersection.points;
+  for (auto &constraint : activeConstraints) {
+    auto lockA = constraint.A.lock();
+    auto lockB = constraint.B.lock();
+    if (!lockA || !lockB) {
+      continue;
+    }
+    if ((lockA == A && lockB == B) || (lockA == B && lockB == A)) {
+      for (const auto &wp : constraint.resultingPoints) {
+        if (auto sp = wp.lock()) {
+          result.push_back(sp);
+        }
+      }
+      return result;
     }
   }
 
-  // Find the intersection points
-  auto intersections =
-      findIntersection(line->getCGALLine(), circle->getCGALCircle());
+  std::vector<Point_2> intersections;
+  try {
+    intersections = IntersectionSystem::computeIntersections(*A, *B);
+  } catch (...) {
+    return result;
+  }
 
-  // Create points for each intersection
-  LineCircleIntersection newIntersection{line, circle, {}};
-  for (const auto &cgalPoint : intersections) {
-    auto newPoint =
-        new Point(cgalPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+  IntersectionConstraint constraint{A, B, {}};
+  constraint.resultingPoints.reserve(intersections.size());
+
+  for (const auto &p : intersections) {
+    auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
+                                            Constants::INTERSECTION_POINT_COLOR);
     newPoint->setIntersectionPoint(true);
+    newPoint->setSelected(false);
     newPoint->lock();
-
-    newIntersection.points.push_back(newPoint);
+    newPoint->setVisible(true);
+    newPoint->setCGALPosition(newPoint->getCGALPosition());
+    newPoint->update();
+    editor.points.push_back(newPoint);
+    constraint.resultingPoints.push_back(newPoint);
     result.push_back(newPoint);
   }
 
-  if (!newIntersection.points.empty()) {
-    lineCircleIntersections.push_back(std::move(newIntersection));
-  }
-
+  activeConstraints.push_back(std::move(constraint));
   return result;
 }
 
-std::vector<Point *> createCircleCircleIntersection(Circle *circle1,
-                                                    Circle *circle2) {
-  std::vector<Point *> result;
-  if (!circle1 || !circle2)
-    return result;
+std::shared_ptr<Point> createLineLineIntersection(const std::shared_ptr<Line> &line1,
+                                                  const std::shared_ptr<Line> &line2,
+                                                  GeometryEditor &editor) {
+  auto points = createGenericIntersection(line1, line2, editor);
+  return points.empty() ? nullptr : points.front();
+}
 
-  // Check if we already have this intersection
-  for (const auto &intersection : circleCircleIntersections) {
-    if ((intersection.circle1 == circle1 && intersection.circle2 == circle2) ||
-        (intersection.circle1 == circle2 && intersection.circle2 == circle1)) {
-      return intersection.points;
-    }
-  }
+std::vector<std::shared_ptr<Point>> createLineCircleIntersection(
+    const std::shared_ptr<Line> &line,
+    const std::shared_ptr<Circle> &circle,
+    GeometryEditor &editor) {
+  return createGenericIntersection(line, circle, editor);
+}
 
-  // Find the intersection points
-  auto intersections =
-      findIntersection(circle1->getCGALCircle(), circle2->getCGALCircle());
-
-  // Create points for each intersection
-  CircleCircleIntersection newIntersection{circle1, circle2, {}};
-  for (const auto &cgalPoint : intersections) {
-    auto newPoint =
-        new Point(cgalPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-    newPoint->setIntersectionPoint(true);
-    newPoint->lock();
-
-    newIntersection.points.push_back(newPoint);
-    result.push_back(newPoint);
-  }
-
-  if (!newIntersection.points.empty()) {
-    circleCircleIntersections.push_back(std::move(newIntersection));
-  }
-
-  return result;
+std::vector<std::shared_ptr<Point>> createCircleCircleIntersection(
+    const std::shared_ptr<Circle> &circle1,
+    const std::shared_ptr<Circle> &circle2,
+    GeometryEditor &editor) {
+  return createGenericIntersection(circle1, circle2, editor);
 }
 
 // Selective intersection creation - for user-driven individual selections
-Point *createLineLineIntersectionSelective(Line *line1, Line *line2) {
-  if (!line1 || !line2) {
-    std::cerr << "Invalid line pointers" << std::endl;
-    return nullptr;
-  }
-
-  try {
-    // First check if intersection already exists in our registry
-    for (const auto &intersection : lineLineIntersections) {
-      if ((intersection.line1 == line1 && intersection.line2 == line2) ||
-          (intersection.line1 == line2 && intersection.line2 == line1)) {
-        if (intersection.point) {
-          std::cout << "Found existing line-line intersection" << std::endl;
-          return intersection.point;
-        }
-      }
-    }
-
-    // If not found, create a new one and register it
-    auto optIntersect =
-        findIntersection(line1->getCGALLine(), line2->getCGALLine());
-    if (!optIntersect) {
-      std::cout << "No intersection found between lines" << std::endl;
-      return nullptr;
-    }
-
-    // Create a new point at the intersection
-    auto newPoint =
-        new Point(*optIntersect, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-    newPoint->setIntersectionPoint(true);
-    newPoint->lock(); // Lock it so it can't be moved directly
-
-    // Register the intersection for updates
-    lineLineIntersections.push_back({line1, line2, newPoint});
-
-    std::cout << "Line-line intersection created" << std::endl;
-    return newPoint;
-  } catch (const std::exception &e) {
-    std::cerr << "Error in createLineLineIntersectionSelective: " << e.what()
-              << std::endl;
-    return nullptr;
-  }
+std::shared_ptr<Point> createLineLineIntersectionSelective(
+    const std::shared_ptr<Line> &line1,
+    const std::shared_ptr<Line> &line2,
+    GeometryEditor &editor) {
+  auto points = createGenericIntersection(line1, line2, editor);
+  return points.empty() ? nullptr : points.front();
 }
 
-std::vector<Point *> createLineCircleIntersectionSelective(Line *line,
-                                                           Circle *circle) {
-  std::vector<Point *> result;
-  if (!line || !circle) {
-    std::cerr << "Invalid line or circle pointers" << std::endl;
-    return result;
-  }
-
-  try {
-    // Check if we already have this intersection
-    for (const auto &intersection : lineCircleIntersections) {
-      if (intersection.line == line && intersection.circle == circle) {
-        return intersection.points;
-      }
-    }
-
-    // Find the intersection points
-    auto intersections =
-        findIntersection(line->getCGALLine(), circle->getCGALCircle());
-
-    // Create points for each intersection
-    LineCircleIntersection newIntersection{line, circle, {}};
-    for (const auto &cgalPoint : intersections) {
-      auto newPoint =
-          new Point(cgalPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-      newPoint->setIntersectionPoint(true);
-      newPoint->lock();
-
-      newIntersection.points.push_back(newPoint);
-      result.push_back(newPoint);
-    }
-
-    if (!newIntersection.points.empty()) {
-      lineCircleIntersections.push_back(std::move(newIntersection));
-    }
-
-    std::cout << "Found " << result.size() << " line-circle intersections"
-              << std::endl;
-  } catch (const std::exception &e) {
-    std::cerr << "Error in createLineCircleIntersectionSelective: " << e.what()
-              << std::endl;
-  }
-
-  return result;
+std::vector<std::shared_ptr<Point>> createLineCircleIntersectionSelective(
+    const std::shared_ptr<Line> &line,
+    const std::shared_ptr<Circle> &circle,
+    GeometryEditor &editor) {
+  return createGenericIntersection(line, circle, editor);
 }
 
-std::vector<Point *> createCircleCircleIntersectionSelective(Circle *circle1,
-                                                             Circle *circle2) {
-  std::vector<Point *> result;
-  if (!circle1 || !circle2) {
-    std::cerr << "Invalid circle pointers" << std::endl;
-    return result;
-  }
-
-  try {
-    // Check if we already have this intersection
-    for (const auto &intersection : circleCircleIntersections) {
-      if ((intersection.circle1 == circle1 &&
-           intersection.circle2 == circle2) ||
-          (intersection.circle1 == circle2 &&
-           intersection.circle2 == circle1)) {
-        return intersection.points;
-      }
-    }
-
-    // Find the intersection points
-    auto intersections =
-        findIntersection(circle1->getCGALCircle(), circle2->getCGALCircle());
-
-    // Create points for each intersection
-    CircleCircleIntersection newIntersection{circle1, circle2, {}};
-    for (const auto &cgalPoint : intersections) {
-      auto newPoint =
-          new Point(cgalPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-      newPoint->setIntersectionPoint(true);
-      newPoint->lock();
-
-      newIntersection.points.push_back(newPoint);
-      result.push_back(newPoint);
-    }
-
-    if (!newIntersection.points.empty()) {
-      circleCircleIntersections.push_back(std::move(newIntersection));
-    }
-
-    std::cout << "Found " << result.size() << " circle-circle intersections"
-              << std::endl;
-  } catch (const std::exception &e) {
-    std::cerr << "Error in createCircleCircleIntersectionSelective: "
-              << e.what() << std::endl;
-  }
-
-  return result;
+std::vector<std::shared_ptr<Point>> createCircleCircleIntersectionSelective(
+    const std::shared_ptr<Circle> &circle1,
+    const std::shared_ptr<Circle> &circle2,
+    GeometryEditor &editor) {
+  return createGenericIntersection(circle1, circle2, editor);
 }
 
-void updateAllIntersections() {
+void updateAllIntersections(GeometryEditor &editor) {
   // Always update intersections when objects move, regardless of auto-update
   // setting This ensures intersection points always follow their source objects
   try {
-    // Update line-line intersections
-    for (auto &intersection : lineLineIntersections) {
+    for (auto it = activeConstraints.begin(); it != activeConstraints.end();) {
       try {
-        // Safety checks
-        if (!intersection.line1 || !intersection.line2 || !intersection.point) {
-          continue; // Skip invalid entries
-        }
-
-        // Update the intersection point position
-        auto optIntersect = findIntersection(intersection.line1->getCGALLine(),
-                                             intersection.line2->getCGALLine());
-        if (optIntersect) {
-          intersection.point->setCGALPosition(*optIntersect);
-        }
-      } catch (const std::exception &e) {
-        std::cerr << "Error updating line-line intersection: " << e.what()
-                  << std::endl;
-      }
-    }
-
-    // Update line-circle intersections
-    for (auto &intersection : lineCircleIntersections) {
-      try {
-        if (!intersection.line || !intersection.circle ||
-            intersection.points.empty()) {
+        auto lockA = it->A.lock();
+        auto lockB = it->B.lock();
+        if (!lockA || !lockB) {
+          for (const auto &wp : it->resultingPoints) {
+            if (auto sp = wp.lock()) {
+              removePointFromEditor(editor, sp);
+            }
+          }
+          it = activeConstraints.erase(it);
           continue;
         }
 
         auto newIntersections =
-            findIntersection(intersection.line->getCGALLine(),
-                             intersection.circle->getCGALCircle());
+            IntersectionSystem::computeIntersections(*lockA, *lockB);
 
-        if (newIntersections.size() == intersection.points.size()) {
-          // Same number of points, just update positions
-          for (size_t i = 0; i < newIntersections.size(); i++) {
-            if (intersection.points[i]) {
-              intersection.points[i]->setCGALPosition(newIntersections[i]);
+        std::vector<std::shared_ptr<Point>> existing;
+        existing.reserve(it->resultingPoints.size());
+        for (const auto &wp : it->resultingPoints) {
+          if (auto sp = wp.lock()) {
+            existing.push_back(sp);
+          }
+        }
+
+        const size_t existingCount = existing.size();
+        const size_t newCount = newIntersections.size();
+        const size_t commonCount = std::min(existingCount, newCount);
+
+        for (size_t i = 0; i < commonCount; ++i) {
+          auto &pt = existing[i];
+          if (!pt) {
+            continue;
+          }
+          pt->setVisible(true);
+          pt->setIsValid(true);
+          pt->setIntersectionPoint(true);
+          pt->setSelected(false);
+          pt->lock();
+          pt->setCGALPosition(newIntersections[i]);
+          pt->update();
+        }
+
+        if (existingCount < newCount) {
+          for (size_t i = existingCount; i < newCount; ++i) {
+            auto newPoint = std::make_shared<Point>(newIntersections[i], Constants::CURRENT_ZOOM,
+                                                    Constants::INTERSECTION_POINT_COLOR);
+            newPoint->setIntersectionPoint(true);
+            newPoint->setSelected(false);
+            newPoint->lock();
+            newPoint->setVisible(true);
+            newPoint->setCGALPosition(newPoint->getCGALPosition());
+            newPoint->update();
+            editor.points.push_back(newPoint);
+            existing.push_back(newPoint);
+          }
+        } else if (existingCount > newCount) {
+          for (size_t i = newCount; i < existingCount; ++i) {
+            if (existing[i]) {
+              existing[i]->setVisible(false);
+              existing[i]->setIsValid(false);
             }
           }
         }
-        // If different count, we'd need more complex logic...
-      } catch (const std::exception &e) {
-        std::cerr << "Error updating line-circle intersection: " << e.what()
-                  << std::endl;
-      }
-    }
 
-    // Update circle-circle intersections
-    for (auto &intersection : circleCircleIntersections) {
-      try {
-        if (!intersection.circle1 || !intersection.circle2 ||
-            intersection.points.empty()) {
-          continue;
+        it->resultingPoints.clear();
+        for (const auto &pt : existing) {
+          it->resultingPoints.push_back(pt);
         }
 
-        auto newIntersections =
-            findIntersection(intersection.circle1->getCGALCircle(),
-                             intersection.circle2->getCGALCircle());
-
-        if (newIntersections.size() == intersection.points.size()) {
-          for (size_t i = 0; i < newIntersections.size(); i++) {
-            if (intersection.points[i]) {
-              intersection.points[i]->setCGALPosition(newIntersections[i]);
-            }
-          }
-        }
+        ++it;
       } catch (const std::exception &e) {
-        std::cerr << "Error updating circle-circle intersection: " << e.what()
-                  << std::endl;
+        std::cerr << "Error updating generic intersection: " << e.what() << std::endl;
+        ++it;
       }
     }
   } catch (const std::exception &e) {

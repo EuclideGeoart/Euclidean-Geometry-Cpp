@@ -48,6 +48,7 @@
 #include <type_traits>
 
 #include "Intersection.h"
+#include "IntersectionSystem.h"
 // CGAL includes (ensure these are appropriate for your Types.h)
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // If Kernel is EPECK
 #include <CGAL/intersections.h>
@@ -699,81 +700,61 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
                                            // line point)
     std::cout << "Deactivating tool, reverting to Move/None" << std::endl;
   } else {
-    resetCreationStates();        // Reset any pending creation state from a previous
-                                  // tool
-    m_currentToolType = newTool;  // Activate the new tool (or switch to it)
-    std::cout << "Activating new tool: " << static_cast<int>(newTool) << std::endl;
-  }
+    resetCreationStates();  // Reset any pending creation state from a previous tool
+    m_currentToolType = newTool;
+    gui.deactivateAllTools();
 
-  std::cout << "Current tool set to: " << static_cast<int>(m_currentToolType) << std::endl;
-
-  // Update GUI button states based on the new m_currentToolType.
-  gui.deactivateAllTools();  // Deactivate all general tool buttons first
-
-  // Activate the button corresponding to the now-current tool.
-  // If m_currentToolType is None, the "Move" button should be active.
-  switch (m_currentToolType) {
-    case ObjectType::Point:
-      gui.toggleButton("Point", true);
-      break;
-    case ObjectType::Line:
-      gui.toggleButton("Line", true);
-      break;
-    case ObjectType::LineSegment:
-      gui.toggleButton("Segment", true);
-      break;
-    case ObjectType::Circle:
-      gui.toggleButton("Circle", true);
-      // If "dragCircle" is a separate button that should also reflect this state:
-      // gui.toggleButton("dragCircle", true);
-      break;
-    case ObjectType::ObjectPoint:
-      gui.toggleButton("ObjPoint", true);
-      break;
-    case ObjectType::Rectangle:
-      gui.toggleButton("Rect", true);
-      break;
-    case ObjectType::RectangleRotatable:
-      gui.toggleButton("RotRect", true);
-      break;
-    case ObjectType::Polygon:
-      gui.toggleButton("Polygon", true);
-      break;
-    case ObjectType::RegularPolygon:
-      gui.toggleButton("RegPoly", true);
-      break;
-    case ObjectType::Triangle:
-      gui.toggleButton("Triangle", true);
-      break;
-    case ObjectType::None:  // This is the "Move" tool state
-      gui.toggleButton("Move", true);
-      break;
-    case ObjectType::Intersection:
-      // If "Intersect" is a mode with a button that stays active:
-      // gui.toggleButton("Intersect", true);
-      // For now, assume Intersection is a one-shot action or doesn't keep a
-      // button active, so "Move" becomes the active tool button. If Intersection
-      // tool is selected, m_currentToolType will be Intersection. If it's a
-      // one-shot action, it should reset m_currentToolType to None itself after
-      // execution. For now, if Intersection tool is selected, we assume it might
-      // be a mode. If it has a button, it should be toggled here. If not, 'Move'
-      // will be default. Let's assume "Intersect" button exists and should be
-      // active if this tool is chosen.
-      gui.toggleButton("Intersect", true);
-      // If "Intersect" has no button or is one-shot, then after its action,
-      // setCurrentTool(ObjectType::None) should be called by the action handler.
-      break;
-    case ObjectType::ParallelLine:
-      gui.toggleButton("Parallel", true);
-      break;
-    case ObjectType::PerpendicularLine:
-      gui.toggleButton("Perp", true);
-      break;
-    default:
-      std::cout << "setCurrentTool: Unhandled tool type for GUI "
-                << static_cast<int>(m_currentToolType) << ", defaulting to Move." << std::endl;
-      gui.toggleButton("Move", true);  // Fallback to Move tool active
-      break;
+    switch (m_currentToolType) {
+      case ObjectType::Point:
+        gui.toggleButton("Point", true);
+        break;
+      case ObjectType::Line:
+        gui.toggleButton("Line", true);
+        break;
+      case ObjectType::LineSegment:
+        gui.toggleButton("Segment", true);
+        break;
+      case ObjectType::Circle:
+        gui.toggleButton("Circle", true);
+        // If "dragCircle" is a separate button that should also reflect this state:
+        // gui.toggleButton("dragCircle", true);
+        break;
+      case ObjectType::ObjectPoint:
+        gui.toggleButton("ObjPoint", true);
+        break;
+      case ObjectType::Rectangle:
+        gui.toggleButton("Rect", true);
+        break;
+      case ObjectType::RectangleRotatable:
+        gui.toggleButton("RotRect", true);
+        break;
+      case ObjectType::Polygon:
+        gui.toggleButton("Polygon", true);
+        break;
+      case ObjectType::RegularPolygon:
+        gui.toggleButton("RegPoly", true);
+        break;
+      case ObjectType::Triangle:
+        gui.toggleButton("Triangle", true);
+        break;
+      case ObjectType::None:  // This is the "Move" tool state
+        gui.toggleButton("Move", true);
+        break;
+      case ObjectType::Intersection:
+        gui.toggleButton("Intersect", true);
+        break;
+      case ObjectType::ParallelLine:
+        gui.toggleButton("Parallel", true);
+        break;
+      case ObjectType::PerpendicularLine:
+        gui.toggleButton("Perp", true);
+        break;
+      default:
+        std::cout << "setCurrentTool: Unhandled tool type for GUI "
+                  << static_cast<int>(m_currentToolType) << ", defaulting to Move." << std::endl;
+        gui.toggleButton("Move", true);  // Fallback to Move tool active
+        break;
+    }
   }
 }
 
@@ -833,7 +814,7 @@ void GeometryEditor::update(sf::Time deltaTime) {
 
   // Always update existing intersections to maintain correct positions
   // regardless of whether auto-intersections is enabled
-  DynamicIntersection::updateAllIntersections();
+  DynamicIntersection::updateAllIntersections(*this);
 
   // Update hover message position if needed
   if (showHoverMessage) {
@@ -1208,39 +1189,16 @@ void GeometryEditor::calculateIntersectionBetween(GeometricObject *obj1, Geometr
     std::cout << "Cannot calculate intersection: One or both objects are invalid." << std::endl;
     return;
   }
-
-  ObjectType type1 = obj1->getType();
-  ObjectType type2 = obj2->getType();
-
   try {
-    // Line-line intersection
-    if ((type1 == ObjectType::Line || type1 == ObjectType::LineSegment) &&
-        (type2 == ObjectType::Line || type2 == ObjectType::LineSegment)) {
-      Line *line1 = static_cast<Line *>(obj1);
-      Line *line2 = static_cast<Line *>(obj2);
-      createIntersectionPoint(line1, line2);
-    }
-    // Line-circle intersection
-    else if ((type1 == ObjectType::Line || type1 == ObjectType::LineSegment) &&
-             type2 == ObjectType::Circle) {
-      Line *line = static_cast<Line *>(obj1);
-      Circle *circle = static_cast<Circle *>(obj2);
-      createIntersectionPoint(line, circle);
-    }
-    // Circle-line intersection (reverse order of parameters)
-    else if (type1 == ObjectType::Circle &&
-             (type2 == ObjectType::Line || type2 == ObjectType::LineSegment)) {
-      Circle *circle = static_cast<Circle *>(obj1);
-      Line *line = static_cast<Line *>(obj2);
-      createIntersectionPoint(line, circle);
-    }
-    // Circle-circle intersection
-    else if (type1 == ObjectType::Circle && type2 == ObjectType::Circle) {
-      Circle *circle1 = static_cast<Circle *>(obj1);
-      Circle *circle2 = static_cast<Circle *>(obj2);
-      createIntersectionPoint(circle1, circle2);
-    } else {
+    auto sp1 = findSharedPtr(obj1);
+    auto sp2 = findSharedPtr(obj2);
+    if (!sp1 || !sp2) {
       std::cout << "Intersection not supported between these object types." << std::endl;
+    } else {
+      auto created = DynamicIntersection::createGenericIntersection(sp1, sp2, *this);
+      if (created.empty()) {
+        std::cout << "Intersection not supported between these object types." << std::endl;
+      }
     }
   } catch (const std::exception &e) {
     std::cerr << "Error calculating intersection: " << e.what() << std::endl;
@@ -1640,6 +1598,21 @@ void GeometryEditor::deleteSelected() {
     }
   }
 
+  // === PHASE 3.5: SANITIZE REFERENCES - Clear cached pointers to all doomed objects ===
+  auto sanitizeList = [this](auto &vec) {
+    for (auto &ptr : vec) {
+      sanitizeReferences(ptr.get());
+    }
+  };
+  sanitizeList(pointsToDelete);
+  sanitizeList(linesToDelete);
+  sanitizeList(circlesToDelete);
+  sanitizeList(objPointsToDelete);
+  sanitizeList(rectanglesToDelete);
+  sanitizeList(polygonsToDelete);
+  sanitizeList(regularPolygonsToDelete);
+  sanitizeList(trianglesToDelete);
+
   // === PHASE 4: SWEEP - Remove from containers (shared_ptrs in our lists keep objects alive) ===
   
   // Helper to remove shared_ptr from vector
@@ -1647,16 +1620,27 @@ void GeometryEditor::deleteSelected() {
     vec.erase(std::remove(vec.begin(), vec.end(), ptrToRemove), vec.end());
   };
 
+  auto clearEditorRefs = [this](GeometricObject *obj) {
+    if (!obj) return;
+    if (hoveredObject == obj) {
+      hoveredObject = nullptr;
+    }
+    if (selectedObject == obj) {
+      selectedObject = nullptr;
+    }
+  };
+
   // Remove ObjectPoints first (dependents before masters)
   for (auto &objPtr : objPointsToDelete) {
     std::cout << "Removing ObjectPoint from list..." << std::endl;
+    clearEditorRefs(objPtr.get());
     removeFromVector(ObjectPoints, objPtr);
   }
 
   // Remove Lines
   for (auto &linePtr : linesToDelete) {
     try {
-      DynamicIntersection::removeIntersectionsInvolving(linePtr.get());
+      DynamicIntersection::removeConstraintsInvolving(linePtr.get(), *this);
     } catch (...) {
     }
     // Prepare line for destruction (clears internal references)
@@ -1664,42 +1648,69 @@ void GeometryEditor::deleteSelected() {
       linePtr->prepareForDestruction();
     } catch (...) {}
     std::cout << "Removing Line " << linePtr->getID() << " from list..." << std::endl;
+    clearEditorRefs(linePtr.get());
     removeFromVector(lines, linePtr);
   }
 
   // Remove Circles
   for (auto &circlePtr : circlesToDelete) {
+    try {
+      DynamicIntersection::removeConstraintsInvolving(circlePtr.get(), *this);
+    } catch (...) {
+    }
     std::cout << "Removing Circle " << circlePtr->getID() << " from list..." << std::endl;
+    clearEditorRefs(circlePtr.get());
     removeFromVector(circles, circlePtr);
   }
 
   // Remove Rectangles
   for (auto &rectPtr : rectanglesToDelete) {
+    try {
+      DynamicIntersection::removeConstraintsInvolving(rectPtr.get(), *this);
+    } catch (...) {
+    }
     std::cout << "Removing Rectangle from list..." << std::endl;
+    clearEditorRefs(rectPtr.get());
     removeFromVector(rectangles, rectPtr);
   }
 
   // Remove Polygons
   for (auto &polyPtr : polygonsToDelete) {
+    try {
+      DynamicIntersection::removeConstraintsInvolving(polyPtr.get(), *this);
+    } catch (...) {
+    }
     std::cout << "Removing Polygon from list..." << std::endl;
+    clearEditorRefs(polyPtr.get());
     removeFromVector(polygons, polyPtr);
   }
 
   // Remove RegularPolygons
   for (auto &regPolyPtr : regularPolygonsToDelete) {
+    try {
+      DynamicIntersection::removeConstraintsInvolving(regPolyPtr.get(), *this);
+    } catch (...) {
+    }
     std::cout << "Removing RegularPolygon from list..." << std::endl;
+    clearEditorRefs(regPolyPtr.get());
     removeFromVector(regularPolygons, regPolyPtr);
   }
 
   // Remove Triangles
   for (auto &triPtr : trianglesToDelete) {
+    try {
+      DynamicIntersection::removeConstraintsInvolving(triPtr.get(), *this);
+    } catch (...) {
+    }
     std::cout << "Removing Triangle from list..." << std::endl;
+    clearEditorRefs(triPtr.get());
     removeFromVector(triangles, triPtr);
   }
 
   // Remove Points last (may have had dependent lines)
   for (auto &pointPtr : pointsToDelete) {
     std::cout << "Removing Point " << pointPtr->getID() << " from list..." << std::endl;
+    clearEditorRefs(pointPtr.get());
     removeFromVector(points, pointPtr);
   }
 
@@ -1861,11 +1872,13 @@ void GeometryEditor::safeDeleteLine(std::shared_ptr<Line> lineToDelete) {
   }
   markObjectForDeletion(rawLinePtr);
 
+  sanitizeReferences(rawLinePtr);
+
   try {
     std::cout << "safeDeleteLine: Starting deletion of Line " << lineToDelete->getID() << std::endl;
 
     try {
-      DynamicIntersection::removeIntersectionsInvolving(lineToDelete.get());
+      DynamicIntersection::removeConstraintsInvolving(lineToDelete.get(), *this);
     } catch (...) {
     }
 
@@ -1940,6 +1953,85 @@ void GeometryEditor::clearHoverReferences(GeometricObject *obj) {
   // If HandleEvents.cpp had its own static g_lastHoveredObject, this is where you'd
   // need a way to tell HandleEvents.cpp to clear its static variable.
   // But the better solution is to remove static hover variables from HandleEvents.cpp.
+}
+
+void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
+  if (!objToDelete) return;
+
+  if (hoveredObject == objToDelete) hoveredObject = nullptr;
+  if (selectedObject == objToDelete) selectedObject = nullptr;
+
+  if (activeVertexShape == objToDelete) {
+    activeVertexShape = nullptr;
+    activeVertexIndex = -1;
+  }
+  if (hoveredVertexShape == objToDelete) {
+    hoveredVertexShape = nullptr;
+    hoveredVertexIndex = -1;
+  }
+
+  if (fillTarget == objToDelete) fillTarget = nullptr;
+  if (m_firstIntersectionObject == objToDelete) m_firstIntersectionObject = nullptr;
+
+  if (m_hoveredLine && m_hoveredLine.get() == objToDelete) {
+    m_hoveredLine.reset();
+    m_isHoveringLine = false;
+  }
+  if (m_hoveredIntersectionLine1 && m_hoveredIntersectionLine1.get() == objToDelete) {
+    m_hoveredIntersectionLine1.reset();
+  }
+  if (m_hoveredIntersectionLine2 && m_hoveredIntersectionLine2.get() == objToDelete) {
+    m_hoveredIntersectionLine2.reset();
+  }
+  if (m_isHoveringIntersection &&
+      ((!m_hoveredIntersectionLine1 && !m_hoveredIntersectionLine2) ||
+       (m_hoveredIntersectionLine1 && m_hoveredIntersectionLine1.get() == objToDelete) ||
+       (m_hoveredIntersectionLine2 && m_hoveredIntersectionLine2.get() == objToDelete))) {
+    m_isHoveringIntersection = false;
+  }
+
+  if (m_parallelPreviewLine && m_parallelPreviewLine.get() == objToDelete) {
+    m_parallelPreviewLine.reset();
+  }
+  if (m_perpendicularPreviewLine && m_perpendicularPreviewLine.get() == objToDelete) {
+    m_perpendicularPreviewLine.reset();
+  }
+
+  if (previewCircle && previewCircle.get() == objToDelete) previewCircle.reset();
+  if (previewRectangle && previewRectangle.get() == objToDelete) previewRectangle.reset();
+  if (previewPolygon && previewPolygon.get() == objToDelete) previewPolygon.reset();
+  if (previewRegularPolygon && previewRegularPolygon.get() == objToDelete)
+    previewRegularPolygon.reset();
+  if (previewTriangle && previewTriangle.get() == objToDelete) previewTriangle.reset();
+
+  if (lineCreationPoint1 && lineCreationPoint1.get() == objToDelete) lineCreationPoint1.reset();
+
+  if (auto refObj = m_parallelReference.lock()) {
+    if (refObj.get() == objToDelete) resetParallelLineToolState();
+  }
+  if (auto refObj = m_perpendicularReference.lock()) {
+    if (refObj.get() == objToDelete) resetPerpendicularLineToolState();
+  }
+
+  if (m_hoveredEdge && m_hoveredEdge->host == objToDelete) {
+    m_hoveredEdge.reset();
+  }
+
+  bool snapUsesDeleted = false;
+  if (m_snapState.point && m_snapState.point.get() == objToDelete) snapUsesDeleted = true;
+  if (m_snapState.line && m_snapState.line.get() == objToDelete) snapUsesDeleted = true;
+  if (m_snapState.line1 && m_snapState.line1.get() == objToDelete) snapUsesDeleted = true;
+  if (m_snapState.line2 && m_snapState.line2.get() == objToDelete) snapUsesDeleted = true;
+  if (m_snapState.shape && m_snapState.shape.get() == objToDelete) snapUsesDeleted = true;
+  if (snapUsesDeleted) {
+    m_snapState = PointUtils::SnapState{};
+  }
+
+  try {
+    DynamicIntersection::removeConstraintsInvolving(const_cast<GeometricObject*>(objToDelete),
+                                                    *this);
+  } catch (...) {
+  }
 }
 
 // ============================================================================

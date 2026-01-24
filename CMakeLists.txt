@@ -105,6 +105,7 @@ add_executable(GeometryTool2
     HandleEvents.cpp
     Transforms.cpp
     Intersection.cpp
+    IntersectionSystem.cpp
     GMP_exception_handler.cpp
     LineToolMode.cpp
     QuickProfiler.cpp

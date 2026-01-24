@@ -215,6 +215,7 @@ class GeometryEditor {
   unsigned int objectIdCounter = 0;
   GeometricObject *fillTarget = nullptr;  // Right-click fill target
   bool objectExistsInAnyList(GeometricObject *obj);
+  void sanitizeReferences(const GeometricObject* objToDelete);
   // --- Utility Methods ---
   sf::Vector2f toSFMLVector(const Point_2 &cgal_point) const;  // Convert CGAL point to SFML vector
   Point_2 toCGALPoint(const sf::Vector2f &sfml) const {

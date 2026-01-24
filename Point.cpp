@@ -162,6 +162,11 @@ void Point::setOutlineColor(const sf::Color &outlineColor) {
   updateSFMLShape();
 }
 
+void Point::setIsValid(bool valid) {
+  m_isValid = valid;
+  updateSFMLShape();
+}
+
 sf::Color Point::getFillColor() const { return m_fillColor; }
 sf::Color Point::getOutlineColor() const { return m_outlineColor; }
 
@@ -227,6 +232,7 @@ void Point::updateSFMLShape() {
     m_sfmlShape.setOutlineColor(sf::Color::Red);
     m_sfmlShape.setOutlineThickness(1.0f / Constants::CURRENT_ZOOM);  // Minimal thickness
     m_sfmlShape.setRadius(Constants::POINT_DRAW_RADIUS_SCREEN_PIXELS / Constants::CURRENT_ZOOM);
+    m_sfmlShape.setOrigin(m_sfmlShape.getRadius(), m_sfmlShape.getRadius());
     m_sfmlShape.setPosition(-10000, -10000);  // Off-screen
     return;
   }
@@ -341,26 +347,30 @@ void Point::updateSFMLShape() {
 
 // Ensure this implementation exists
 void Point::updateSFMLShape(const sf::Vector2f &position) {
-  // Position the shape
-  m_sfmlShape.setPosition(position.x - m_sfmlShape.getRadius(),
-                          position.y - m_sfmlShape.getRadius());
+  m_sfmlShape.setRadius(m_radius);
+  m_sfmlShape.setOrigin(m_radius, m_radius);
+  m_sfmlShape.setPosition(position);
 
-  // Update appearance based on state
-  m_sfmlShape.setFillColor(m_selected ? Constants::SELECTION_COLOR : m_color);
-  m_sfmlShape.setRadius(m_selected ? Constants::POINT_RADIUS_SELECTED : Constants::POINT_RADIUS);
+  sf::Color currentFill = m_fillColor;
+  sf::Color currentOutline = m_outlineColor;
 
-  // Set outline properties based on state
-  if (m_selected) {
-    m_sfmlShape.setOutlineColor(Constants::SELECTION_COLOR_POINT_OUTLINE);
-    m_sfmlShape.setOutlineThickness(Constants::SELECTION_THICKNESS_POINT);
-  } else if (m_isHovered) {  // Assuming m_Hovered is the member variable name
-    m_sfmlShape.setOutlineColor(Constants::HOVER_COLOR_POINT_OUTLINE);
-    m_sfmlShape.setOutlineThickness(Constants::HOVER_THICKNESS_POINT);
-  } else {
-    m_sfmlShape.setOutlineColor(m_isLocked ? Constants::LOCKED_COLOR
-                                           : Constants::POINT_DEFAULT_COLOR);
-    m_sfmlShape.setOutlineThickness(Constants::POINT_OUTLINE_THICKNESS);
+  if (m_isLocked) {
+    currentFill = Constants::LOCKED_COLOR;
+    currentOutline = sf::Color::Black;
+  } else if (m_selected) {
+    currentFill = Constants::SELECTION_COLOR_POINT_FILL;
+    currentOutline = Constants::SELECTION_COLOR_POINT_OUTLINE;
+  } else if (m_isHovered) {
+    currentFill = Constants::HOVER_UNIVERSAL_COLOR;
+    currentOutline = Constants::HOVER_COLOR_POINT_OUTLINE;
+  } else if (m_isIntersectionPoint) {
+    currentFill = Constants::INTERSECTION_POINT_COLOR;
+    currentOutline = Constants::POINT_DEFAULT_COLOR;
   }
+
+  m_sfmlShape.setFillColor(currentFill);
+  m_sfmlShape.setOutlineColor(currentOutline);
+  m_sfmlShape.setOutlineThickness(m_outlineThickness);
 }
 
 void Point::translate(const Vector_2 &offset) {

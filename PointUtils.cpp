@@ -11,6 +11,7 @@
 #include "Polygon.h"
 #include "RegularPolygon.h"
 #include "Intersection.h"
+#include "IntersectionSystem.h"
 #include "Constants.h"
 #include <cmath>
 #include <limits>
@@ -360,49 +361,78 @@ std::optional<PointUtils::IntersectionHit> PointUtils::getHoveredIntersection(
     GeometryEditor& editor, 
     const sf::Vector2f& worldPos_sfml, 
     float tolerance) {
-        
     std::optional<IntersectionHit> bestHit;
     double minDistSq = tolerance * tolerance;
     Point_2 cursorCgal = editor.toCGALPoint(worldPos_sfml);
 
-    // Naive O(N^2) check - sufficient for N < 1000 lines typical in this tool
-    // For large N, we'd want a spatial index (e.g., AABB tree)
-    const auto& lines = editor.lines;
-    
-    for (size_t i = 0; i < lines.size(); ++i) {
-      if (!lines[i] || !lines[i]->isValid()) continue;
-        
-        for (size_t j = i + 1; j < lines.size(); ++j) {
-        if (!lines[j] || !lines[j]->isValid()) continue;
-            
-            // Get CGAL lines
-            Line_2 l1 = lines[i]->getCGALLine();
-            Line_2 l2 = lines[j]->getCGALLine();
-            
-            // Check intersection (using try-catch for robustness)
-            try {
-              CGAL::Object result = CGAL::intersection(l1, l2);
-              if (const Point_2* ip = CGAL::object_cast<Point_2>(&result)) {
-                  // Calculate distance to cursor
-                  double distSq = CGAL::to_double(CGAL::squared_distance(*ip, cursorCgal));
-                  
-                  // If it's the closest so far within tolerance
-                  if (distSq < minDistSq) {
-                      minDistSq = distSq;
-                      IntersectionHit hit;
-                      hit.position = *ip;
-                      hit.line1 = lines[i];
-                      hit.line2 = lines[j];
-                      hit.distanceSquared = distSq;
-                      bestHit = hit;
-                  }
-              }
-            } catch (...) {
-              // Ignore intersection errors
-            }
-        }
+    std::vector<std::shared_ptr<GeometricObject>> objects;
+    objects.reserve(editor.lines.size() + editor.circles.size() + editor.rectangles.size() +
+                    editor.polygons.size() + editor.regularPolygons.size() +
+                    editor.triangles.size());
+
+    for (auto &line : editor.lines) {
+      if (line && line->isValid()) {
+        objects.push_back(line);
+      }
     }
-    
+    for (auto &circle : editor.circles) {
+      if (circle && circle->isValid()) {
+        objects.push_back(circle);
+      }
+    }
+    for (auto &rect : editor.rectangles) {
+      if (rect && rect->isValid()) {
+        objects.push_back(rect);
+      }
+    }
+    for (auto &poly : editor.polygons) {
+      if (poly && poly->isValid()) {
+        objects.push_back(poly);
+      }
+    }
+    for (auto &rpoly : editor.regularPolygons) {
+      if (rpoly && rpoly->isValid()) {
+        objects.push_back(rpoly);
+      }
+    }
+    for (auto &tri : editor.triangles) {
+      if (tri && tri->isValid()) {
+        objects.push_back(tri);
+      }
+    }
+
+    for (size_t i = 0; i < objects.size(); ++i) {
+      for (size_t j = i + 1; j < objects.size(); ++j) {
+        const auto &a = objects[i];
+        const auto &b = objects[j];
+        if (!a || !b) {
+          continue;
+        }
+
+        std::vector<Point_2> intersections;
+        try {
+          intersections = IntersectionSystem::computeIntersections(*a, *b);
+        } catch (...) {
+          continue;
+        }
+
+        for (const auto &p : intersections) {
+          double distSq = CGAL::to_double(CGAL::squared_distance(p, cursorCgal));
+          if (distSq < minDistSq) {
+            minDistSq = distSq;
+            IntersectionHit hit;
+            hit.position = p;
+            hit.obj1 = a;
+            hit.obj2 = b;
+            hit.distanceSquared = distSq;
+            hit.line1 = std::dynamic_pointer_cast<Line>(a);
+            hit.line2 = std::dynamic_pointer_cast<Line>(b);
+            bestHit = hit;
+          }
+        }
+      }
+    }
+
     return bestHit;
 }
 
@@ -551,20 +581,57 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
 
   // 2) Intersection
   if (auto hit = getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
-    if (hit->line1 && hit->line2) {
-      Point *rawPoint = DynamicIntersection::createLineLineIntersection(
-          hit->line1.get(), hit->line2.get());
-      if (rawPoint) {
-        for (const auto &pt : editor.points) {
-          if (pt && pt.get() == rawPoint) {
+    auto existingIntersection = [&](const Point_2 &p) -> std::shared_ptr<Point> {
+      const double dupTol2 = 1e-6;
+      for (const auto &pt : editor.points) {
+        if (pt && pt->isValid()) {
+          if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
             return pt;
           }
         }
-        std::shared_ptr<Point> ip(rawPoint);
-        editor.points.push_back(ip);
+      }
+      return nullptr;
+    };
+
+    if (hit->obj1 && hit->obj2) {
+      auto points = DynamicIntersection::createGenericIntersection(
+          hit->obj1, hit->obj2, editor);
+      if (!points.empty()) {
+        std::shared_ptr<Point> bestPoint;
+        double bestDistSq = std::numeric_limits<double>::max();
+        for (const auto &pt : points) {
+          if (!pt) continue;
+          double distSq = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(),
+                                                                hit->position));
+          if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            bestPoint = pt;
+          }
+        }
+        if (bestPoint) {
+          return bestPoint;
+        }
+      }
+    }
+
+    if (hit->line1 && hit->line2) {
+      auto ip = DynamicIntersection::createLineLineIntersection(hit->line1, hit->line2, editor);
+      if (ip) {
         return ip;
       }
     }
+
+    if (auto existing = existingIntersection(hit->position)) {
+      return existing;
+    }
+
+    auto newPoint = std::make_shared<Point>(hit->position, 1.0f,
+                                            Constants::INTERSECTION_POINT_COLOR);
+    newPoint->setIntersectionPoint(true);
+    newPoint->setSelected(false);
+    newPoint->lock();
+    editor.points.push_back(newPoint);
+    return newPoint;
   }
 
   // 3) Lines/edges (ObjectPoints)

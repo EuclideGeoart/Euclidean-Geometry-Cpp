@@ -220,6 +220,7 @@ void Circle::updateSFMLShape() {
     float sfmlRadius = static_cast<float>(m_radius);
 
     // Update main circle
+    m_sfmlShape.setPointCount(120);
     m_sfmlShape.setRadius(sfmlRadius);
     m_sfmlShape.setPosition(sfmlCenter.x - sfmlRadius, sfmlCenter.y - sfmlRadius);
     m_sfmlShape.setFillColor(m_fillColor);
@@ -256,4 +257,17 @@ std::vector<Point_2> Circle::getInteractableVertices() const {
     result.push_back(getCenterPoint());
   }
   return result;
+}
+
+bool Circle::getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const {
+  if (!isValid()) {
+    return false;
+  }
+
+  try {
+    outPoint = projectOntoCircumference(query);
+    return true;
+  } catch (...) {
+    return false;
+  }
 }

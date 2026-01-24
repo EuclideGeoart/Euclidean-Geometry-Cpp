@@ -692,7 +692,7 @@ Point_2 ObjectPoint::calculatePositionOnHost() const {
         double radius = circle->getRadius();
         double x = CGAL::to_double(center.x()) + radius * std::cos(m_angleOnCircleRad);
         double y = CGAL::to_double(center.y()) + radius * std::sin(m_angleOnCircleRad);
-        return Point_2(x, y);
+        return circle->projectOntoCircumference(Point_2(x, y));
       }
     } else {
       std::cerr << "ObjectPoint::calculatePositionOnHost - Circle host expired" << std::endl;

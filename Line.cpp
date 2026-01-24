@@ -674,6 +674,10 @@ void Line::setTemporaryPreviewPoints(std::shared_ptr<Point> p1, std::shared_ptr<
 // --- GeometricObject Overrides ---
 void Line::draw(sf::RenderWindow &window, float scale) const {
   try {
+    if ((m_startPoint && !m_startPoint->isValid()) ||
+        (m_endPoint && !m_endPoint->isValid())) {
+      return;
+    }
     // Set colors based on state
     sf::Color drawColor = m_color;
     if (m_selected) {
@@ -1609,6 +1613,52 @@ void Line::setPosition(const sf::Vector2f &newSfmlPos) {
   setCGALPosition(newPos);  // Uses the above method
 }
 
+std::vector<Segment_2> Line::getEdges() const {
+  if (!m_isSegment) {
+    return {};
+  }
+  try {
+    return {Segment_2(getStartPoint(), getEndPoint())};
+  } catch (...) {
+    return {};
+  }
+}
+
+std::vector<Segment_2> Line::getBoundarySegments() const {
+  return getEdges();
+}
+
+bool Line::getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const {
+  try {
+    if (m_isSegment) {
+      Segment_2 seg(getStartPoint(), getEndPoint());
+      Point_2 a = seg.source();
+      Point_2 b = seg.target();
+      Vector_2 ab = b - a;
+      FT ab2 = ab.squared_length();
+      if (ab2 == FT(0)) {
+        outPoint = a;
+        return true;
+      }
+      Vector_2 ap = query - a;
+      FT t = (ab * ap) / ab2;
+      if (t < FT(0)) {
+        t = FT(0);
+      } else if (t > FT(1)) {
+        t = FT(1);
+      }
+      outPoint = a + ab * t;
+      return true;
+    }
+
+    Line_2 line = getCGALLine();
+    outPoint = line.projection(query);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 // --- Line Specific Methods ---
 Point_2 Line::getStartPoint() const {
   if (!m_startPoint) {
@@ -2121,6 +2171,11 @@ void Line::updateSFMLShape() {
         if (!m_startPoint || !m_endPoint) {
             m_sfmlShape.clear();
             return;
+        }
+        if ((m_startPoint && !m_startPoint->isValid()) ||
+            (m_endPoint && !m_endPoint->isValid())) {
+          m_sfmlShape.clear();
+          return;
         }
   // clear if endpoints missing
   if (!m_startPoint || !m_endPoint) {

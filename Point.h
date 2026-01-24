@@ -71,6 +71,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
 
   void setVisible(bool v) { m_visible = v; }
   bool isVisible() const { return m_visible; }
+  void setIsValid(bool valid);
 
   // Intersection status
   void setIntersectionPoint(bool isInter) { m_isIntersectionPoint = isInter; }

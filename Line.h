@@ -79,6 +79,9 @@ public:
   ObjectType getType() const override {
     return m_isSegment ? ObjectType::LineSegment : ObjectType::Line;
   }
+  std::vector<Segment_2> getEdges() const override;
+  std::vector<Segment_2> getBoundarySegments() const override;
+  bool getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const override;
 
   // --- Line Specific Methods ---
   Point *getStartPointObject() const { return m_startPoint.get(); }

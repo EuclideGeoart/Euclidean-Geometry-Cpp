@@ -42,13 +42,19 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   void setCGALPosition(const Point_2 &newPos) override { setCenter(newPos); }
   void translate(const Vector_2 &offset) override;
   void setPosition(const sf::Vector2f &newSfmlPos) override;
-  void setColor(const sf::Color &color) override { m_outlineColor = color; updateSFMLShape(); }
+  void setColor(const sf::Color &color) override {
+    m_color = color;
+    m_outlineColor = color;
+    m_fillColor = sf::Color(color.r, color.g, color.b, color.a);
+    updateSFMLShape();
+  }
   void setSelected(bool sel) override;
   void setHovered(bool hov) override;
   
   // Point/Edge provider interface overrides
   // Circle returns center as interactable vertex; circumference handled via ObjectPoint creation
   std::vector<Point_2> getInteractableVertices() const override;
+  bool getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const override;
 
   // Interaction helpers (for HandleEvents.cpp)
   bool isCenterPointHovered(const sf::Vector2f &worldPos_sfml, float tolerance) const;

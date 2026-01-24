@@ -8,6 +8,7 @@
 
 #include "CharTraitsFix.h"
 #include "Types.h"  // Includes Point_2, Line_2, Circle_2
+#include <memory>
 #include <optional> // For std::optional
 #include <vector>
 
@@ -15,6 +16,8 @@
 class Line;
 class Circle;
 class Point;
+class GeometricObject;
+class GeometryEditor;
 
 // Find intersection point between two Line_2 objects
 std::optional<Point_2> findIntersection(const Line_2 &line1,
@@ -38,20 +41,47 @@ findIntersection(const Circle_2 &circle, // Changed from CGAL_Circle_2
 }
 
 namespace DynamicIntersection {
+struct IntersectionConstraint {
+  std::weak_ptr<GeometricObject> A;
+  std::weak_ptr<GeometricObject> B;
+  std::vector<std::weak_ptr<Point>> resultingPoints;
+};
+
 // Existing functions
-Point *createLineLineIntersection(Line *line1, Line *line2);
-std::vector<Point *> createLineCircleIntersection(Line *line, Circle *circle);
-std::vector<Point *> createCircleCircleIntersection(Circle *circle1,
-                                                    Circle *circle2);
-void updateAllIntersections();
-void removeIntersectionsInvolving(Line *line);
+std::shared_ptr<Point> createLineLineIntersection(const std::shared_ptr<Line> &line1,
+                          const std::shared_ptr<Line> &line2,
+                          GeometryEditor &editor);
+std::vector<std::shared_ptr<Point>> createLineCircleIntersection(
+  const std::shared_ptr<Line> &line,
+  const std::shared_ptr<Circle> &circle,
+  GeometryEditor &editor);
+std::vector<std::shared_ptr<Point>> createCircleCircleIntersection(
+  const std::shared_ptr<Circle> &circle1,
+  const std::shared_ptr<Circle> &circle2,
+  GeometryEditor &editor);
+void updateAllIntersections(GeometryEditor &editor);
+void removeConstraintsInvolving(const GeometricObject *obj, GeometryEditor &editor);
+void removeIntersectionsInvolving(const std::shared_ptr<Line> &line, GeometryEditor &editor);
+
+// Generic intersection creation for arbitrary shapes
+std::vector<std::shared_ptr<Point>> createGenericIntersection(
+  const std::shared_ptr<GeometricObject> &A,
+  const std::shared_ptr<GeometricObject> &B,
+  GeometryEditor &editor);
 
 // Add new selective intersection functions
-Point *createLineLineIntersectionSelective(Line *line1, Line *line2);
-std::vector<Point *> createLineCircleIntersectionSelective(Line *line,
-                                                           Circle *circle);
-std::vector<Point *> createCircleCircleIntersectionSelective(Circle *circle1,
-                                                             Circle *circle2);
+std::shared_ptr<Point> createLineLineIntersectionSelective(
+  const std::shared_ptr<Line> &line1,
+  const std::shared_ptr<Line> &line2,
+  GeometryEditor &editor);
+std::vector<std::shared_ptr<Point>> createLineCircleIntersectionSelective(
+  const std::shared_ptr<Line> &line,
+  const std::shared_ptr<Circle> &circle,
+  GeometryEditor &editor);
+std::vector<std::shared_ptr<Point>> createCircleCircleIntersectionSelective(
+  const std::shared_ptr<Circle> &circle1,
+  const std::shared_ptr<Circle> &circle2,
+  GeometryEditor &editor);
 
 // Add these new functions to control automatic updates
 void enableAutoIntersections();

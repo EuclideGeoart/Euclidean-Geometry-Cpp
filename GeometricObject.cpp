@@ -1,5 +1,6 @@
 #include "GeometricObject.h"
 #include "ObjectPoint.h"
+#include <CGAL/squared_distance_2.h>
 #include <algorithm>
 #include <iostream>
 
@@ -70,4 +71,45 @@ void GeometricObject::updateHostedPoints() {
   if (validPoints.size() != m_hostedObjectPoints.size()) {
     m_hostedObjectPoints = std::move(validPoints);
   }
+}
+
+namespace {
+Point_2 projectPointOntoSegmentCgal(const Point_2 &point, const Segment_2 &segment) {
+  const Point_2 a = segment.source();
+  const Point_2 b = segment.target();
+  const Vector_2 ab = b - a;
+  const FT ab2 = ab.squared_length();
+  if (ab2 == FT(0)) {
+    return a;
+  }
+  const Vector_2 ap = point - a;
+  FT t = (ab * ap) / ab2;
+  if (t < FT(0)) {
+    t = FT(0);
+  } else if (t > FT(1)) {
+    t = FT(1);
+  }
+  return a + ab * t;
+}
+}
+
+bool GeometricObject::getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const {
+  auto segments = getBoundarySegments();
+  if (segments.empty()) {
+    return false;
+  }
+
+  bool hasBest = false;
+  FT bestDist = FT(0);
+  for (const auto &seg : segments) {
+    Point_2 candidate = projectPointOntoSegmentCgal(query, seg);
+    FT dist = CGAL::squared_distance(query, candidate);
+    if (!hasBest || dist < bestDist) {
+      bestDist = dist;
+      outPoint = candidate;
+      hasBest = true;
+    }
+  }
+
+  return hasBest;
 }

@@ -2220,6 +2220,12 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
         try {
           std::cout << "Setting object as selected" << std::endl;
           editor.selectedObject->setSelected(true);
+          sf::Color selectedColor = editor.selectedObject->getColor();
+          editor.setCurrentColor(selectedColor);
+          editor.gui.setCurrentColor(selectedColor);
+          if (auto &picker = editor.gui.getColorPicker()) {
+            picker->setCurrentColor(selectedColor);
+          }
         } catch (const std::exception &e) {
           std::cerr << "Error setting selection state: " << e.what() << std::endl;
         }
@@ -2278,15 +2284,13 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       std::cout << "Object selected with drag mode: " << static_cast<int>(editor.dragMode)
                 << std::endl;
     } else {
-      // No object found under cursor, start selection box
-      if (previousSelection != nullptr || editor.selectedObject != nullptr) {
-        deselectAllAndClearInteractionState(editor);  // Deselect all
-      }
-      editor.isDrawingSelectionBox = false;
+      // No object found under cursor -> deselect all
+      deselectAllAndClearInteractionState(editor);
+      editor.selectedObject = nullptr;
       editor.potentialSelectionBoxStart_sfml = worldPos_sfml;
+      editor.isDrawingSelectionBox = false;
+      return;
     }
-
-    return;
   objectFoundLabel:  // Label for goto
     if (potentialSelection) {
       // We found an object under the cursor
@@ -2341,12 +2345,12 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       }
 
     } else {
-      // No object found under cursor, deselect or start selection box
-      if (previousSelection != nullptr || editor.selectedObject != nullptr) {
-        deselectAllAndClearInteractionState(editor);
-      }
-      editor.isDrawingSelectionBox = false;  // Ensure this is reset
+      // No object found under cursor -> deselect all
+      deselectAllAndClearInteractionState(editor);
+      editor.selectedObject = nullptr;
       editor.potentialSelectionBoxStart_sfml = worldPos_sfml;
+      editor.isDrawingSelectionBox = false;  // Ensure this is reset
+      return;
     }
     return;  // Crucial: exit after handling the "Move" tool click
   }
@@ -2424,6 +2428,18 @@ void handleKeyPress(GeometryEditor &editor, const sf::Event::KeyEvent &keyEvent)
 void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &moveEvent) {
   QUICK_PROFILE("handleMouseMove");
 
+  if (editor.hoveredObject && !editor.objectExistsInAnyList(editor.hoveredObject)) {
+    editor.hoveredObject = nullptr;
+  }
+  if (g_lastHoveredObject && !editor.objectExistsInAnyList(g_lastHoveredObject)) {
+    g_lastHoveredObject = nullptr;
+  }
+  if (editor.selectedObject && !editor.objectExistsInAnyList(editor.selectedObject)) {
+    editor.selectedObject = nullptr;
+    editor.isDragging = false;
+    editor.dragMode = DragMode::None;
+  }
+
   sf::Vector2i pixelPos(moveEvent.x, moveEvent.y);
   sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   sf::Vector2f guiPos = editor.window.mapPixelToCoords(pixelPos, editor.guiView);
@@ -2493,10 +2509,15 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
     lastPreviewPos = worldPos;
   }
 
-  // Safe cleanup of existing preview lines
+  // Safe cleanup of preview lines ONLY when the tool is not actively placing them
   try {
-    // ✅ FIX: Call prepareForDestruction before resetting to avoid crashes
-    if (editor.m_parallelPreviewLine) {
+    const bool parallelPreviewActive =
+        (editor.m_currentToolType == ObjectType::ParallelLine && editor.m_isPlacingParallel);
+    const bool perpendicularPreviewActive =
+        (editor.m_currentToolType == ObjectType::PerpendicularLine &&
+         editor.m_isPlacingPerpendicular);
+
+    if (!parallelPreviewActive && editor.m_parallelPreviewLine) {
       try {
         editor.m_parallelPreviewLine->prepareForDestruction();
       } catch (...) {
@@ -2504,13 +2525,17 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
       }
       editor.m_parallelPreviewLine.reset();
     }
-    if (editor.m_perpendicularPreviewLine) {
+    if (!perpendicularPreviewActive && editor.m_perpendicularPreviewLine) {
       try {
         editor.m_perpendicularPreviewLine->prepareForDestruction();
       } catch (...) {
         // Ignore errors during preview cleanup
       }
       editor.m_perpendicularPreviewLine.reset();
+    }
+
+    if (!parallelPreviewActive && !perpendicularPreviewActive) {
+      editor.hasPreviewLineOverlay = false;
     }
   } catch (const std::exception &e) {
     std::cerr << "Error cleaning preview lines: " << e.what() << std::endl;
@@ -2562,286 +2587,115 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
 
   // MUCH SAFER preview creation with exception handling
   if (shouldUpdatePreview) {
-    // Handle parallel line preview with extensive safety checks
+    auto updatePreviewLine = [&](std::shared_ptr<Line> &previewLine, const Point_2 &p1,
+                                 const Point_2 &p2) {
+      if (!CGAL::is_finite(p1.x()) || !CGAL::is_finite(p1.y()) || !CGAL::is_finite(p2.x()) ||
+          !CGAL::is_finite(p2.y())) {
+        return;
+      }
+
+      if (!previewLine || !previewLine->isValid()) {
+        auto tempP1 = std::make_shared<Point>(p1, currentActualZoomFactor, Constants::PREVIEW_COLOR);
+        auto tempP2 = std::make_shared<Point>(p2, currentActualZoomFactor, Constants::PREVIEW_COLOR);
+
+        if (tempP1 && tempP1->isValid() && tempP2 && tempP2->isValid()) {
+          previewLine = std::make_shared<Line>(tempP1, tempP2, false, Constants::PREVIEW_COLOR);
+          if (previewLine && previewLine->isValid()) {
+            previewLine->setTemporaryPreviewPoints(tempP1, tempP2);
+          }
+        }
+      }
+
+      if (previewLine && previewLine->isValid()) {
+        if (auto *p1Obj = previewLine->getStartPointObject()) {
+          p1Obj->setCGALPosition(p1);
+        }
+        if (auto *p2Obj = previewLine->getEndPointObject()) {
+          p2Obj->setCGALPosition(p2);
+        }
+        previewLine->updateCGALLine();
+        previewLine->updateSFMLShape();
+      }
+    };
+
+    // Handle parallel line preview with persistent objects
     if (editor.m_currentToolType == ObjectType::ParallelLine && editor.m_isPlacingParallel) {
       try {
-        bool previewCreated = false;
-        editor.hasPreviewLineOverlay = false;
         editor.hasPreviewLineOverlay = false;
 
-        // Check if we have a reference line (weak_ptr)
-        // Check if we have a reference (weak_ptr)
+        Vector_2 currentRefVec = editor.m_parallelReferenceDirection;
         if (auto refObj = editor.m_parallelReference.lock()) {
           if (refObj->isValid()) {
-            Point_2 mouse_cgal_pos = cgalWorldPos;
-            
-            // Get current direction dynamically
-            Vector_2 currentRefVec = editor.m_parallelReferenceDirection;
             if (editor.m_parallelReference.edgeIndex == -1) {
-                 if (auto line = std::dynamic_pointer_cast<Line>(refObj)) {
-                     if (line->isValid()) {
-                         currentRefVec = line->getDirection().vector(); 
-                     }
-                 }
+              if (auto line = std::dynamic_pointer_cast<Line>(refObj)) {
+                if (line->isValid()) {
+                  currentRefVec = line->getDirection().vector();
+                }
+              }
             } else {
-                 auto edges = refObj->getEdges();
-                 if (editor.m_parallelReference.edgeIndex >= 0 && editor.m_parallelReference.edgeIndex < static_cast<int>(edges.size())) {
-                     currentRefVec = edges[editor.m_parallelReference.edgeIndex].to_vector();
-                 }
-            }
-
-            // Lightweight parallel overlay through current mouse position
-            {
-              const double dx = CGAL::to_double(currentRefVec.x());
-              const double dy = CGAL::to_double(currentRefVec.y());
-              sf::Vector2f dir_sf(static_cast<float>(dx), static_cast<float>(dy));
-              const float len = std::sqrt(dir_sf.x * dir_sf.x + dir_sf.y * dir_sf.y);
-              if (len > 1e-6f) {
-                dir_sf /= len;
-                sf::Vector2f mouse_sf = worldPos;
-                sf::View v = editor.window.getView();
-                sf::Vector2f sz = v.getSize();
-                const float ext = std::sqrt(sz.x * sz.x + sz.y * sz.y);
-                editor.previewLineOverlay.setPrimitiveType(sf::Lines);
-                editor.previewLineOverlay.resize(2);
-                editor.previewLineOverlay[0].position = mouse_sf - dir_sf * ext;
-                editor.previewLineOverlay[1].position = mouse_sf + dir_sf * ext;
-                editor.previewLineOverlay[0].color = Constants::PREVIEW_COLOR;
-                editor.previewLineOverlay[1].color = Constants::PREVIEW_COLOR;
-                editor.hasPreviewLineOverlay = true;
-                previewCreated = true;
+              auto edges = refObj->getEdges();
+              if (editor.m_parallelReference.edgeIndex >= 0 &&
+                  editor.m_parallelReference.edgeIndex < static_cast<int>(edges.size())) {
+                currentRefVec = edges[editor.m_parallelReference.edgeIndex].to_vector();
               }
-            }
-
-            if (!previewCreated) {
-              // Use vector() method to get proper Vector_2 from Direction_2
-              Vector_2 offsetVector(currentRefVec.x() * 100.0,
-                                    currentRefVec.y() * 100.0);
-
-              Point_2 p1_preview = mouse_cgal_pos;
-              Point_2 p2_preview = mouse_cgal_pos + offsetVector;
-
-            // Validate points before creating objects
-              if (CGAL::is_finite(p1_preview.x()) && CGAL::is_finite(p1_preview.y()) &&
-                  CGAL::is_finite(p2_preview.x()) && CGAL::is_finite(p2_preview.y())) {
-                // Create points with stack-based error handling
-                std::shared_ptr<Point> tempP1, tempP2;
-                try {
-                  tempP1 = std::make_shared<Point>(p1_preview, currentActualZoomFactor,
-                                                   Constants::PREVIEW_COLOR);
-                  tempP2 = std::make_shared<Point>(p2_preview, currentActualZoomFactor,
-                                                   Constants::PREVIEW_COLOR);
-
-                  if (tempP1 && tempP1->isValid() && tempP2 && tempP2->isValid()) {
-                    editor.m_parallelPreviewLine =
-                        std::make_shared<Line>(tempP1, tempP2, false, Constants::PREVIEW_COLOR);
-                    previewCreated =
-                        editor.m_parallelPreviewLine && editor.m_parallelPreviewLine->isValid();
-                  }
-                } catch (const std::exception &e) {
-                  std::cerr << "Error creating parallel preview objects: " << e.what() << std::endl;
-                  tempP1.reset();
-                  tempP2.reset();
-                  editor.m_parallelPreviewLine.reset();
-                }
-              }
-            }
-          }
-        } else if (editor.m_parallelReferenceDirection != Vector_2(0, 0)) {
-          // Handle axis-based parallel preview (overlay first)
-          {
-            const double dx = CGAL::to_double(editor.m_parallelReferenceDirection.x());
-            const double dy = CGAL::to_double(editor.m_parallelReferenceDirection.y());
-            sf::Vector2f dir_sf(static_cast<float>(dx), static_cast<float>(dy));
-            const float len = std::sqrt(dir_sf.x * dir_sf.x + dir_sf.y * dir_sf.y);
-            if (len > 1e-6f) {
-              dir_sf /= len;
-              sf::Vector2f mouse_sf = worldPos;
-              sf::View v = editor.window.getView();
-              sf::Vector2f sz = v.getSize();
-              const float ext = std::sqrt(sz.x * sz.x + sz.y * sz.y);
-              editor.previewLineOverlay.setPrimitiveType(sf::Lines);
-              editor.previewLineOverlay.resize(2);
-              editor.previewLineOverlay[0].position = mouse_sf - dir_sf * ext;
-              editor.previewLineOverlay[1].position = mouse_sf + dir_sf * ext;
-              editor.previewLineOverlay[0].color = Constants::PREVIEW_COLOR;
-              editor.previewLineOverlay[1].color = Constants::PREVIEW_COLOR;
-              editor.hasPreviewLineOverlay = true;
-              previewCreated = true;
-            }
-          }
-          if (!previewCreated) {
-            try {
-              Point_2 mouse_cgal_pos = cgalWorldPos;
-              Vector_2 offsetVector(editor.m_parallelReferenceDirection.x() * 100.0,
-                                    editor.m_parallelReferenceDirection.y() * 100.0);
-
-              Point_2 p1_preview = mouse_cgal_pos;
-              Point_2 p2_preview = mouse_cgal_pos + offsetVector;
-
-              if (CGAL::is_finite(p1_preview.x()) && CGAL::is_finite(p1_preview.y()) &&
-                  CGAL::is_finite(p2_preview.x()) && CGAL::is_finite(p2_preview.y())) {
-                auto tempP1 = std::make_shared<Point>(p1_preview, currentActualZoomFactor,
-                                                      Constants::PREVIEW_COLOR);
-                auto tempP2 = std::make_shared<Point>(p2_preview, currentActualZoomFactor,
-                                                      Constants::PREVIEW_COLOR);
-
-                if (tempP1 && tempP1->isValid() && tempP2 && tempP2->isValid()) {
-                  editor.m_parallelPreviewLine =
-                      std::make_shared<Line>(tempP1, tempP2, false, Constants::PREVIEW_COLOR);
-                  previewCreated =
-                      editor.m_parallelPreviewLine && editor.m_parallelPreviewLine->isValid();
-                }
-              }
-            } catch (const std::exception &e) {
-              std::cerr << "Error creating axis parallel preview: " << e.what() << std::endl;
-              editor.m_parallelPreviewLine.reset();
             }
           }
         }
 
-        if (!previewCreated) {
-          editor.hasPreviewLineOverlay = false;
-          if (editor.m_parallelPreviewLine) editor.m_parallelPreviewLine.reset();
+        if (currentRefVec != Vector_2(0, 0)) {
+          Vector_2 unitDir = CGALSafeUtils::normalize_vector_robust(
+              currentRefVec, "ParallelPreview_normalize_ref_dir");
+          Kernel::FT length = Kernel::FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
+          Point_2 p1_preview = cgalWorldPos;
+          Point_2 p2_preview = cgalWorldPos + (unitDir * length * 0.5);
+          updatePreviewLine(editor.m_parallelPreviewLine, p1_preview, p2_preview);
+        } else if (editor.m_parallelPreviewLine) {
+          editor.m_parallelPreviewLine.reset();
         }
       } catch (const std::exception &e) {
-        std::cerr << "Error in parallel preview creation: " << e.what() << std::endl;
+        std::cerr << "Error in parallel preview update: " << e.what() << std::endl;
         editor.m_parallelPreviewLine.reset();
       }
     }
 
-    // Handle perpendicular line preview with similar safety
+    // Handle perpendicular line preview with persistent objects
     if (editor.m_currentToolType == ObjectType::PerpendicularLine &&
         editor.m_isPlacingPerpendicular) {
       try {
-        bool previewCreated = false;
+        editor.hasPreviewLineOverlay = false;
 
+        Vector_2 currentRefVec = editor.m_perpendicularReferenceDirection;
         if (auto refObj = editor.m_perpendicularReference.lock()) {
           if (refObj->isValid()) {
-             // Get current direction dynamically
-            Vector_2 currentRefVec = editor.m_perpendicularReferenceDirection;
             if (editor.m_perpendicularReference.edgeIndex == -1) {
-                 if (auto line = std::dynamic_pointer_cast<Line>(refObj)) {
-                     if (line->isValid()) {
-                         currentRefVec = line->getDirection().vector(); 
-                     }
-                 }
+              if (auto line = std::dynamic_pointer_cast<Line>(refObj)) {
+                if (line->isValid()) {
+                  currentRefVec = line->getDirection().vector();
+                }
+              }
             } else {
-                 auto edges = refObj->getEdges();
-                 if (editor.m_perpendicularReference.edgeIndex >= 0 && editor.m_perpendicularReference.edgeIndex < static_cast<int>(edges.size())) {
-                     currentRefVec = edges[editor.m_perpendicularReference.edgeIndex].to_vector();
-                 }
-            }
-
-            // Calculate perpendicular vector (-y, x)
-            Vector_2 perpVec(-currentRefVec.y(), currentRefVec.x());
-
-            // Overlay: perpendicular through mouse
-            const double dx = CGAL::to_double(perpVec.x());
-            const double dy = CGAL::to_double(perpVec.y());
-            sf::Vector2f dir_sf(static_cast<float>(dx), static_cast<float>(dy));
-            const float len = std::sqrt(dir_sf.x * dir_sf.x + dir_sf.y * dir_sf.y);
-            if (len > 1e-6f) {
-              dir_sf /= len;
-              sf::Vector2f mouse_sf = worldPos;
-              sf::View v = editor.window.getView();
-              sf::Vector2f sz = v.getSize();
-              const float ext = std::sqrt(sz.x * sz.x + sz.y * sz.y);
-              editor.previewLineOverlay.setPrimitiveType(sf::Lines);
-              editor.previewLineOverlay.resize(2);
-              editor.previewLineOverlay[0].position = mouse_sf - dir_sf * ext;
-              editor.previewLineOverlay[1].position = mouse_sf + dir_sf * ext;
-              editor.previewLineOverlay[0].color = Constants::PREVIEW_COLOR;
-              editor.previewLineOverlay[1].color = Constants::PREVIEW_COLOR;
-              editor.hasPreviewLineOverlay = true;
-              previewCreated = true;
-            }
-            if (!previewCreated) {
-              Point_2 mouse_cgal_pos = cgalWorldPos;
-              Vector_2 offsetVector(perpVec.x() * 100.0,
-                                    perpVec.y() * 100.0);
-
-              Point_2 p1_preview = mouse_cgal_pos;
-              Point_2 p2_preview = mouse_cgal_pos + offsetVector;
-
-              if (CGAL::is_finite(p1_preview.x()) && CGAL::is_finite(p1_preview.y()) &&
-                  CGAL::is_finite(p2_preview.x()) && CGAL::is_finite(p2_preview.y())) {
-                auto tempP1 = std::make_shared<Point>(p1_preview, currentActualZoomFactor,
-                                                      Constants::PREVIEW_COLOR);
-                auto tempP2 = std::make_shared<Point>(p2_preview, currentActualZoomFactor,
-                                                      Constants::PREVIEW_COLOR);
-
-                if (tempP1 && tempP1->isValid() && tempP2 && tempP2->isValid()) {
-                  editor.m_perpendicularPreviewLine =
-                      std::make_shared<Line>(tempP1, tempP2, false, Constants::PREVIEW_COLOR);
-                  previewCreated = editor.m_perpendicularPreviewLine &&
-                                   editor.m_perpendicularPreviewLine->isValid();
-                }
+              auto edges = refObj->getEdges();
+              if (editor.m_perpendicularReference.edgeIndex >= 0 &&
+                  editor.m_perpendicularReference.edgeIndex < static_cast<int>(edges.size())) {
+                currentRefVec = edges[editor.m_perpendicularReference.edgeIndex].to_vector();
               }
-            }
-          }
-        } else if (editor.m_perpendicularReferenceDirection != Vector_2(0, 0)) {
-          // Handle axis-based perpendicular preview
-          // Axis-based perpendicular overlay
-          {
-            const double ax = CGAL::to_double(editor.m_perpendicularReferenceDirection.x());
-            const double ay = CGAL::to_double(editor.m_perpendicularReferenceDirection.y());
-            sf::Vector2f dir_sf(static_cast<float>(-ay), static_cast<float>(ax));
-            const float len = std::sqrt(dir_sf.x * dir_sf.x + dir_sf.y * dir_sf.y);
-            if (len > 1e-6f) {
-              dir_sf /= len;
-              sf::Vector2f mouse_sf = worldPos;
-              sf::View v = editor.window.getView();
-              sf::Vector2f sz = v.getSize();
-              const float ext = std::sqrt(sz.x * sz.x + sz.y * sz.y);
-              editor.previewLineOverlay.setPrimitiveType(sf::Lines);
-              editor.previewLineOverlay.resize(2);
-              editor.previewLineOverlay[0].position = mouse_sf - dir_sf * ext;
-              editor.previewLineOverlay[1].position = mouse_sf + dir_sf * ext;
-              editor.previewLineOverlay[0].color = Constants::PREVIEW_COLOR;
-              editor.previewLineOverlay[1].color = Constants::PREVIEW_COLOR;
-              editor.hasPreviewLineOverlay = true;
-              previewCreated = true;
-            }
-          }
-          if (!previewCreated) {
-            try {
-              Point_2 mouse_cgal_pos = cgalWorldPos;
-              Vector_2 perp_to_axis_dir(-editor.m_perpendicularReferenceDirection.y(),
-                                        editor.m_perpendicularReferenceDirection.x());
-
-              Vector_2 offsetVector(perp_to_axis_dir.x() * 100.0, perp_to_axis_dir.y() * 100.0);
-
-              Point_2 p1_preview = mouse_cgal_pos;
-              Point_2 p2_preview = mouse_cgal_pos + offsetVector;
-
-              if (CGAL::is_finite(p1_preview.x()) && CGAL::is_finite(p1_preview.y()) &&
-                  CGAL::is_finite(p2_preview.x()) && CGAL::is_finite(p2_preview.y())) {
-                auto tempP1 = std::make_shared<Point>(p1_preview, currentActualZoomFactor,
-                                                      Constants::PREVIEW_COLOR);
-                auto tempP2 = std::make_shared<Point>(p2_preview, currentActualZoomFactor,
-                                                      Constants::PREVIEW_COLOR);
-
-                if (tempP1 && tempP1->isValid() && tempP2 && tempP2->isValid()) {
-                  editor.m_perpendicularPreviewLine =
-                      std::make_shared<Line>(tempP1, tempP2, false, Constants::PREVIEW_COLOR);
-                  previewCreated = editor.m_perpendicularPreviewLine &&
-                                   editor.m_perpendicularPreviewLine->isValid();
-                }
-              }
-            } catch (const std::exception &e) {
-              std::cerr << "Error creating axis perpendicular preview: " << e.what() << std::endl;
-              editor.m_perpendicularPreviewLine.reset();
             }
           }
         }
 
-        if (!previewCreated) {
-          editor.hasPreviewLineOverlay = false;
-          if (editor.m_perpendicularPreviewLine) editor.m_perpendicularPreviewLine.reset();
+        if (currentRefVec != Vector_2(0, 0)) {
+          Vector_2 perpVec(-currentRefVec.y(), currentRefVec.x());
+          Vector_2 unitDir = CGALSafeUtils::normalize_vector_robust(
+              perpVec, "PerpendicularPreview_normalize_perp_dir");
+          Kernel::FT length = Kernel::FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
+          Point_2 p1_preview = cgalWorldPos;
+          Point_2 p2_preview = cgalWorldPos + (unitDir * length * 0.5);
+          updatePreviewLine(editor.m_perpendicularPreviewLine, p1_preview, p2_preview);
+        } else if (editor.m_perpendicularPreviewLine) {
+          editor.m_perpendicularPreviewLine.reset();
         }
       } catch (const std::exception &e) {
-        std::cerr << "Error in perpendicular preview creation: " << e.what() << std::endl;
+        std::cerr << "Error in perpendicular preview update: " << e.what() << std::endl;
         editor.m_perpendicularPreviewLine.reset();
       }
     }
@@ -3041,6 +2895,9 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
         // Cast to Point and update position
         if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
           Point *selectedPoint = static_cast<Point *>(editor.selectedObject);
+          if (selectedPoint->isIntersectionPoint()) {
+            return;
+          }
           selectedPoint->setCGALPosition(editor.toCGALPoint(worldPos));
           selectedPoint->setDeferConstraintUpdates(false);  // Enable real-time updates
           std::cout << "Point position updated to: (" << worldPos.x << ", " << worldPos.y << ")"
@@ -3631,6 +3488,14 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
       // primary selected object
       if (newlySelectedObjects.size() == 1) {
         editor.selectedObject = newlySelectedObjects[0];
+        if (editor.selectedObject) {
+          sf::Color selectedColor = editor.selectedObject->getColor();
+          editor.setCurrentColor(selectedColor);
+          editor.gui.setCurrentColor(selectedColor);
+          if (auto &picker = editor.gui.getColorPicker()) {
+            picker->setCurrentColor(selectedColor);
+          }
+        }
       }
       // If multiple objects are selected, editor.selectedObject remains
       // nullptr (as set by deselectAllAndClearInteractionState)
