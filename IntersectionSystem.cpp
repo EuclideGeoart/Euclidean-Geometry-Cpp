@@ -36,8 +36,23 @@ void addIntersectionObject(std::vector<Point_2> &out, const CGAL::Object &obj) {
 }
 
 bool isPointOnSegmentApprox(const Segment_2 &seg, const Point_2 &p,
-                            double tolerance = 1e-4) {
-  return CGAL::to_double(CGAL::squared_distance(seg, p)) <= tolerance;
+                            double tolerance = 1.0) {
+  double sx = CGAL::to_double(seg.source().x());
+  double sy = CGAL::to_double(seg.source().y());
+  double tx = CGAL::to_double(seg.target().x());
+  double ty = CGAL::to_double(seg.target().y());
+
+  double minX = std::min(sx, tx) - tolerance;
+  double maxX = std::max(sx, tx) + tolerance;
+  double minY = std::min(sy, ty) - tolerance;
+  double maxY = std::max(sy, ty) + tolerance;
+
+  double px = CGAL::to_double(p.x());
+  double py = CGAL::to_double(p.y());
+
+  if (px < minX || px > maxX || py < minY || py > maxY) return false;
+
+  return CGAL::to_double(CGAL::squared_distance(seg, p)) < (tolerance * tolerance);
 }
 
 struct GeometryView {
@@ -113,7 +128,7 @@ void intersectLineCircle(const GeometryView &lineView, const GeometryView &circl
 
   Segment_2 seg(lineView.line->getStartPoint(), lineView.line->getEndPoint());
   for (const auto &p : points) {
-    if (CGAL::to_double(CGAL::squared_distance(seg, p)) < 1.0) {
+    if (isPointOnSegmentApprox(seg, p, 1.0)) {
       addUnique(out, p);
     }
   }

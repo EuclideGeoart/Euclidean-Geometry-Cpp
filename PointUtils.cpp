@@ -477,6 +477,85 @@ PointUtils::SnapState PointUtils::checkSnapping(
     GeometryEditor &editor,
     const sf::Vector2f &worldPos_sfml,
     float tolerance) {
+  // --- DEBUG DIAGNOSTIC START ---
+  {
+    float debugTol = tolerance * 2.0f;
+    Point_2 cgalMouse = editor.toCGALPoint(worldPos_sfml);
+    std::vector<GeometricObject*> nearby;
+
+    for (const auto &l : editor.lines) {
+      if (l && l->isValid() && l->contains(worldPos_sfml, debugTol)) {
+        nearby.push_back(l.get());
+      }
+    }
+    for (const auto &c : editor.circles) {
+      if (c && c->isValid() && c->isCircumferenceHovered(worldPos_sfml, debugTol)) {
+        nearby.push_back(c.get());
+      }
+    }
+
+    for (size_t i = 0; i < nearby.size(); ++i) {
+      for (size_t j = i + 1; j < nearby.size(); ++j) {
+        auto pts = IntersectionSystem::computeIntersections(*nearby[i], *nearby[j]);
+        for (const auto &p : pts) {
+          double dSq = CGAL::to_double(CGAL::squared_distance(p, cgalMouse));
+          if (dSq < debugTol * debugTol) {
+            double d = std::sqrt(dSq);
+            std::cout << "[DEBUG] Intersection Candidate FOUND: " << p
+                      << " between " << static_cast<int>(nearby[i]->getType())
+                      << " and " << static_cast<int>(nearby[j]->getType())
+                      << " (dist=" << d << ")" << std::endl;
+          }
+        }
+      }
+    }
+  }
+  // --- DEBUG DIAGNOSTIC END ---
+
+  // 1. PRIORITY CHECK: Intersections (Line-Line, Line-Circle, Circle-Circle)
+  // We check for intersections between any two objects near the mouse.
+  Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
+  std::vector<GeometricObject *> nearbyObjects;
+  nearbyObjects.reserve(editor.lines.size() + editor.circles.size());
+
+  for (const auto &line : editor.lines) {
+    if (line && line->isValid() && line->contains(worldPos_sfml, tolerance)) {
+      nearbyObjects.push_back(line.get());
+    }
+  }
+  for (const auto &circle : editor.circles) {
+    if (circle && circle->isValid() && circle->isCircumferenceHovered(worldPos_sfml, tolerance)) {
+      nearbyObjects.push_back(circle.get());
+    }
+  }
+
+  if (nearbyObjects.size() >= 2) {
+    const double snapTolSq = static_cast<double>(tolerance * tolerance);
+
+    for (size_t i = 0; i < nearbyObjects.size(); ++i) {
+      for (size_t j = i + 1; j < nearbyObjects.size(); ++j) {
+        auto intersections = IntersectionSystem::computeIntersections(*nearbyObjects[i], *nearbyObjects[j]);
+
+        for (const auto &pt : intersections) {
+          double distSq = CGAL::to_double(CGAL::squared_distance(pt, cgalWorldPos));
+
+          if (distSq < snapTolSq) {
+            SnapState state;
+            state.kind = SnapState::Kind::Intersection;
+            state.position = pt;
+
+            auto sharedA = editor.findSharedPtr(nearbyObjects[i]);
+            auto sharedB = editor.findSharedPtr(nearbyObjects[j]);
+            state.line1 = std::dynamic_pointer_cast<Line>(sharedA);
+            state.line2 = std::dynamic_pointer_cast<Line>(sharedB);
+
+            return state;  // Prioritize intersection over other snaps
+          }
+        }
+      }
+    }
+  }
+
   SnapState state;
   const float tolerance2 = tolerance * tolerance;
 
@@ -581,23 +660,27 @@ PointUtils::SnapState PointUtils::checkSnapping(
   return state;
 }
 
-void PointUtils::drawSnappingVisuals(sf::RenderWindow &window, const SnapState &state) {
-  if (state.kind == SnapState::Kind::Intersection || state.kind == SnapState::Kind::Line) {
-    static sf::CircleShape marker(5.0f);
-    marker.setOrigin(5.0f, 5.0f);
-    marker.setOutlineThickness(1.0f);
-    marker.setOutlineColor(sf::Color::White);
+void PointUtils::drawSnappingVisuals(sf::RenderWindow &window, const SnapState &state, float scale) {
+  if (state.kind == SnapState::Kind::None) return;
 
-    if (state.kind == SnapState::Kind::Intersection) {
-      marker.setFillColor(sf::Color::Blue);
-    } else {
-      marker.setFillColor(sf::Color::Yellow);
-    }
+  // Scale marker in world units so it appears at a consistent pixel size.
+  const float baseRadius = 6.0f;
+  const float radius = baseRadius * scale;
 
-    marker.setPosition(static_cast<float>(CGAL::to_double(state.position.x())),
-                       static_cast<float>(CGAL::to_double(state.position.y())));
-    window.draw(marker);
+  sf::CircleShape marker(radius);
+  marker.setOrigin(radius, radius);
+  marker.setOutlineThickness(1.0f * scale);
+  marker.setOutlineColor(sf::Color::Black);
+
+  if (state.kind == SnapState::Kind::Intersection) {
+    marker.setFillColor(sf::Color::Magenta);
+  } else {
+    marker.setFillColor(sf::Color::Cyan);
   }
+
+  marker.setPosition(static_cast<float>(CGAL::to_double(state.position.x())),
+                     static_cast<float>(CGAL::to_double(state.position.y())));
+  window.draw(marker);
 }
 
 std::shared_ptr<Point> PointUtils::createSmartPoint(

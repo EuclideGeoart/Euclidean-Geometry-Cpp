@@ -59,7 +59,8 @@ public:
 
   static void drawSnappingVisuals(
       sf::RenderWindow &window,
-      const SnapState &state);
+      const SnapState &state,
+      float scale);
 
   static std::shared_ptr<Point> createSmartPoint(
       GeometryEditor &editor,

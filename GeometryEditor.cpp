@@ -507,7 +507,7 @@ void GeometryEditor::render() {
     }
     
     // Draw snapping visuals for tool feedback
-    PointUtils::drawSnappingVisuals(window, m_snapState);
+    PointUtils::drawSnappingVisuals(window, m_snapState, scale);
 
     // selection box
     if (isDrawingSelectionBox) window.draw(selectionBoxShape);

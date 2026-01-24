@@ -582,8 +582,7 @@ const std::vector<std::weak_ptr<Line>> &Point::getConnectedLines() const {
 void Point::updateConnectedLines() {
   if (!m_isInitialized) return;
 
-  std::cout << "Point " << getID() << " updating " << m_connectedLines.size() << " connected lines"
-            << std::endl;
+  // std::cout << "Point " << getID() << " updating " << m_connectedLines.size() << " connected lines" << std::endl;
 
   for (const auto &weakLine : m_connectedLines) {
     if (auto line = weakLine.lock()) {
@@ -616,13 +615,13 @@ void Point::lock() {
   m_isLocked = true;
   // Optionally, change visual state for locked points
   // updateSFMLShape();
-  std::cout << "Point locked." << std::endl;
+  //std::cout << "Point locked." << std::endl;
 }
 
 void Point::unlock() {
   m_isLocked = false;
   // updateSFMLShape();
-  std::cout << "Point unlocked." << std::endl;
+  //std::cout << "Point unlocked." << std::endl;
 }
 
 bool Point::isLocked() const { return m_isLocked; }

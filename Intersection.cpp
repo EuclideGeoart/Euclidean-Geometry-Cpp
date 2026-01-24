@@ -101,6 +101,20 @@ findIntersection(const Line_2 &line,
       return intersections;
     }
 
+    // Ambiguous call in some CGAL configurations - relying on manual calculation below
+    /*
+    CGAL::Object obj = CGAL::intersection(line, circle);
+    if (const auto *p = CGAL::object_cast<Point_2>(&obj)) {
+      intersections.push_back(*p);
+      return intersections;
+    }
+    if (const auto *pp = CGAL::object_cast<std::pair<Point_2, Point_2>>(&obj)) {
+      intersections.push_back(pp->first);
+      intersections.push_back(pp->second);
+      return intersections;
+    }
+    */
+
     // Standard line-circle intersection algorithm
     Point_2 center = circle.center();
     FT r_squared = circle.squared_radius();
@@ -137,8 +151,9 @@ findIntersection(const Line_2 &line,
       double px = CGAL::to_double(projection.x());
       double py = CGAL::to_double(projection.y());
 
-      intersections.push_back(Point_2(px + h * dy, py - h * dx));
-      intersections.push_back(Point_2(px - h * dy, py + h * dx));
+      // Move along the line vector (dx, dy) by distance h
+      intersections.push_back(Point_2(px + h * dx, py + h * dy));
+      intersections.push_back(Point_2(px - h * dx, py - h * dy));
     }
   } catch (const std::exception &e) {
     std::cerr << "Exception in findIntersection(Line_2, Circle_2): " << e.what()

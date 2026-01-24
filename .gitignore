@@ -10,7 +10,6 @@
 *.vcxproj
 *.vcxproj.filters
 *.vcxproj.user
-RULES.md
 
 # CMake build folders
 build/

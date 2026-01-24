@@ -553,6 +553,27 @@ void handlePointCreation(GeometryEditor &editor, const sf::Event::MouseButtonEve
   auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
   if (smartPoint && smartPoint->isValid()) {
     smartPoint->setSelected(true);
+
+    bool exists = false;
+    for (auto &p : editor.points) {
+      if (p == smartPoint) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      for (auto &p : editor.ObjectPoints) {
+        if (p == smartPoint) {
+          exists = true;
+          break;
+        }
+      }
+    }
+
+    if (!exists) {
+      editor.points.push_back(smartPoint);
+      std::cout << "Persisted new intersection point." << std::endl;
+    }
   }
 
   std::cout << "Point created at (" << cgalWorldPos.x() << ", " << cgalWorldPos.y() << ")"
