@@ -29,7 +29,7 @@ std::shared_ptr<Point> PointUtils::findAnchorPoint(
   
   // Priority 1: Search free points
   for (auto& pt : editor.points) {
-    if (pt && pt->isValid()) {
+    if (pt && pt->isValid() && pt->isVisible()) {
       sf::Vector2f ptPos = pt->getSFMLPosition();
       float dx = ptPos.x - worldPos_sfml.x;
       float dy = ptPos.y - worldPos_sfml.y;
@@ -43,7 +43,7 @@ std::shared_ptr<Point> PointUtils::findAnchorPoint(
   
   // Priority 2: Search ObjectPoints
   for (auto& op : editor.ObjectPoints) {
-    if (op && op->isValid()) {
+    if (op && op->isValid() && op->isVisible()) {
       sf::Vector2f opPos = op->getSFMLPosition();
       float dx = opPos.x - worldPos_sfml.x;
       float dy = opPos.y - worldPos_sfml.y;
@@ -61,13 +61,50 @@ std::shared_ptr<Point> PointUtils::findAnchorPoint(
     return best;
   }
   
-  // Priority 3: Search shape vertices via generic getInteractableVertices()
+  // Priority 3: Search line endpoints (even if hidden, since lines hide their endpoint Points)
+  for (auto& linePtr : editor.lines) {
+    if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
+    
+    // Check start endpoint
+    std::shared_ptr<Point> startPt = linePtr->getStartPointObjectShared();
+    if (startPt && startPt->isValid()) {
+      sf::Vector2f ptPos = startPt->getSFMLPosition();
+      float dx = ptPos.x - worldPos_sfml.x;
+      float dy = ptPos.y - worldPos_sfml.y;
+      float d2 = dx * dx + dy * dy;
+      if (d2 <= tolerance2 && d2 < bestDist2) {
+        best = startPt;
+        bestDist2 = d2;
+      }
+    }
+    
+    // Check end endpoint
+    std::shared_ptr<Point> endPt = linePtr->getEndPointObjectShared();
+    if (endPt && endPt->isValid()) {
+      sf::Vector2f ptPos = endPt->getSFMLPosition();
+      float dx = ptPos.x - worldPos_sfml.x;
+      float dy = ptPos.y - worldPos_sfml.y;
+      float d2 = dx * dx + dy * dy;
+      if (d2 <= tolerance2 && d2 < bestDist2) {
+        best = endPt;
+        bestDist2 = d2;
+      }
+    }
+  }
+  
+  // If we found a line endpoint, return it
+  if (best) {
+    editor.setGUIMessage("Snapped to Line Endpoint"); // Feedback
+    return best;
+  }
+  
+  // Priority 4: Search shape vertices via generic getInteractableVertices()
   GeometricObject* bestShape = nullptr;
   size_t bestVertexIndex = 0;
   
   auto checkShapeVertices = [&](auto& container) {
     for (auto& shapePtr : container) {
-      if (!shapePtr || !shapePtr->isValid()) continue;
+      if (!shapePtr || !shapePtr->isValid() || !shapePtr->isVisible()) continue;
       
       auto vertices = shapePtr->getInteractableVertices();
       // Debug: Log vertex search
@@ -103,7 +140,7 @@ std::shared_ptr<Point> PointUtils::findAnchorPoint(
   
   // Check circle centers
   for (auto& circlePtr : editor.circles) {
-    if (!circlePtr || !circlePtr->isValid()) continue;
+    if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible()) continue;
     
     // Check center point
     Point_2 center = circlePtr->getCenterPoint();

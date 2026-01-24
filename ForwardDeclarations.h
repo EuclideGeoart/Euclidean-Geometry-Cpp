@@ -12,6 +12,7 @@ class Point;
 class Line;
 class Circle;
 class ObjectPoint;
+class Angle;
 
 // Add missing enum class declarations
 enum class DragMode;

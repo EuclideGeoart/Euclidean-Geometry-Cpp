@@ -672,8 +672,10 @@ void Line::setTemporaryPreviewPoints(std::shared_ptr<Point> p1, std::shared_ptr<
   updateSFMLShape();
 }
 // --- GeometricObject Overrides ---
-void Line::draw(sf::RenderWindow &window, float scale) const {
+void Line::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
   try {
+    if (!m_visible && !forceVisible) return;
+
     if ((m_startPoint && !m_startPoint->isValid()) ||
         (m_endPoint && !m_endPoint->isValid())) {
       return;
@@ -686,6 +688,11 @@ void Line::draw(sf::RenderWindow &window, float scale) const {
       drawColor = Constants::HOVER_COLOR;
     }
 
+    // GHOST MODE: Apply transparency if hidden but forced visible
+    if (!m_visible && forceVisible) {
+        drawColor.a = 50;
+    }
+
     // Determine thickness
     float basePixelThickness = Constants::LINE_THICKNESS_DEFAULT; // e.g. 2.0 or 3.0
     if (m_selected) basePixelThickness = 4.0f; // Thicker when selected
@@ -695,6 +702,8 @@ void Line::draw(sf::RenderWindow &window, float scale) const {
     float worldThickness = basePixelThickness * scale;
 
     // Get endpoints from the shape (updated by updateSFMLShape)
+    if (m_sfmlShape.getVertexCount() < 2) return;
+
     sf::Vector2f p1 = m_sfmlShape[0].position;
     sf::Vector2f p2 = m_sfmlShape[1].position;
     
@@ -1207,6 +1216,26 @@ void Line::setColor(const sf::Color &color) {
 
   this->updateSFMLShape();  // Update the SFML shape
 }
+
+void Line::setVisible(bool visible) {
+  m_visible = visible;
+  m_hidden = !visible;
+  updateSFMLShape();
+}
+
+bool Line::isVisible() const { return m_visible; }
+
+void Line::toggleVisibility() {
+  setVisible(!m_visible);
+}
+
+void Line::setHidden(bool hidden) {
+  m_hidden = hidden;
+  m_visible = !hidden;
+  updateSFMLShape();
+}
+
+bool Line::isHidden() const { return m_hidden; }
 /* void Line::translate(const Vector_2 &offset) {
   std::cerr << "Line::translate (Simplified): Entered." << std::endl;
   try {

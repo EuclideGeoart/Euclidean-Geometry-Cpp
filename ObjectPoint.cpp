@@ -913,9 +913,9 @@ void ObjectPoint::validate() const {
 
 // --- SFML Drawable ---
 // --- SFML Drawable ---
-void ObjectPoint::draw(sf::RenderWindow &window, float scale) const {
+void ObjectPoint::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
   // Delegate to base Point drawing for now, which supports scaling
-  Point::draw(window, scale);
+  Point::draw(window, scale, forceVisible);
 }
 
 

@@ -17,6 +17,10 @@ enum class ObjectType {
   RegularPolygon,          // Regular polygon with N sides
   Triangle,                // General triangle (3 arbitrary vertices)
 
+  Angle,                   // Angle measurement
+  Hide,                    // Hide tool mode
+  Detach,                  // Detach tool mode
+
   Intersection,            // Intersection tool
   IntersectionPoint,       // Resulting intersection point
   ParallelLine,            // Tool for creating parallel lines

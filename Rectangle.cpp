@@ -83,17 +83,34 @@ void Rectangle::updateSFMLShape() {
 
     double minX = std::min(x1, x2);
     double minY = std::min(y1, y2);
+    double width = std::abs(x2 - x1);
+    double height = std::abs(y2 - y1);
 
+    m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(width), static_cast<float>(height)));
     m_sfmlShape.setOrigin(0.0f, 0.0f);
     m_sfmlShape.setPosition(sf::Vector2f(static_cast<float>(minX), static_cast<float>(minY)));
     m_sfmlShape.setRotation(0.0f);
   }
 }
 
-void Rectangle::draw(sf::RenderWindow &window, float scale) const {
+void Rectangle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
+  if (!m_visible && !forceVisible) return;
+
   // Scale the main shape's outline
   sf::RectangleShape scaledShape = m_sfmlShape;
   scaledShape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+
+  // GHOST MODE: Apply transparency if hidden but forced visible
+  if (!m_visible && forceVisible) {
+      sf::Color ghostFill = scaledShape.getFillColor();
+      ghostFill.a = 50; // Faint alpha
+      scaledShape.setFillColor(ghostFill);
+      
+      sf::Color ghostOutline = scaledShape.getOutlineColor();
+      ghostOutline.a = 50;
+      scaledShape.setOutlineColor(ghostOutline);
+  }
+
   window.draw(scaledShape);
 
   // Draw selection highlight if selected
@@ -186,6 +203,19 @@ std::vector<Point_2> Rectangle::getVertices() const {
   std::vector<Point_2> verts;
   verts.reserve(4);
 
+  if (!m_isRotatable) {
+    double x1 = CGAL::to_double(m_corner1.x());
+    double y1 = CGAL::to_double(m_corner1.y());
+    double x2 = CGAL::to_double(m_corner2.x());
+    double y2 = CGAL::to_double(m_corner2.y());
+
+    verts.emplace_back(FT(x1), FT(y1));
+    verts.emplace_back(FT(x2), FT(y1));
+    verts.emplace_back(FT(x2), FT(y2));
+    verts.emplace_back(FT(x1), FT(y2));
+    return verts;
+  }
+
   // Use SFML transform to capture rotation as well
   sf::Transform tf = m_sfmlShape.getTransform();
   sf::Vector2f size = m_sfmlShape.getSize();
@@ -211,64 +241,86 @@ std::vector<sf::Vector2f> Rectangle::getVerticesSFML() const {
 void Rectangle::setVertexPosition(size_t index, const Point_2 &value) {
   if (index >= 4) return;
 
-  if (!m_isRotatable) {
+  if (m_isRotatable) {
     auto verts = getVertices();
     if (verts.size() != 4) return;
 
-    Point_2 opposite = verts[(index + 2) % 4];
-    setCorners(value, opposite);
-    m_center = Point_2(FT((CGAL::to_double(value.x()) + CGAL::to_double(opposite.x())) * 0.5),
-                       FT((CGAL::to_double(value.y()) + CGAL::to_double(opposite.y())) * 0.5));
+    Point_2 center = getCenter();
+    double cos_a = std::cos(m_rotationAngle);
+    double sin_a = std::sin(m_rotationAngle);
+
+    auto projectU = [&](const Vector_2 &v) {
+      return CGAL::to_double(v.x()) * cos_a + CGAL::to_double(v.y()) * sin_a;
+    };
+    auto projectV = [&](const Vector_2 &v) {
+      return CGAL::to_double(v.x()) * -sin_a + CGAL::to_double(v.y()) * cos_a;
+    };
+
+    Vector_2 toNew = value - center;
+    double projU = projectU(toNew);
+    double projV = projectV(toNew);
+
+    Vector_2 currentVec = verts[index] - center;
+    double signU = projectU(currentVec) >= 0.0 ? 1.0 : -1.0;
+    double signV = projectV(currentVec) >= 0.0 ? 1.0 : -1.0;
+
+    const double minExtent = 1e-3;
+    double halfWidth = std::max(minExtent, std::abs(projU));
+    double halfHeight = std::max(minExtent, std::abs(projV));
+
+    m_width = halfWidth * 2.0;
+    m_height = halfHeight * 2.0;
+
+    double cx = CGAL::to_double(center.x());
+    double cy = CGAL::to_double(center.y());
+
+    double localX = -m_width * 0.5;
+    double localY = -m_height * 0.5;
+    double rotatedX = localX * cos_a - localY * sin_a;
+    double rotatedY = localX * sin_a + localY * cos_a;
+    m_corner1 = Point_2(FT(cx + rotatedX), FT(cy + rotatedY));
+    m_corner2 = Point_2(FT(cx - rotatedX), FT(cy - rotatedY));
+    m_center = center;
+
+    // Align active vertex to the dragged quadrant
+    double offsetX = signU * halfWidth;
+    double offsetY = signV * halfHeight;
+    double targetX = cx + offsetX * cos_a - offsetY * sin_a;
+    double targetY = cy + offsetX * sin_a + offsetY * cos_a;
+    (void)targetX;
+    (void)targetY;
+
+    updateSFMLShape();
+    updateHostedPoints();
     return;
   }
 
-  auto verts = getVertices();
-  if (verts.size() != 4) return;
+  double newX = CGAL::to_double(value.x());
+  double newY = CGAL::to_double(value.y());
 
-  Point_2 center = getCenter();
-  double cos_a = std::cos(m_rotationAngle);
-  double sin_a = std::sin(m_rotationAngle);
+  switch (index) {
+    case 0: // Dragging Corner 1
+      m_corner1 = value;
+      break;
+    case 1: // Dragging Corner (C2.x, C1.y)
+      m_corner2 = Point_2(FT(newX), m_corner2.y());
+      m_corner1 = Point_2(m_corner1.x(), FT(newY));
+      break;
+    case 2: // Dragging Corner 2
+      m_corner2 = value;
+      break;
+    case 3: // Dragging Corner (C1.x, C2.y)
+      m_corner1 = Point_2(FT(newX), m_corner1.y());
+      m_corner2 = Point_2(m_corner2.x(), FT(newY));
+      break;
+  }
 
-  auto projectU = [&](const Vector_2 &v) {
-    return CGAL::to_double(v.x()) * cos_a + CGAL::to_double(v.y()) * sin_a;
-  };
-  auto projectV = [&](const Vector_2 &v) {
-    return CGAL::to_double(v.x()) * -sin_a + CGAL::to_double(v.y()) * cos_a;
-  };
+  double finalX1 = CGAL::to_double(m_corner1.x());
+  double finalY1 = CGAL::to_double(m_corner1.y());
+  double finalX2 = CGAL::to_double(m_corner2.x());
+  double finalY2 = CGAL::to_double(m_corner2.y());
 
-  Vector_2 toNew = value - center;
-  double projU = projectU(toNew);
-  double projV = projectV(toNew);
-
-  Vector_2 currentVec = verts[index] - center;
-  double signU = projectU(currentVec) >= 0.0 ? 1.0 : -1.0;
-  double signV = projectV(currentVec) >= 0.0 ? 1.0 : -1.0;
-
-  const double minExtent = 1e-3;
-  double halfWidth = std::max(minExtent, std::abs(projU));
-  double halfHeight = std::max(minExtent, std::abs(projV));
-
-  m_width = halfWidth * 2.0;
-  m_height = halfHeight * 2.0;
-
-  double cx = CGAL::to_double(center.x());
-  double cy = CGAL::to_double(center.y());
-
-  double localX = -m_width * 0.5;
-  double localY = -m_height * 0.5;
-  double rotatedX = localX * cos_a - localY * sin_a;
-  double rotatedY = localX * sin_a + localY * cos_a;
-  m_corner1 = Point_2(FT(cx + rotatedX), FT(cy + rotatedY));
-  m_corner2 = Point_2(FT(cx - rotatedX), FT(cy - rotatedY));
-  m_center = center;
-
-  // Align active vertex to the dragged quadrant
-  double offsetX = signU * halfWidth;
-  double offsetY = signV * halfHeight;
-  double targetX = cx + offsetX * cos_a - offsetY * sin_a;
-  double targetY = cy + offsetX * sin_a + offsetY * cos_a;
-  (void)targetX;
-  (void)targetY;
+  m_center = Point_2(FT((finalX1 + finalX2) * 0.5), FT((finalY1 + finalY2) * 0.5));
 
   updateSFMLShape();
   updateHostedPoints();
@@ -340,7 +392,16 @@ void Rectangle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
 }
 
 std::vector<Point_2> Rectangle::getInteractableVertices() const {
-  return getVertices();  // Delegate to existing method
+  if (!m_isRotatable) {
+    std::vector<Point_2> verts;
+    verts.reserve(4);
+    verts.emplace_back(m_corner1);
+    verts.emplace_back(Point_2(m_corner2.x(), m_corner1.y()));
+    verts.emplace_back(m_corner2);
+    verts.emplace_back(Point_2(m_corner1.x(), m_corner2.y()));
+    return verts;
+  }
+  return getVertices();
 }
 
 std::vector<Segment_2> Rectangle::getEdges() const {

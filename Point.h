@@ -45,7 +45,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   static Point_2 sfmlToCGAL(const sf::Vector2f &p);
 
   // --- GeometricObject Overrides ---
-  virtual void draw(sf::RenderWindow &window, float scale) const override;
+  virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   bool contains(const sf::Vector2f &worldPos,
                 float tolerance = Constants::POINT_INTERACTION_RADIUS) const override;
   void setSelected(bool sel) override;
@@ -69,8 +69,8 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   void setLocked(bool lockStatus) { m_isLocked = lockStatus; }
   bool isLocked() const;
 
-  void setVisible(bool v) { m_visible = v; }
-  bool isVisible() const { return m_visible; }
+  void setVisible(bool v) override { m_visible = v; }
+  bool isVisible() const override { return m_visible; }
   void setIsValid(bool valid);
 
   // Intersection status
@@ -125,6 +125,9 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   bool isValid() const override {
     // Basic validity check for Point
     try {
+      if (!m_isValid) {
+        return false;
+      }
       // Check if position is finite
       const Point_2 &pos = getCGALPosition();
       bool isFiniteX = CGAL::is_finite(pos.x());

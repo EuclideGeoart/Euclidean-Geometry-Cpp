@@ -415,6 +415,7 @@ void updateAllIntersections(GeometryEditor &editor) {
           pt->lock();
           pt->setCGALPosition(newIntersections[i]);
           pt->update();
+          pt->updateConnectedLines();
         }
 
         if (existingCount < newCount) {
@@ -435,6 +436,7 @@ void updateAllIntersections(GeometryEditor &editor) {
             if (existing[i]) {
               existing[i]->setVisible(false);
               existing[i]->setIsValid(false);
+              existing[i]->updateConnectedLines();
             }
           }
         }

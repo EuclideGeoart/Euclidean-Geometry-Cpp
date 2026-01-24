@@ -30,10 +30,12 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
 
   void setRadius(double newRadius);
   void setCenter(const Point_2 &newCenter);
+  void setCenterPointObject(Point *newCenterPoint);
+  void clearCenterPoint();
 
   // GeometricObject overrides
   ObjectType getType() const override { return ObjectType::Circle; }
-  virtual void draw(sf::RenderWindow &window, float scale) const override;
+  virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   bool contains(const sf::Vector2f &worldPos, float tolerance) const override;
   bool isValid() const override;
   void update() override;

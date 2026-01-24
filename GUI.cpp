@@ -9,6 +9,7 @@
 #include "GeometryEditor.h"  // Include the full definition of GeometryEditor
 #include "LineToolMode.h"    // Include this to access LineToolMode enum and globals
 #include "ObjectType.h"      // Include the definition for ObjectType enum
+#include "Angle.h"
 
 bool ColorPicker::handleEvent(const sf::Event &event, const sf::Vector2f &mousePos) {
   if (!m_isOpen) return false;
@@ -50,6 +51,17 @@ bool ColorPicker::handleMouseMove(const sf::Event &event, const sf::Vector2f &mo
   float ratio = (clampedX - track.left) / track.width;
   setAlpha(std::clamp(ratio * 255.0f, 0.0f, 255.0f));
   return true;
+}
+
+bool ColorPicker::isMouseOver(const sf::Vector2f &mousePos) const {
+  if (!m_isOpen) return false;
+  for (int i = 0; i < 16; i++) {
+    if (m_colorPalette[i].getGlobalBounds().contains(mousePos)) return true;
+  }
+  if (m_colorPreview.getGlobalBounds().contains(mousePos)) return true;
+  if (m_alphaTrack.getGlobalBounds().contains(mousePos)) return true;
+  if (m_alphaKnob.getGlobalBounds().contains(mousePos)) return true;
+  return false;
 }
 
 void ColorPicker::setAlpha(float alpha) {
@@ -289,6 +301,24 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
                        Constants::BUTTON_HOVER_COLOR);
   currentX += buttonWidth + spacing;
 
+  // Angle tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Angle",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Hide tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Hide",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Detach tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Detach",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
   // Grid toggle
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Grid",
                        Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
@@ -337,6 +367,21 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   m_contextMenu.addItem("Scale Object", [](GeometryEditor&) {
      std::cout << "Scaling tool coming soon..." << std::endl;
   });
+
+  // Angle inspector controls
+  m_angleReflexBox.setSize(sf::Vector2f(14.f, 14.f));
+  m_angleReflexBox.setOutlineThickness(1.f);
+  m_angleReflexBox.setOutlineColor(sf::Color::Black);
+  m_angleReflexBox.setFillColor(sf::Color::Transparent);
+
+  if (m_fontLoaded) {
+    m_angleReflexLabel.setFont(messageFont);
+  } else if (Button::getFontLoaded()) {
+    m_angleReflexLabel.setFont(Button::getFont());
+  }
+  m_angleReflexLabel.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
+  m_angleReflexLabel.setFillColor(sf::Color::White);
+  m_angleReflexLabel.setString("Show Reflex Angle (0-360\xC2\xB0)");
   
   // Mark GUI as fully initialized
   m_isInitialized = true;
@@ -371,7 +416,33 @@ void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
     }
   }
   if (m_colorPicker && m_colorPicker->isOpen()) {
-    m_colorPicker->draw(window);
+    m_colorPicker->draw(window, Button::getFont());
+
+    if (m_fontLoaded) {
+      sf::Text paletteLabel;
+      paletteLabel.setFont(messageFont);
+      paletteLabel.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
+      paletteLabel.setFillColor(sf::Color::White);
+      paletteLabel.setString("Selected Object Color");
+      paletteLabel.setPosition(10.f, 175.f);
+      window.draw(paletteLabel);
+    }
+  }
+
+  if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
+    auto *angle = dynamic_cast<Angle *>(editor.selectedObject);
+    if (angle) {
+      sf::Vector2f basePos(10.f, 60.f);
+      sf::RectangleShape box = m_angleReflexBox;
+      sf::Text label = m_angleReflexLabel;
+
+      box.setPosition(basePos);
+      box.setFillColor(angle->isReflex() ? sf::Color(100, 200, 100) : sf::Color::Transparent);
+      label.setPosition(basePos.x + 20.f, basePos.y - 2.f);
+
+      window.draw(box);
+      window.draw(label);
+    }
   }
   // ContextMenu::draw is non-const; cast away const to call it from this const method
   const_cast<ContextMenu&>(m_contextMenu).draw(window);
@@ -383,7 +454,24 @@ void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
     window.draw(guiMessage);
   }
 
-  // Draw preview circle in the drawingView (world space)
+
+  
+  // Render Tool Hint
+  if (m_fontLoaded) {
+      sf::Text hintText;
+      hintText.setFont(messageFont);
+      hintText.setCharacterSize(16);
+      hintText.setFillColor(sf::Color(200, 200, 200)); // Light grey
+      hintText.setString(editor.getToolHint());
+      
+      // Position at bottom center, above message if active
+      sf::FloatRect bounds = hintText.getLocalBounds();
+      float yPos = guiView.getSize().y - bounds.height - 10.f;
+      if (messageActive) yPos -= 30.f; // Move up if message is significant
+      
+      hintText.setPosition(guiView.getSize().x / 2.f - bounds.width / 2.f, yPos);
+      window.draw(hintText);
+  }
   // This is now handled by GeometryEditor::render()
   // if (isCreatingCircle && previewCircle) { // REMOVE THIS BLOCK
   //   window.setView(drawingView); // Switch to world view for preview
@@ -420,9 +508,44 @@ bool GUI::isButtonActive(const std::string &label) const {
   return false;
 }
 
+bool GUI::isMouseOverPalette(const sf::Vector2f &guiPos) const {
+  if (!m_colorPicker || !m_colorPicker->isOpen()) return false;
+  return m_colorPicker->isMouseOver(guiPos);
+}
+
 bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, GeometryEditor &editor) {
   sf::Vector2f currentMousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window), guiView);
   if (m_contextMenu.handleEvent(event, currentMousePos, editor)) return true;
+
+  auto applyColorToSelection = [&](const sf::Color &color) -> bool {
+    bool applied = false;
+    if (!editor.selectedObjects.empty()) {
+      for (auto *obj : editor.selectedObjects) {
+        if (obj) {
+          obj->setColor(color);
+          applied = true;
+        }
+      }
+    } else if (editor.selectedObject) {
+      editor.selectedObject->setColor(color);
+      applied = true;
+    }
+    return applied;
+  };
+
+  if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
+    if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
+      auto *angle = dynamic_cast<Angle *>(editor.selectedObject);
+      if (angle) {
+        sf::Vector2f basePos(10.f, 60.f);
+        m_angleReflexBox.setPosition(basePos);
+        if (m_angleReflexBox.getGlobalBounds().contains(currentMousePos)) {
+          angle->setReflex(!angle->isReflex());
+          return true;
+        }
+      }
+    }
+  }
 
   if (event.type == sf::Event::MouseMoved) {
     // Convert mouse position to GUI view coordinates once
@@ -436,9 +559,7 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         if (editor.fillTarget) {
           editor.fillTarget->setColor(m_currentColor);
         }
-        if (editor.selectedObject) {
-          editor.changeSelectedObjectColor(m_currentColor);
-        }
+        applyColorToSelection(m_currentColor);
         return true;
       }
     }
@@ -490,9 +611,7 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         if (editor.fillTarget) {
           editor.fillTarget->setColor(m_currentColor);
         }
-        if (editor.selectedObject) {
-          editor.changeSelectedObjectColor(m_currentColor);
-        }
+        applyColorToSelection(m_currentColor);
         return true;
       }
       
@@ -506,21 +625,32 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
           // Cancel any active dragging to prevent interference
           editor.dragMode = DragMode::None;
           editor.selectedObject = obj;
-          editor.changeSelectedObjectColor(m_currentColor);
+          editor.selectedObjects.clear();
+          editor.selectedObjects.push_back(obj);
+          applyColorToSelection(m_currentColor);
           return true;
         }
       }
     } else {
       // Not in application mode, just handle normal color picker selection
       if (m_colorPicker->handleEvent(event, mousePosView)) {
-        m_currentColor = m_colorPicker->getCurrentColorWithAlpha();
-        editor.setCurrentColor(m_currentColor);
+        // Enforce selection before applying
+        if (!editor.selectedObjects.empty() || editor.selectedObject) {
+             m_currentColor = m_colorPicker->getCurrentColorWithAlpha();
+             editor.setCurrentColor(m_currentColor);
+             if (applyColorToSelection(m_currentColor)) {
+               editor.setGUIMessage("Updated Color");
+             }
+        } else {
+             // Revert picker visual maybe? Or just warn.
+             editor.setGUIMessage("Select an object first to change color");
+             // m_colorPicker->setCurrentColor(editor.getCurrentColor()); // Revert visual? Optional.
+        }
+        
         if (editor.fillTarget) {
           editor.fillTarget->setColor(m_currentColor);
         }
-        if (editor.selectedObject) {
-          editor.changeSelectedObjectColor(m_currentColor);
-        }
+        
         return true;
       }
     }
@@ -534,6 +664,7 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
 
         if (button.getLabel() == "Parallel") {
           editor.setCurrentTool(ObjectType::ParallelLine);
+          editor.setToolHint("Click a reference line, then place the parallel line.");
 
           // Reset the parallel line creation state
           resetParallelLineState();  // Reset state to ensure clean start
@@ -543,6 +674,7 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
           return true;
         } else if (button.getLabel() == "Perp") {
           editor.setCurrentTool(ObjectType::PerpendicularLine);
+          editor.setToolHint("Click a reference line, then place the perpendicular line.");
 
           // Reset the perpendicular line creation state
           resetPerpLineState();  // Reset state to ensure clean start
@@ -552,36 +684,47 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
           return true;
         } else if (button.getLabel() == "Point") {
           editor.setCurrentTool(ObjectType::Point);
+          editor.setToolHint("Click to create a point.");
           return true;
         } else if (button.getLabel() == "Line") {
           editor.setCurrentTool(ObjectType::Line);
+          editor.setToolHint("Click start point, then click end point (Ctrl to snap).");
           return true;
         } else if (button.getLabel() == "Segment") {
           editor.setCurrentTool(ObjectType::LineSegment);
+          editor.setToolHint("Click start point, then click end point (Ctrl to snap).");
           return true;
         } else if (button.getLabel() == "ObjPoint") {
           editor.setCurrentTool(ObjectType::ObjectPoint);
+          editor.setToolHint("Click on a line or circle to attach a point.");
           return true;
         } else if (button.getLabel() == "Circle") {
           editor.setCurrentTool(ObjectType::Circle);
+          editor.setToolHint("Click center, then drag radius.");
           return true;
         } else if (button.getLabel() == "Rect") {
           editor.setCurrentTool(ObjectType::Rectangle);
+          editor.setToolHint("Click corner, then drag to opposite corner.");
           return true;
         } else if (button.getLabel() == "RotRect") {
           editor.setCurrentTool(ObjectType::RectangleRotatable);
+          editor.setToolHint("Click first corner, drag side, then drag width.");
           return true;
         } else if (button.getLabel() == "Polygon") {
           editor.setCurrentTool(ObjectType::Polygon);
+          editor.setToolHint("Click vertices. Press Enter to finish.");
           return true;
         } else if (button.getLabel() == "RegPoly") {
           editor.setCurrentTool(ObjectType::RegularPolygon);
+          editor.setToolHint("Click center, then drag for size/rotation.");
           return true;
         } else if (button.getLabel() == "Triangle") {
           editor.setCurrentTool(ObjectType::Triangle);
+          editor.setToolHint("Click 3 points to create a triangle.");
           return true;
         } else if (button.getLabel() == "Move") {
           editor.setCurrentTool(ObjectType::None);
+          editor.setToolHint("Click to select. Drag to move. Ctrl+Drag to snap.");
           return true;
         } else if (button.getLabel() == "Grid") {
           editor.toggleGrid();
@@ -590,6 +733,19 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         } else if (button.getLabel() == "Intersect") {
           // Switch to intersection mode to allow targeted intersection creation
           editor.setCurrentTool(ObjectType::Intersection);
+          editor.setToolHint("Click two objects to find their intersection.");
+          return true;
+        } else if (button.getLabel() == "Angle") {
+          editor.setCurrentTool(ObjectType::Angle);
+          editor.setToolHint("Click Point A, Vertex, then Point B.");
+          return true;
+        } else if (button.getLabel() == "Hide") {
+          editor.setCurrentTool(ObjectType::Hide);
+          editor.setToolHint("Click objects to hide them. Click ghosts (force visible) to unhide.");
+          return true;
+        } else if (button.getLabel() == "Detach") {
+          editor.setCurrentTool(ObjectType::Detach);
+          editor.setToolHint("Click a shared line endpoint to detach it.");
           return true;
         } else if (button.getLabel() == "Color") {
           std::cout << "Color button clicked!" << std::endl;
@@ -611,14 +767,17 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
         } else if (button.getLabel() == "Save") {
           std::cout << "Save button clicked!" << std::endl;
           editor.saveProject("project.json");
+          editor.setGUIMessage("Project Saved");
           return true;
         } else if (button.getLabel() == "Load") {
           std::cout << "Load button clicked!" << std::endl;
           editor.loadProject("project.json");
+          editor.setGUIMessage("Project Loaded");
           return true;
         } else if (button.getLabel() == "SVG") {
           std::cout << "SVG Export button clicked!" << std::endl;
           editor.exportSVG("export.svg");
+          editor.setGUIMessage("Exported to export.svg");
           return true;
         }
         // ...existing code for other buttons...
@@ -721,21 +880,22 @@ void GUI::updateLayout(float windowWidth) {
   if (buttons.empty()) return;
   
   float margin = 5.0f;
-  float buttonHeight = 40.0f;
-  
-  // Calculate button width to fill window evenly
-  float totalMargins = margin * (buttons.size() + 1);
-  float availableWidth = windowWidth - totalMargins;
-  float buttonWidth = availableWidth / buttons.size();
-  
-  // Ensure minimum button width for usability
-  if (buttonWidth < 30.0f) {
-    buttonWidth = 30.0f;
+  float buttonWidth = Constants::BUTTON_SIZE.x;
+  float buttonHeight = Constants::BUTTON_SIZE.y;
+
+  float startX = margin;
+  float currentX = startX;
+  float currentY = margin;
+
+  for (auto &button : buttons) {
+    if (currentX + buttonWidth > windowWidth) {
+      currentX = startX;
+      currentY += buttonHeight + margin;
+    }
+    button.setSize(sf::Vector2f(buttonWidth, buttonHeight));
+    button.setPosition(sf::Vector2f(currentX, currentY));
+    currentX += buttonWidth + margin;
   }
-  
-  // Position and resize all buttons
-  for (size_t i = 0; i < buttons.size(); ++i) {
-    buttons[i].setSize(sf::Vector2f(buttonWidth, buttonHeight));
-    buttons[i].setPosition(sf::Vector2f(margin + i * (buttonWidth + margin), margin));
-  }
+
+  m_toolbarHeight = currentY + buttonHeight + margin;
 }

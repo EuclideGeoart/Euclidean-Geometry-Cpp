@@ -79,9 +79,21 @@ class ColorPicker {
 
   bool handleEvent(const sf::Event &event, const sf::Vector2f &mousePos);
   bool handleMouseMove(const sf::Event &event, const sf::Vector2f &mousePos);
+  bool isMouseOver(const sf::Vector2f &mousePos) const;
 
-  void draw(sf::RenderWindow &window) {
+  void draw(sf::RenderWindow &window, const sf::Font &font) {
     if (m_isOpen) {
+      // Draw Header
+      if (true /* Assume font loaded if passed */) {
+          sf::Text headerText;
+          headerText.setFont(font);
+          headerText.setString("Selected Object Color:");
+          headerText.setCharacterSize(14);
+          headerText.setFillColor(sf::Color::White);
+          headerText.setPosition(m_position.x, m_position.y - 20.f);
+          window.draw(headerText);
+      }
+
       for (int i = 0; i < 16; i++) {
         window.draw(m_colorPalette[i]);
       }
@@ -190,6 +202,7 @@ class GUI {
   void updateView(const sf::View &newGuiView);            // Updates the GUI's own view
   void setView(const sf::View &view) { guiView = view; }  // Sets the GUI's view
   void updateLayout(float windowWidth);                   // Updates button positions based on width
+  float getToolbarHeight() const { return m_toolbarHeight; }
   void update(sf::Time deltaTime);                        // Add declaration for update method
 
   bool isGridActive() const;
@@ -213,6 +226,7 @@ class GUI {
   void setCurrentColor(sf::Color color) { m_currentColor = color; }
   void toggleColorPicker();
   std::unique_ptr<ColorPicker> &getColorPicker() { return m_colorPicker; }
+  bool isMouseOverPalette(const sf::Vector2f &guiPos) const;
   ContextMenu& getContextMenu() { return m_contextMenu; }
   
  private:
@@ -228,6 +242,11 @@ class GUI {
   std::unique_ptr<ColorPicker> m_colorPicker;
   ContextMenu m_contextMenu;
   sf::Color m_currentColor = sf::Color::Blue;
+  float m_toolbarHeight = 0.0f;
+
+  // Angle inspector UI
+  sf::RectangleShape m_angleReflexBox;
+  sf::Text m_angleReflexLabel;
 
   // Utility function
   float distance(const sf::Vector2f &a, const sf::Vector2f &b) {

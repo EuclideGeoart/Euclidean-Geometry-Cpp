@@ -63,8 +63,18 @@ void Circle::setCenter(const Point_2 &newCenter) {
   }
 }
 
+void Circle::setCenterPointObject(Point *newCenterPoint) {
+  if (newCenterPoint) {
+    m_centerPoint = newCenterPoint;
+    updateSFMLShape();
+    updateHostedPoints();
+  }
+}
+
 // GeometricObject overrides
-void Circle::draw(sf::RenderWindow &window, float scale) const {
+void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
+  if (!m_visible && !forceVisible) return;
+  
   // Clone and scale main circle
   sf::CircleShape circleShape = m_sfmlShape;
   
@@ -73,6 +83,18 @@ void Circle::draw(sf::RenderWindow &window, float scale) const {
   else if (isHovered()) baseOutlineThickness = 3.0f;
   
   circleShape.setOutlineThickness(baseOutlineThickness * scale);
+
+  // GHOST MODE
+  if (!m_visible && forceVisible) {
+      sf::Color ghostFill = circleShape.getFillColor();
+      ghostFill.a = 50;
+      circleShape.setFillColor(ghostFill);
+      
+      sf::Color ghostOutline = circleShape.getOutlineColor();
+      ghostOutline.a = 50;
+      circleShape.setOutlineColor(ghostOutline);
+  }
+
   window.draw(circleShape);
 
   // Clone and scale center visual
@@ -88,6 +110,13 @@ void Circle::draw(sf::RenderWindow &window, float scale) const {
   centerShape.setOrigin(baseCenterRadius * scale, baseCenterRadius * scale);
   centerShape.setPosition(sfmlCenter);
   
+  // GHOST MODE for center
+  if (!m_visible && forceVisible) {
+    sf::Color ghostCenter = centerShape.getFillColor();
+    ghostCenter.a = 50;
+    centerShape.setFillColor(ghostCenter);
+  }
+
   window.draw(centerShape);
 }
 
@@ -118,6 +147,9 @@ bool Circle::isValid() const {
 
 void Circle::update() {
   // Called when observed Point (center) changes
+  if (!isValid()) {
+    return;
+  }
   updateSFMLShape();
   updateHostedPoints();
 }
@@ -151,6 +183,11 @@ void Circle::setSelected(bool sel) {
 void Circle::setHovered(bool hov) {
   GeometricObject::setHovered(hov);
   updateSFMLShape();
+}
+
+void Circle::clearCenterPoint() {
+  m_centerPoint = nullptr;
+  m_isValid = false;
 }
 
 // Interaction helpers

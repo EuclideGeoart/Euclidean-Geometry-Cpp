@@ -100,6 +100,7 @@ add_executable(GeometryTool2
     RegularPolygon.cpp
     ObjectPoint.cpp
     Triangle.cpp
+    Angle.cpp
     GUI.cpp
     Grid.cpp
     HandleEvents.cpp

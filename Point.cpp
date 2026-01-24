@@ -414,8 +414,8 @@ void Point::translate(const Vector_2 &offset) {
 sf::FloatRect Point::getGlobalBounds() const { return m_sfmlShape.getGlobalBounds(); }
 
 // --- GeometricObject Overrides ---
-void Point::draw(sf::RenderWindow &window, float scale) const {
-  if (!m_visible) return;
+void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
+  if (!m_visible && !forceVisible) return;
   if (!m_isValid) return;  // Don't draw if invalid
 
   if (Constants::DEBUG_POINT_DRAWING) {
@@ -446,11 +446,21 @@ void Point::draw(sf::RenderWindow &window, float scale) const {
 
   pointToDraw.setOutlineThickness(baseScreenOutlineThickness * scale);
 
+  // GHOST MODE: Apply transparency if hidden but forced visible
+  if (!m_visible && forceVisible) {
+      sf::Color ghostFill = pointToDraw.getFillColor();
+      ghostFill.a = 50; // Faint alpha
+      pointToDraw.setFillColor(ghostFill);
+      
+      sf::Color ghostOutline = pointToDraw.getOutlineColor();
+      ghostOutline.a = 50;
+      pointToDraw.setOutlineColor(ghostOutline);
+  }
+
   window.draw(pointToDraw);
 }
 bool Point::contains(const sf::Vector2f &worldPos_sfml,
                      float tolerance) const {  // Ensure tolerance is used
-  if (!m_visible) return false;
   if (!m_isInitialized) return false;
   // If tolerance is meant to be POINT_INTERACTION_RADIUS by default,
   // it's handled by the header. If it's passed explicitly, use the passed

@@ -46,10 +46,24 @@ void Triangle::updateSFMLShapeInternal() {
     m_sfmlShape.setOutlineColor(sf::Color::Black);
 }
 
-void Triangle::draw(sf::RenderWindow& window, float scale) const {
+void Triangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) const {
+    if ((!m_visible && !forceVisible) || !isValid()) return;
+
     if (m_vertices.size() == 3) {
         sf::ConvexShape shape = m_sfmlShape;
         shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+
+        // GHOST MODE: Apply transparency if hidden but forced visible
+        if (!m_visible && forceVisible) {
+            sf::Color ghostFill = shape.getFillColor();
+            ghostFill.a = 50; // Faint alpha
+            shape.setFillColor(ghostFill);
+            
+            sf::Color ghostOutline = shape.getOutlineColor();
+            ghostOutline.a = 50;
+            shape.setOutlineColor(ghostOutline);
+        }
+
         window.draw(shape);
         
         // Draw selection highlight if selected

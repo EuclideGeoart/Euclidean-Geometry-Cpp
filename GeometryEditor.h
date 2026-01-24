@@ -42,6 +42,7 @@
 #include "Polygon.h"      // User-drawn polygons
 #include "RegularPolygon.h"  // Regular N-sided polygons
 #include "Triangle.h"        // General triangles
+#include "Angle.h"           // Angle measurement
 #include "PointUtils.h"      // For EdgeHitResult and anchor point detection
 
 // Note: Headers like "HandleEvents.h" (if it was a .h file for functions) are
@@ -92,6 +93,7 @@ class GeometryEditor {
   std::vector<std::shared_ptr<Polygon>> polygons;      // User-drawn polygons
   std::vector<std::shared_ptr<RegularPolygon>> regularPolygons;  // Regular N-sided polygons
   std::vector<std::shared_ptr<Triangle>> triangles;              // General triangles
+  std::vector<std::shared_ptr<Angle>> angles;                    // Angle measurements
 
   std::shared_ptr<Line> getLineSharedPtr(Line *raw) const {
     for (auto &L : lines)
@@ -129,6 +131,7 @@ class GeometryEditor {
   GeometricObject *selectedObject =
       nullptr;  // Pointer to the currently selected geometric object
                 // (raw pointer, object owned by one of the vectors above)
+  std::vector<GeometricObject *> selectedObjects;  // Multi-selection list (raw pointers)
   GeometricObject *hoveredObject = nullptr;  // Object currently under mouse for hover feedback
     int hoveredVertexIndex = -1;
     GeometricObject *hoveredVertexShape = nullptr;
@@ -136,12 +139,20 @@ class GeometryEditor {
   // Edge hover tracking for universal snapping
   std::optional<EdgeHitResult> m_hoveredEdge;  // Currently hovered edge (if any)
   
+  // Angle Resizing
+  bool isResizingAngle = false;
+  
   GeometricObject *lookForObjectAt(const sf::Vector2f &worldPos_sfml, float tolerance,
                                    const std::vector<ObjectType> &allowedTypes = {});
 
   // If you prefer to pass initializer_list directly from the call site:
   GeometricObject *lookForObjectAt(const sf::Vector2f &worldPos_sfml, float tolerance,
                                    std::initializer_list<ObjectType> allowedTypes);
+  // Tool Hint for UI
+  std::string m_toolHint = "Welcome! Select a tool to begin.";
+  void setToolHint(const std::string& hint) { m_toolHint = hint; }
+  std::string getToolHint() const { return m_toolHint; }
+
   void setGUIMessage(const std::string &message);
   // --- Selection Box State ---
   bool isDrawingSelectionBox = false;
@@ -184,6 +195,13 @@ class GeometryEditor {
   std::vector<Point_2> triangleVertices;  // Vertices being added to triangle (up to 3)
   std::shared_ptr<Triangle> previewTriangle;  // Preview during creation
 
+  // Angle Creation
+  std::shared_ptr<Point> anglePointA = nullptr;
+  std::shared_ptr<Point> angleVertex = nullptr;
+  std::shared_ptr<Point> anglePointB = nullptr;
+  std::shared_ptr<Line> angleLine1 = nullptr;
+  std::shared_ptr<Line> angleLine2 = nullptr;
+
   // --- Preview Overlay (lightweight, no CGAL) ---
   sf::VertexArray previewLineOverlay{sf::Lines, 2};
   bool hasPreviewLineOverlay = false;
@@ -196,6 +214,8 @@ class GeometryEditor {
   std::shared_ptr<Line> m_hoveredLine;
   Point_2 m_hoveredLineSnapPos = Point_2(FT(0), FT(0));
   PointUtils::SnapState m_snapState;
+  bool m_wasSnapped = false;
+  std::shared_ptr<Point> m_snapTargetPoint = nullptr;
 
   // --- Panning State (primarily used by event handling logic) ---
   bool isPanning = false;
@@ -308,6 +328,7 @@ class GeometryEditor {
   // toCGALPoint, consider removing one
   void createCircle(const Point_2 &center, double radius, const sf::Color &color);
   void handleResize(unsigned int width, unsigned int height);
+  void replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<Point> newPt);
 
   // Alternative panning control methods that work with existing structure
   void startPanning(const sf::Vector2f &mousePos);

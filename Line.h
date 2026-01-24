@@ -64,7 +64,7 @@ public:
   //---- enum class for LineType ----
   enum class LineType { Infinite, Segment, Ray };
   // --- GeometricObject Overrides ---
-  virtual void draw(sf::RenderWindow &window, float scale) const override;
+  virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   bool
   contains(const sf::Vector2f &worldPos_sfml,
            float tolerance = Constants::LINE_INTERACTION_RADIUS) const override;
@@ -86,6 +86,8 @@ public:
   // --- Line Specific Methods ---
   Point *getStartPointObject() const { return m_startPoint.get(); }
   Point *getEndPointObject() const { return m_endPoint.get(); }
+  std::shared_ptr<Point> getStartPointObjectShared() const { return m_startPoint; }
+  std::shared_ptr<Point> getEndPointObjectShared() const { return m_endPoint; }
   Point_2 getStartPoint() const;
   Point_2 getEndPoint() const;
   Line_2 getCGALLine() const; // Throws if endpoints are null or coincident
@@ -143,7 +145,7 @@ public:
 
   // --- Visibility Methods ---
   void toggleVisibility();
-  bool isVisible() const;
+  bool isVisible() const override;
   void setHidden(bool hidden);
   bool isHidden() const;
 
@@ -260,7 +262,7 @@ public:
   // --- General State Methods ---
   void setShow(bool show);
   bool isShown() const;
-  void setVisible(bool visible);
+  void setVisible(bool visible) override;
   void setLocked(bool locked);
   bool isLocked() const;
   void setName(const std::string &name);

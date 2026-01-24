@@ -33,7 +33,8 @@ namespace Constants {
 // Replace with your actual absolute path for testing:
 #ifdef _WIN32
 const std::string DEFAULT_FONT_PATH =
-    "C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/arial.ttf";
+    "C:/Windows/Fonts/arial.ttf";
+    //"C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/arial.ttf";
 #else
 const std::string DEFAULT_FONT_PATH =
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf";

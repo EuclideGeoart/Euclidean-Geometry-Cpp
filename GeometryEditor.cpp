@@ -461,38 +461,36 @@ void GeometryEditor::render() {
     // Calculate scale factor for invariant rendering (world units per screen pixel)
     float scale = drawingView.getSize().y / static_cast<float>(window.getSize().y);
 
+    // Helper lambda for ghost rendering
+    auto drawObject = [&](auto& obj) {
+        if (!obj || !obj->isValid()) return;
+        
+        // Check if we are in Ghost Mode (Hide Tool active)
+        bool ghostMode = (m_currentToolType == ObjectType::Hide);
+        
+        // Pass forceVisible=true if in ghost mode
+        // The object's draw method handles the alpha/transparency logic if valid but hidden
+        obj->draw(window, scale, ghostMode);
+    };
+
     // points
-    for (auto &pt : points) {
-      if (pt && pt->isValid()) pt->draw(window, scale);
-    }
+    for (auto &pt : points) drawObject(pt);
     // lines
-    for (auto &ln : lines) {
-      if (ln && ln->isValid()) ln->draw(window, scale);
-    }
+    for (auto &ln : lines) drawObject(ln);
     // circles
-    for (auto &ci : circles) {
-      if (ci && ci->isValid()) ci->draw(window, scale);
-    }
+    for (auto &ci : circles) drawObject(ci);
     // rectangles
-    for (auto &rc : rectangles) {
-      if (rc && rc->isValid()) rc->draw(window, scale);
-    }
+    for (auto &rc : rectangles) drawObject(rc);
     // polygons
-    for (auto &pg : polygons) {
-      if (pg && pg->isValid()) pg->draw(window, scale);
-    }
+    for (auto &pg : polygons) drawObject(pg);
     // regular polygons
-    for (auto &rp : regularPolygons) {
-      if (rp && rp->isValid()) rp->draw(window, scale);
-    }
+    for (auto &rp : regularPolygons) drawObject(rp);
     // triangles
-    for (auto &tr : triangles) {
-      if (tr && tr->isValid()) tr->draw(window, scale);
-    }
+    for (auto &tr : triangles) drawObject(tr);
     // object‐points
-    for (auto &op : ObjectPoints) {
-      if (op && op->isValid()) op->draw(window, scale);
-    }
+    for (auto &op : ObjectPoints) drawObject(op);
+    // angles
+    for (auto &ag : angles) drawObject(ag);
 
     // --- Preview lines ---
     // Draw existing preview Line objects without triggering heavy updates
@@ -565,6 +563,15 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
            (std::find(allowedTypes.begin(), allowedTypes.end(), type) != allowedTypes.end());
   };
 
+  // Allow detection of invisible objects ONLY in Hide Tool mode
+  bool canSelectInvisible = (m_currentToolType == ObjectType::Hide);
+
+  // Helper for checking visibility
+  auto isValidCandidate = [&](GeometricObject* obj) {
+      if (!obj || !obj->isValid()) return false;
+      return obj->isVisible() || canSelectInvisible;
+  };
+
   // Priority: ObjectPoints, then free Points, then Line endpoints (handled by
   // line contains), then Lines, then Circles.
 
@@ -572,7 +579,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   if (typeAllowed(ObjectType::ObjectPoint)) {
     for (auto it = ObjectPoints.rbegin(); it != ObjectPoints.rend();
          ++it) {  // Iterate in reverse for top-most
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -581,7 +589,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 2. Check free Points
   if (typeAllowed(ObjectType::Point)) {
     for (auto it = points.rbegin(); it != points.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -592,7 +601,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   
   if (typeAllowed(ObjectType::Triangle)) {
     for (auto it = triangles.rbegin(); it != triangles.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -600,7 +610,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   if (typeAllowed(ObjectType::RegularPolygon)) {
     for (auto it = regularPolygons.rbegin(); it != regularPolygons.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -608,7 +619,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   if (typeAllowed(ObjectType::Polygon)) {
     for (auto it = polygons.rbegin(); it != polygons.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -616,23 +628,28 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   if (typeAllowed(ObjectType::Rectangle) || typeAllowed(ObjectType::RectangleRotatable)) {
     for (auto it = rectangles.rbegin(); it != rectangles.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
   }
 
-  // 3. Check Lines (their 'contains' method should also handle endpoints
-  // implicitly if designed that way,
-  //    or you might need specific endpoint checks if 'contains' only checks the
-  //    line body) If Line::contains doesn't check endpoints well enough, you
-  //    might need a separate loop here to check distance to line endpoints if
-  //    ObjectType::Point is also allowed.
+  // 2.75 Check Angles
+  if (typeAllowed(ObjectType::Angle)) {
+    for (auto it = angles.rbegin(); it != angles.rend(); ++it) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
+        return it->get();
+      }
+    }
+  }
+
+  // 3. Check Lines
   if (typeAllowed(ObjectType::Line) || typeAllowed(ObjectType::LineSegment)) {
     for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
-        // Ensure the type matches if both Line and LineSegment are distinct and
-        // specified
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
         if (typeAllowed((*it)->getType())) {
           return it->get();
         }
@@ -643,25 +660,18 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 4. Check Circles
   if (typeAllowed(ObjectType::Circle)) {
     for (auto it = circles.rbegin(); it != circles.rend(); ++it) {
-      if (*it && (*it)->isValid() && (*it)->contains(worldPos_sfml, tolerance)) {
-        // Check for center point interaction first if that's a distinct
-        // interaction
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
+        // Check for center point interaction first
         if ((*it)->isCenterPointHovered(worldPos_sfml, tolerance)) {
-          // You might want to return the circle or a special marker for its
-          // center For now, just returning the circle.
           return it->get();
         }
         // Then check circumference
         if ((*it)->isCircumferenceHovered(worldPos_sfml, tolerance)) {
           return it->get();
         }
-        // Fallback to general contains if the specific hovers aren't met but
-        // general contains is
-        if ((*it)->contains(worldPos_sfml, tolerance) &&
-            !(*it)->isCenterPointHovered(worldPos_sfml, tolerance) &&
-            !(*it)->isCircumferenceHovered(worldPos_sfml, tolerance)) {
-          return it->get();  // e.g. if contains means filled circle
-        }
+        // Fallback
+        return it->get();
       }
     }
   }
@@ -710,9 +720,11 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
         break;
       case ObjectType::Line:
         gui.toggleButton("Line", true);
+        setToolHint("Click Start -> Click End. (Hold Ctrl to Snap)");
         break;
       case ObjectType::LineSegment:
         gui.toggleButton("Segment", true);
+        setToolHint("Click Start -> Click End. (Hold Ctrl to Snap)");
         break;
       case ObjectType::Circle:
         gui.toggleButton("Circle", true);
@@ -739,6 +751,7 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
         break;
       case ObjectType::None:  // This is the "Move" tool state
         gui.toggleButton("Move", true);
+        setToolHint("Drag to move. (Hold Ctrl to Snap to vertices)");
         break;
       case ObjectType::Intersection:
         gui.toggleButton("Intersect", true);
@@ -748,6 +761,15 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
         break;
       case ObjectType::PerpendicularLine:
         gui.toggleButton("Perp", true);
+        break;
+      case ObjectType::Angle:
+        gui.toggleButton("Angle", true);
+        break;
+      case ObjectType::Hide:
+        gui.toggleButton("Hide", true);
+        break;
+      case ObjectType::Detach:
+        gui.toggleButton("Detach", true);
         break;
       default:
         std::cout << "setCurrentTool: Unhandled tool type for GUI "
@@ -773,10 +795,85 @@ void GeometryEditor::createCircle(const Point_2 &center, double radius, const sf
   std::cout << "Circle created programmatically." << std::endl;
 }
 
+void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<Point> newPt) {
+  if (!oldPt || !newPt || oldPt == newPt) return;
+
+  // Update lines to reference the new point
+  for (auto &linePtr : lines) {
+    if (!linePtr || !linePtr->isValid()) continue;
+    auto start = linePtr->getStartPointObjectShared();
+    auto end = linePtr->getEndPointObjectShared();
+    bool changed = false;
+    if (start == oldPt) {
+      start = newPt;
+      changed = true;
+    }
+    if (end == oldPt) {
+      end = newPt;
+      changed = true;
+    }
+    if (changed && start && end) {
+      linePtr->setPoints(start, end);
+    }
+  }
+
+  // Update circle centers if they reference the old point
+  for (auto &circlePtr : circles) {
+    if (!circlePtr || !circlePtr->isValid()) continue;
+    if (circlePtr->getCenterPointObject() == oldPt.get()) {
+      circlePtr->setCenterPointObject(newPt.get());
+      circlePtr->update();
+    }
+  }
+
+  // Update polygon vertices (match by proximity)
+  const double tol2 = 1e-6;
+  Point_2 oldPos = oldPt->getCGALPosition();
+  Point_2 newPos = newPt->getCGALPosition();
+
+  for (auto &poly : polygons) {
+    if (!poly || !poly->isValid()) continue;
+    auto verts = poly->getVertices();
+    for (size_t i = 0; i < verts.size(); ++i) {
+      double d = CGAL::to_double(CGAL::squared_distance(verts[i], oldPos));
+      if (d <= tol2) {
+        poly->setVertexPosition(i, newPos);
+      }
+    }
+  }
+
+  for (auto &tri : triangles) {
+    if (!tri || !tri->isValid()) continue;
+    auto verts = tri->getVertices();
+    for (size_t i = 0; i < verts.size(); ++i) {
+      double d = CGAL::to_double(CGAL::squared_distance(verts[i], oldPos));
+      if (d <= tol2) {
+        tri->setVertexPosition(i, newPos);
+      }
+    }
+  }
+
+  // Preserve selection if old point was selected
+  if (selectedObject == oldPt.get()) {
+    oldPt->setSelected(false);
+    selectedObject = newPt.get();
+    if (selectedObject) {
+      selectedObject->setSelected(true);
+    }
+  }
+
+  // Remove old point from free points list
+  points.erase(std::remove(points.begin(), points.end(), oldPt), points.end());
+}
+
 // Implementation of the update method
 void GeometryEditor::update(sf::Time deltaTime) {
   // Update GUI
   gui.update(deltaTime);
+
+  if (selectedObject && selectedObject->getType() == ObjectType::Angle) {
+    setToolHint("Angle Selected. Click Palette to change Color. Drag Perimeter to Resize.");
+  }
 
   // Update preview circle if creating a circle
   if (isCreatingCircle && previewCircle) {
@@ -811,6 +908,9 @@ void GeometryEditor::update(sf::Time deltaTime) {
   for (const auto &obj : ObjectPoints) {
      if (obj) obj->update();
   }
+    for (const auto &obj : angles) {
+      if (obj) obj->update();
+    }
 
   // Always update existing intersections to maintain correct positions
   // regardless of whether auto-intersections is enabled
@@ -834,6 +934,13 @@ void GeometryEditor::resetCreationStates() {
     lineCreationPoint1->setSelected(false);
     lineCreationPoint1 = nullptr;
   }
+
+  anglePointA = nullptr;
+  angleVertex = nullptr;
+  anglePointB = nullptr;
+  if(angleLine1) angleLine1->setSelected(false);
+  angleLine1 = nullptr;
+  angleLine2 = nullptr;
 
   dragMode = DragMode::None;
   isDragging = false;
@@ -952,9 +1059,20 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
   if (width == 0 || height == 0) return;
 
   // Update the viewport of both views
-  drawingView.setSize(static_cast<float>(width), static_cast<float>(height));
   guiView.setSize(static_cast<float>(width), static_cast<float>(height));
   gui.updateLayout(static_cast<float>(width));
+
+  float toolbarHeight = gui.getToolbarHeight();
+  float clampedToolbar = std::min(toolbarHeight, static_cast<float>(height));
+  float contentHeight = static_cast<float>(height) - clampedToolbar;
+  if (contentHeight < 1.0f) {
+    contentHeight = 1.0f;
+  }
+
+  drawingView.setSize(static_cast<float>(width), contentHeight);
+
+  float topNorm = clampedToolbar / static_cast<float>(height);
+  drawingView.setViewport(sf::FloatRect(0.f, topNorm, 1.f, 1.f - topNorm));
 
   // Ensure GUI view remains centered relative to the window
   guiView.setCenter(static_cast<float>(width) / 2.f, static_cast<float>(height) / 2.f);
@@ -1343,7 +1461,7 @@ void GeometryEditor::resetApplicationState() {
                                      static_cast<float>(window.getSize().y)));
 
     // Update grid
-    grid.update(drawingView, window.getSize());
+    handleResize(window.getSize().x, window.getSize().y);
 
     std::cout << "Application state reset complete." << std::endl;
   } catch (const std::exception &e) {
@@ -1378,6 +1496,8 @@ std::string GeometryEditor::getCurrentToolName() const {
       return "Parallel Line";
     case ObjectType::PerpendicularLine:
       return "Perpendicular Line";
+    case ObjectType::Detach:
+      return "Detach";
     // Add other cases as needed
     default:
       return "Unknown";
@@ -1751,6 +1871,8 @@ bool GeometryEditor::objectExistsInAnyList(GeometricObject *obj) {
     if (rp.get() == obj) return true;
   for (const auto &t : triangles)
     if (t.get() == obj) return true;
+  for (const auto &a : angles)
+    if (a.get() == obj) return true;
   return false;
 }
 void GeometryEditor::updateAllGeometry() {
@@ -1783,6 +1905,13 @@ void GeometryEditor::updateAllGeometry() {
     for (auto &objPoint : ObjectPoints) {
       if (objPoint && objPoint->isValid()) {
         objPoint->update();
+      }
+    }
+
+    // Update angles
+    for (auto &angle : angles) {
+      if (angle) {
+        angle->update();
       }
     }
 
@@ -2015,6 +2144,16 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
 
   if (m_hoveredEdge && m_hoveredEdge->host == objToDelete) {
     m_hoveredEdge.reset();
+  }
+
+  if (objToDelete->getType() == ObjectType::Point) {
+    auto deletedPoint = static_cast<const Point *>(objToDelete);
+    for (auto &circle : circles) {
+      if (circle && circle->getCenterPointObject() == deletedPoint) {
+        circle->clearCenterPoint();
+        circle->setVisible(false);
+      }
+    }
   }
 
   bool snapUsesDeleted = false;

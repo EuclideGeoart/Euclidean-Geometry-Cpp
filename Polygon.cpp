@@ -45,29 +45,41 @@ void Polygon::updateSFMLShapeInternal() {
   m_sfmlShape.setOutlineColor(sf::Color::Black);
 }
 
-void Polygon::draw(sf::RenderWindow &window, float scale) const {
-  if (m_vertices.size() >= 3) {
-    sf::ConvexShape shape = m_sfmlShape;
-    shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
-    window.draw(shape);
+void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
+  if ((!m_visible && !forceVisible) || m_vertices.size() < 3) return;
 
-    // Draw selection highlight if selected
-    if (isSelected()) {
-      sf::ConvexShape highlight = m_sfmlShape;
-      highlight.setFillColor(sf::Color::Transparent);
-      highlight.setOutlineThickness(3.0f * scale);
-      highlight.setOutlineColor(sf::Color::Yellow);
-      window.draw(highlight);
-    } else if (isHovered()) {
-      sf::ConvexShape highlight = m_sfmlShape;
-      highlight.setFillColor(sf::Color::Transparent);
-      highlight.setOutlineThickness(2.0f * scale);
-      highlight.setOutlineColor(sf::Color::Cyan); // Cyan for hover
-      window.draw(highlight);
-    }
+  sf::ConvexShape shape = m_sfmlShape;
+  shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
 
-    drawVertexHandles(window, scale);
+  // GHOST MODE: Apply transparency if hidden but forced visible
+  if (!m_visible && forceVisible) {
+      sf::Color ghostFill = shape.getFillColor();
+      ghostFill.a = 50; // Faint alpha
+      shape.setFillColor(ghostFill);
+      
+      sf::Color ghostOutline = shape.getOutlineColor();
+      ghostOutline.a = 50;
+      shape.setOutlineColor(ghostOutline);
   }
+
+  window.draw(shape);
+
+  // Draw selection highlight if selected
+  if (isSelected()) {
+    sf::ConvexShape highlight = m_sfmlShape;
+    highlight.setFillColor(sf::Color::Transparent);
+    highlight.setOutlineThickness(3.0f * scale);
+    highlight.setOutlineColor(sf::Color::Yellow);
+    window.draw(highlight);
+  } else if (isHovered()) {
+    sf::ConvexShape highlight = m_sfmlShape;
+    highlight.setFillColor(sf::Color::Transparent);
+    highlight.setOutlineThickness(2.0f * scale);
+    highlight.setOutlineColor(sf::Color::Cyan); // Cyan for hover
+    window.draw(highlight);
+  }
+
+  drawVertexHandles(window, scale);
 }
 
 void Polygon::setColor(const sf::Color &color) {

@@ -23,6 +23,8 @@ void GeometricObject::setHovered(bool hovered) { m_hovered = hovered; }
 
 bool GeometricObject::isHovered() const { return m_hovered; }
 
+void GeometricObject::setColor(const sf::Color &color) { m_color = color; }
+
 // --- Hosted ObjectPoint Management ---
 
 void GeometricObject::addChildPoint(std::shared_ptr<ObjectPoint> point) {

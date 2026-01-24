@@ -52,32 +52,23 @@ void Grid::update(const sf::View &view, const sf::Vector2u &/* windowSize */) {
   float right = viewCenter.x + viewSize.x / 2.f;
   float bottom = viewCenter.y + viewSize.y / 2.f;
 
-  // Get current zoom level
-  float zoomLevel =
-      view.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
+  // Get current zoom level (Magnification factor)
+  // zoomLevel from code was "ViewSize / WindowSize", which is Inverse Zoom
+  float inverseZoom = view.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
+  float currentZoom = 1.0f;
+  if (inverseZoom > 0.0001f) currentZoom = 1.0f / inverseZoom;
 
-  // Extra guard for extreme zoom levels
-  // if (zoomLevel < 0.001f || zoomLevel > 1000.0f) {
-  //   m_gridLines.clear(); // Clear grid to prevent artifacts
-  //   return;
-  // }
+  // Calculate visually pleasing step size
+  float baseStep = Constants::GRID_SIZE; // e.g. 50.0f
 
-  // Calculate appropriate grid spacing based on zoom level
-  // This creates a dynamic grid that adjusts with zoom
-  float worldUnitsPerMajorGridLine =
-      std::pow(10, std::floor(std::log10(viewSize.x / 5.0f)));
-
-  // Ensure minimum grid spacing
-  if (worldUnitsPerMajorGridLine < Constants::MIN_GRID_SPACING_WORLD) {
-    worldUnitsPerMajorGridLine = Constants::MIN_GRID_SPACING_WORLD;
+  // Adjust step based on zoom to keep screen spacing consistent
+  // (e.g., keep visual grid lines between 25px and 100px apart)
+  if (currentZoom > 0) { // Avoid infinite loop if 0
+      while ((baseStep * currentZoom) > 100.0f) baseStep /= 2.0f; // Zoomed in? Divide grid
+      while ((baseStep * currentZoom) < 25.0f)  baseStep *= 2.0f; // Zoomed out? Multiply grid
   }
 
-  // Additional sanity check
-  if (worldUnitsPerMajorGridLine <= 0.0f) {
-    worldUnitsPerMajorGridLine = 1.0f; // Fallback to positive value
-  }
-
-  float gridSpacing = worldUnitsPerMajorGridLine;
+  float gridSpacing = baseStep;
 
   // Recreate grid lines for the visible area with some margin
   float margin = viewSize.x * 0.2f; // 20% margin on each side
@@ -85,43 +76,41 @@ void Grid::update(const sf::View &view, const sf::Vector2u &/* windowSize */) {
   // Clear previous grid lines
   m_gridLines.clear();
 
-  // Only create grid if not at extreme zoom levels
-  //if (zoomLevel >= 0.01f && zoomLevel <= 100.0f)
-    // Create vertical grid lines
-    for (float x = std::floor((left - margin) / gridSpacing) * gridSpacing;
-         x <= right + margin; x += gridSpacing) {
-      sf::Vertex line[] = {
-          sf::Vertex(sf::Vector2f(x, top - margin), Constants::GRID_COLOR),
-          sf::Vertex(sf::Vector2f(x, bottom + margin), Constants::GRID_COLOR)};
+  // Create vertical grid lines
+  for (float x = std::floor((left - margin) / gridSpacing) * gridSpacing;
+       x <= right + margin; x += gridSpacing) {
+    sf::Vertex line[] = {
+        sf::Vertex(sf::Vector2f(x, top - margin), Constants::GRID_COLOR),
+        sf::Vertex(sf::Vector2f(x, bottom + margin), Constants::GRID_COLOR)};
 
-      // Add thicker lines for axes
-      if (std::abs(x) < 0.001f * gridSpacing) {
-        line[0].color = Constants::GRID_AXIS_COLOR;
-        line[1].color = Constants::GRID_AXIS_COLOR;
-      }
-
-      m_gridLines.push_back(sf::VertexArray(sf::Lines, 2));
-      m_gridLines.back()[0] = line[0];
-      m_gridLines.back()[1] = line[1];
+    // Add thicker lines for axes
+    if (std::abs(x) < 0.001f * gridSpacing) {
+      line[0].color = Constants::GRID_AXIS_COLOR;
+      line[1].color = Constants::GRID_AXIS_COLOR;
     }
 
-    // Create horizontal grid lines
-    for (float y = std::floor((top - margin) / gridSpacing) * gridSpacing;
-         y <= bottom + margin; y += gridSpacing) {
-      sf::Vertex line[] = {
-          sf::Vertex(sf::Vector2f(left - margin, y), Constants::GRID_COLOR),
-          sf::Vertex(sf::Vector2f(right + margin, y), Constants::GRID_COLOR)};
+    m_gridLines.push_back(sf::VertexArray(sf::Lines, 2));
+    m_gridLines.back()[0] = line[0];
+    m_gridLines.back()[1] = line[1];
+  }
 
-      // Add thicker lines for axes
-      if (std::abs(y) < 0.001f * gridSpacing) {
-        line[0].color = Constants::GRID_AXIS_COLOR;
-        line[1].color = Constants::GRID_AXIS_COLOR;
-      }
+  // Create horizontal grid lines
+  for (float y = std::floor((top - margin) / gridSpacing) * gridSpacing;
+       y <= bottom + margin; y += gridSpacing) {
+    sf::Vertex line[] = {
+        sf::Vertex(sf::Vector2f(left - margin, y), Constants::GRID_COLOR),
+        sf::Vertex(sf::Vector2f(right + margin, y), Constants::GRID_COLOR)};
 
-      m_gridLines.push_back(sf::VertexArray(sf::Lines, 2));
-      m_gridLines.back()[0] = line[0];
-      m_gridLines.back()[1] = line[1];
+    // Add thicker lines for axes
+    if (std::abs(y) < 0.001f * gridSpacing) {
+      line[0].color = Constants::GRID_AXIS_COLOR;
+      line[1].color = Constants::GRID_AXIS_COLOR;
     }
+
+    m_gridLines.push_back(sf::VertexArray(sf::Lines, 2));
+    m_gridLines.back()[0] = line[0];
+    m_gridLines.back()[1] = line[1];
+  }
 }
 
 void Grid::setupGridLines(const sf::View &currentView, const sf::Vector2u &) {
@@ -136,14 +125,17 @@ void Grid::setupGridLines(const sf::View &currentView, const sf::Vector2u &) {
   float top = viewCenter.y - viewSize.y / 2.f;
   float bottom = viewCenter.y + viewSize.y / 2.f;
 
-  // Determine a dynamic grid spacing based on zoom level to avoid clutter
-  float worldUnitsPerMajorGridLine =
-      std::pow(10, std::floor(std::log10(
-                       viewSize.x / 5.0f))); // Aim for ~5 major lines on screen
-  if (worldUnitsPerMajorGridLine < Constants::MIN_GRID_SPACING_WORLD) {
-    worldUnitsPerMajorGridLine = Constants::MIN_GRID_SPACING_WORLD;
+  // Adaptive Grid Logic (User Request)
+  float inverseZoom = viewSize.y / static_cast<float>(Constants::WINDOW_HEIGHT);
+  float currentZoom = 1.0f;
+  if (inverseZoom > 0.0001f) currentZoom = 1.0f / inverseZoom;
+  
+  float baseStep = Constants::GRID_SIZE; 
+  if (currentZoom > 0) {
+      while ((baseStep * currentZoom) > 100.0f) baseStep /= 2.0f;
+      while ((baseStep * currentZoom) < 25.0f)  baseStep *= 2.0f;
   }
-  float dynamicGridSize = worldUnitsPerMajorGridLine;
+  float dynamicGridSize = baseStep;
 
   // Vertical lines
   float startX = std::floor(left / dynamicGridSize) * dynamicGridSize;
@@ -230,12 +222,16 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
 
     // Determine a dynamic grid spacing for labels (consistent with
     // setupGridLines)
-    float worldUnitsPerMajorGridLine =
-        std::pow(10, std::floor(std::log10(viewSize.x / 5.0f)));
-    if (worldUnitsPerMajorGridLine < Constants::MIN_GRID_SPACING_WORLD) {
-      worldUnitsPerMajorGridLine = Constants::MIN_GRID_SPACING_WORLD;
+    float inverseZoom = viewSize.y / static_cast<float>(Constants::WINDOW_HEIGHT);
+    float currentZoom = 1.0f;
+    if (inverseZoom > 0.0001f) currentZoom = 1.0f / inverseZoom;
+    
+    float baseStep = Constants::GRID_SIZE; 
+    if (currentZoom > 0) {
+        while ((baseStep * currentZoom) > 100.0f) baseStep /= 2.0f;
+        while ((baseStep * currentZoom) < 25.0f)  baseStep *= 2.0f;
     }
-    float dynamicGridSize = worldUnitsPerMajorGridLine;
+    float dynamicGridSize = baseStep;
 
     m_axisText.setCharacterSize(
         Constants::GRID_LABEL_FONT_SIZE); // Fixed pixel size

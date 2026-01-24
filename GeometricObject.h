@@ -34,7 +34,7 @@ class GeometricObject {
   virtual ObjectType getType() const { return m_type; }
 
   // Geometry operations
-  virtual void draw(sf::RenderWindow &window, float scale) const = 0;
+  virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const = 0;
   virtual bool contains(const sf::Vector2f &worldPos, float tolerance) const = 0;
   virtual sf::FloatRect getGlobalBounds() const = 0;
   virtual void update() {}
@@ -43,7 +43,7 @@ class GeometricObject {
   virtual Point_2 getCGALPosition() const = 0;
   virtual void setCGALPosition(const Point_2 &newPos) = 0;
   virtual void setPosition(const sf::Vector2f &newSfmlPos) = 0;
-  virtual void setColor(const sf::Color &color) = 0;
+  virtual void setColor(const sf::Color &color);
   virtual void translate(const Vector_2 &offset) { (void)offset; }  // No default implementation
   
   // Point/Edge provider interface for generic anchor point detection
@@ -59,6 +59,10 @@ class GeometricObject {
   virtual bool isSelected() const;
   virtual void setHovered(bool hovered);
   bool isHovered() const;
+
+  // Visibility
+  virtual void setVisible(bool visible) { m_visible = visible; }
+  virtual bool isVisible() const { return m_visible; }
 
   // Added validation method that can be overridden by derived classes
   virtual bool isValid() const {
@@ -85,6 +89,7 @@ class GeometricObject {
   bool m_selected = false;
   bool m_hovered = false;
   bool m_isValid = true;  // Assume valid on construction unless proven otherwise
+  bool m_visible = true;
 };
 
 #endif  // GEOMETRIC_OBJECT_H
