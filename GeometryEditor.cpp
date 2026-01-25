@@ -59,7 +59,7 @@
 #include <boost/variant/variant.hpp>
 // Project-specific includes
 #include "Circle.h"
-#include "CommandManager.h"
+#include "CommandSystem.h"
 #include "Constants.h"
 #include "GUI.h"
 #include "Grid.h"
@@ -1756,126 +1756,25 @@ void GeometryEditor::deleteSelected() {
     }
   }
 
-  // === PHASE 3.5: SANITIZE REFERENCES - Clear cached pointers to all doomed objects ===
-  auto sanitizeList = [this](auto &vec) {
+  // === PHASE 3.5: DISPATCH COMMAND ===
+  std::vector<std::shared_ptr<GeometricObject>> objectsToDelete;
+  auto appendObjects = [&objectsToDelete](auto &vec) {
     for (auto &ptr : vec) {
-      sanitizeReferences(ptr.get());
+      if (ptr) {
+        objectsToDelete.push_back(std::static_pointer_cast<GeometricObject>(ptr));
+      }
     }
   };
-  sanitizeList(pointsToDelete);
-  sanitizeList(linesToDelete);
-  sanitizeList(circlesToDelete);
-  sanitizeList(objPointsToDelete);
-  sanitizeList(rectanglesToDelete);
-  sanitizeList(polygonsToDelete);
-  sanitizeList(regularPolygonsToDelete);
-  sanitizeList(trianglesToDelete);
+  appendObjects(objPointsToDelete);
+  appendObjects(linesToDelete);
+  appendObjects(circlesToDelete);
+  appendObjects(rectanglesToDelete);
+  appendObjects(polygonsToDelete);
+  appendObjects(regularPolygonsToDelete);
+  appendObjects(trianglesToDelete);
+  appendObjects(pointsToDelete);
 
-  // === PHASE 4: SWEEP - Remove from containers (shared_ptrs in our lists keep objects alive) ===
-  
-  // Helper to remove shared_ptr from vector
-  auto removeFromVector = [](auto& vec, const auto& ptrToRemove) {
-    vec.erase(std::remove(vec.begin(), vec.end(), ptrToRemove), vec.end());
-  };
-
-  auto clearEditorRefs = [this](GeometricObject *obj) {
-    if (!obj) return;
-    if (hoveredObject == obj) {
-      hoveredObject = nullptr;
-    }
-    if (selectedObject == obj) {
-      selectedObject = nullptr;
-    }
-  };
-
-  // Remove ObjectPoints first (dependents before masters)
-  for (auto &objPtr : objPointsToDelete) {
-    std::cout << "Removing ObjectPoint from list..." << std::endl;
-    clearEditorRefs(objPtr.get());
-    removeFromVector(ObjectPoints, objPtr);
-  }
-
-  // Remove Lines
-  for (auto &linePtr : linesToDelete) {
-    try {
-      DynamicIntersection::removeConstraintsInvolving(linePtr.get(), *this);
-    } catch (...) {
-    }
-    // Prepare line for destruction (clears internal references)
-    try {
-      linePtr->prepareForDestruction();
-    } catch (...) {}
-    std::cout << "Removing Line " << linePtr->getID() << " from list..." << std::endl;
-    clearEditorRefs(linePtr.get());
-    removeFromVector(lines, linePtr);
-  }
-
-  // Remove Circles
-  for (auto &circlePtr : circlesToDelete) {
-    try {
-      DynamicIntersection::removeConstraintsInvolving(circlePtr.get(), *this);
-    } catch (...) {
-    }
-    std::cout << "Removing Circle " << circlePtr->getID() << " from list..." << std::endl;
-    clearEditorRefs(circlePtr.get());
-    removeFromVector(circles, circlePtr);
-  }
-
-  // Remove Rectangles
-  for (auto &rectPtr : rectanglesToDelete) {
-    try {
-      DynamicIntersection::removeConstraintsInvolving(rectPtr.get(), *this);
-    } catch (...) {
-    }
-    std::cout << "Removing Rectangle from list..." << std::endl;
-    clearEditorRefs(rectPtr.get());
-    removeFromVector(rectangles, rectPtr);
-  }
-
-  // Remove Polygons
-  for (auto &polyPtr : polygonsToDelete) {
-    try {
-      DynamicIntersection::removeConstraintsInvolving(polyPtr.get(), *this);
-    } catch (...) {
-    }
-    std::cout << "Removing Polygon from list..." << std::endl;
-    clearEditorRefs(polyPtr.get());
-    removeFromVector(polygons, polyPtr);
-  }
-
-  // Remove RegularPolygons
-  for (auto &regPolyPtr : regularPolygonsToDelete) {
-    try {
-      DynamicIntersection::removeConstraintsInvolving(regPolyPtr.get(), *this);
-    } catch (...) {
-    }
-    std::cout << "Removing RegularPolygon from list..." << std::endl;
-    clearEditorRefs(regPolyPtr.get());
-    removeFromVector(regularPolygons, regPolyPtr);
-  }
-
-  // Remove Triangles
-  for (auto &triPtr : trianglesToDelete) {
-    try {
-      DynamicIntersection::removeConstraintsInvolving(triPtr.get(), *this);
-    } catch (...) {
-    }
-    std::cout << "Removing Triangle from list..." << std::endl;
-    clearEditorRefs(triPtr.get());
-    removeFromVector(triangles, triPtr);
-  }
-
-  // Remove Points last (may have had dependent lines)
-  for (auto &pointPtr : pointsToDelete) {
-    std::cout << "Removing Point " << pointPtr->getID() << " from list..." << std::endl;
-    clearEditorRefs(pointPtr.get());
-    removeFromVector(points, pointPtr);
-  }
-
-  // === PHASE 5: DEALLOCATE ===
-  // All temp vectors go out of scope here, releasing the shared_ptrs.
-  // If these were the last references, objects are safely deallocated.
-  // No dangling pointers possible - we're not accessing any raw pointers after this.
+  commandManager.execute(std::make_shared<DeleteCommand>(*this, objectsToDelete));
 
   std::cout << "=== deleteSelected() COMPLETE ===" << std::endl;
 }

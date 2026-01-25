@@ -552,6 +552,7 @@ void handlePointCreation(GeometryEditor &editor, const sf::Event::MouseButtonEve
   float tolerance = editor.getScaledTolerance(editor.drawingView);
   auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
   if (smartPoint && smartPoint->isValid()) {
+    bool addedPoint = false;
     // Check if this shared_ptr is already in our points list
     auto it = std::find(editor.points.begin(), editor.points.end(), smartPoint);
     
@@ -562,10 +563,16 @@ void handlePointCreation(GeometryEditor &editor, const sf::Event::MouseButtonEve
     }
 
     if (it == editor.points.end() && !isObjectPoint) {
-        // It's a truly new point (Free or Intersection), add it
-        editor.points.push_back(smartPoint);
+      // It's a truly new point (Free or Intersection), add it
+      editor.points.push_back(smartPoint);
+      addedPoint = true;
     }
     smartPoint->setSelected(true);
+    if (addedPoint) {
+      editor.commandManager.pushHistoryOnly(
+        std::make_shared<CreateCommand>(editor,
+                        std::static_pointer_cast<GeometricObject>(smartPoint)));
+    }
   }
 
   std::cout << "Point created at (" << cgalWorldPos.x() << ", " << cgalWorldPos.y() << ")"
@@ -759,6 +766,9 @@ void handleLineCreation(GeometryEditor &editor, const sf::Event::MouseButtonEven
         } else {
           newLine->registerWithEndpoints();
           editor.lines.push_back(newLine);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(
+                  editor, std::static_pointer_cast<GeometricObject>(newLine)));
           std::cout << (isSegment ? "Segment" : "Line") << " created successfully." << std::endl;
         }
 
@@ -1084,6 +1094,9 @@ void handleParallelLineCreation(GeometryEditor &editor,
         }
         newP2->setVisible(false);
         editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newP2)));
         finalEndPoint = newP2;
       } else {
         auto newP1 = std::make_shared<Point>(p1_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR,
@@ -1099,6 +1112,12 @@ void handleParallelLineCreation(GeometryEditor &editor,
         newP2->setVisible(false);
         editor.points.push_back(newP1);
         editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newP1)));
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newP2)));
         finalStartPoint = newP1;
         finalEndPoint = newP2;
       }
@@ -1111,6 +1130,9 @@ void handleParallelLineCreation(GeometryEditor &editor,
         if (newLine && newLine->isValid()) {
           newLine->registerWithEndpoints(); // Fix propagation lag
           editor.lines.push_back(newLine);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(
+                  editor, std::static_pointer_cast<GeometricObject>(newLine)));
 
           // Use weak_ptr safely for setting parallel constraint
           if (auto refObj = editor.m_parallelReference.lock()) {
@@ -1317,6 +1339,9 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
         }
         newP2->setVisible(false);
         editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newP2)));
         finalEndPoint = newP2;
       } else {
         auto newP1 = std::make_shared<Point>(p1_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR,
@@ -1332,6 +1357,12 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
         newP2->setVisible(false);
         editor.points.push_back(newP1);
         editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newP1)));
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newP2)));
         finalStartPoint = newP1;
         finalEndPoint = newP2;
       }
@@ -1344,6 +1375,9 @@ void handlePerpendicularLineCreation(GeometryEditor &editor,
         if (newLine && newLine->isValid()) {
           newLine->registerWithEndpoints(); // Fix propagation lag
           editor.lines.push_back(newLine);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(
+                  editor, std::static_pointer_cast<GeometricObject>(newLine)));
 
           // Use weak_ptr safely for setting perpendicular constraint
           if (auto refObj = editor.m_perpendicularReference.lock()) {
@@ -1511,6 +1545,9 @@ void handleRectangleCreation(GeometryEditor &editor,
             editor.rectangleCorner1, editor.rectangleCorner2, false, editor.getCurrentColor(),
             editor.objectIdCounter++);
         editor.rectangles.push_back(newRectangle);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
         editor.setGUIMessage("Rectangle created");
         std::cout << "Rectangle created" << std::endl;
       } else {
@@ -1569,6 +1606,9 @@ void handleRotatableRectangleCreation(GeometryEditor &editor,
             editor.rectangleCorner1, editor.rectangleCorner2, defaultHeight,
             editor.getCurrentColor(), editor.objectIdCounter++);
         editor.rectangles.push_back(newRectangle);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
         editor.setGUIMessage("Rotatable rectangle created");
         std::cout << "Rotatable rectangle created" << std::endl;
       } else {
@@ -1615,6 +1655,9 @@ void handlePolygonCreation(GeometryEditor &editor,
                  auto newPoly = std::make_shared<Polygon>(editor.polygonVertices, editor.getCurrentColor(),
                                             editor.objectIdCounter++);
                  editor.polygons.push_back(newPoly);
+                 editor.commandManager.pushHistoryOnly(
+                   std::make_shared<CreateCommand>(
+                     editor, std::static_pointer_cast<GeometricObject>(newPoly)));
                  editor.isCreatingPolygon = false;
                  editor.polygonVertices.clear();
                  editor.previewPolygon.reset();
@@ -1675,6 +1718,9 @@ void handleRegularPolygonCreation(GeometryEditor &editor,
             editor.regularPolygonCenter, editor.regularPolygonFirstVertex,
             editor.regularPolygonNumSides, editor.getCurrentColor(), editor.objectIdCounter++);
         editor.regularPolygons.push_back(newRegPoly);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newRegPoly)));
         editor.setGUIMessage("Regular polygon created (6 sides)");
         std::cout << "Regular polygon created with " << editor.regularPolygonNumSides
                   << " sides and radius " << radius << std::endl;
@@ -1731,6 +1777,9 @@ void handleTriangleCreation(GeometryEditor &editor,
             editor.objectIdCounter++
         );
         editor.triangles.push_back(newTriangle);
+        editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(
+            editor, std::static_pointer_cast<GeometricObject>(newTriangle)));
         editor.setGUIMessage("Triangle created");
         std::cout << "Triangle created successfully" << std::endl;
       } else {
@@ -2115,7 +2164,10 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
                                                editor.anglePointB, false, editor.getCurrentColor());
           angle->setVisible(true);
           angle->update();
-          editor.angles.push_back(angle);
+            editor.angles.push_back(angle);
+            editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(
+                editor, std::static_pointer_cast<GeometricObject>(angle)));
           std::cout << "Angle created via 3 points." << std::endl;
           editor.setGUIMessage("Angle created.");
 
@@ -2216,6 +2268,10 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
                                 angle->setVisible(true);
                                 angle->update();
                                 editor.angles.push_back(angle);
+                                editor.commandManager.pushHistoryOnly(
+                                  std::make_shared<CreateCommand>(
+                                    editor,
+                                    std::static_pointer_cast<GeometricObject>(angle)));
                                 std::cout << "Angle created via 2 lines." << std::endl;
                                 editor.setGUIMessage("Angle created.");
                            }
@@ -2328,6 +2384,9 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
             auto finalCircle = Circle::create(centerPoint, radiusPoint, radius, selectedColor);
             if (finalCircle && finalCircle->isValid()) {
               editor.circles.push_back(finalCircle);
+              editor.commandManager.pushHistoryOnly(
+                  std::make_shared<CreateCommand>(
+                      editor, std::static_pointer_cast<GeometricObject>(finalCircle)));
               std::cout << "Circle Created with radius: " << radius << std::endl;
             } else {
               std::cerr << "Preview circle is invalid" << std::endl;
@@ -2683,6 +2742,7 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       editor.m_selectedEndpoint = potentialEndpointSelection;
       editor.isDragging = true;
       editor.lastMousePos_sfml = worldPos_sfml;
+      editor.dragStart_sfml = worldPos_sfml;
 
       std::cout << "DEBUG: Before MoveShapeVertex check - potentialDragMode=" << static_cast<int>(potentialDragMode)
                 << " (6=MoveShapeVertex)" << std::endl;
@@ -2780,6 +2840,7 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       editor.m_selectedEndpoint = potentialEndpointSelection;
       editor.isDragging = true;
       editor.lastMousePos_sfml = worldPos_sfml;
+      editor.dragStart_sfml = worldPos_sfml;
 
       // Set vertex state for MoveShapeVertex mode (CRITICAL FIX)
       if (potentialDragMode == DragMode::MoveShapeVertex) {
@@ -2827,6 +2888,18 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
 }
 void handleKeyPress(GeometryEditor &editor, const sf::Event::KeyEvent &keyEvent) {
   // Handle key press events
+  if (keyEvent.control && keyEvent.code == sf::Keyboard::Z) {
+    if (keyEvent.shift) {
+      editor.commandManager.redo();
+    } else {
+      editor.commandManager.undo();
+    }
+    return;
+  }
+  if (keyEvent.control && keyEvent.code == sf::Keyboard::Y) {
+    editor.commandManager.redo();
+    return;
+  }
   if (keyEvent.code == sf::Keyboard::Escape) {
     // Close color picker if it's open
     auto &colorPickerPtr = editor.gui.getColorPicker();
@@ -2863,6 +2936,9 @@ void handleKeyPress(GeometryEditor &editor, const sf::Event::KeyEvent &keyEvent)
              auto newPoly = std::make_shared<Polygon>(editor.polygonVertices, editor.getCurrentColor(),
                                         editor.objectIdCounter++);
              editor.polygons.push_back(newPoly);
+             editor.commandManager.pushHistoryOnly(
+               std::make_shared<CreateCommand>(
+                 editor, std::static_pointer_cast<GeometricObject>(newPoly)));
              editor.isCreatingPolygon = false;
              editor.polygonVertices.clear();
              editor.previewPolygon.reset();
@@ -4352,6 +4428,26 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
         static sf::Clock postDragCooldown;
         // justFinishedDrag = true; // Removed unused
         postDragCooldown.restart();
+      }
+
+      // Record translation command for move operations
+      if (previousDragMode == DragMode::MoveFreePoint ||
+          previousDragMode == DragMode::DragObjectPoint ||
+          previousDragMode == DragMode::TranslateLine ||
+          previousDragMode == DragMode::TranslateShape) {
+        sf::Vector2f totalDeltaSfml = worldPos - editor.dragStart_sfml;
+        float threshold = std::max(0.001f, editor.getScaledTolerance(editor.drawingView) * 0.1f);
+        if (editor.length(totalDeltaSfml) > threshold) {
+          std::vector<GeometricObject *> translationTargets = editor.selectedObjects;
+          if (translationTargets.empty() && draggedObject) {
+            translationTargets.push_back(draggedObject);
+          }
+          if (!translationTargets.empty()) {
+            Vector_2 cgalDelta = editor.toCGALVector(totalDeltaSfml);
+            editor.commandManager.pushHistoryOnly(
+                std::make_shared<TranslateCommand>(translationTargets, cgalDelta));
+          }
+        }
       }
     }
 
