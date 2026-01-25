@@ -8,7 +8,10 @@
 #include "GeometricObject.h"
 #include "Types.h"
 #include <SFML/Graphics.hpp>
+#include <memory>
 #include <vector>
+
+class Point;
 
 /**
  * @brief RegularPolygon class for creating regular polygons with N sides
@@ -26,16 +29,20 @@ class RegularPolygon : public GeometricObject {
   RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
                  const sf::Color &color = sf::Color::White, unsigned int id = 0);
 
+  RegularPolygon(const std::shared_ptr<Point> &center, const std::shared_ptr<Point> &firstVertex,
+                 int numSides, const sf::Color &color = sf::Color::White, unsigned int id = 0);
+
   virtual ~RegularPolygon() = default;
 
   // GeometricObject interface
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+  virtual void update() override;
   virtual void setColor(const sf::Color &color) override;
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
   virtual std::string getTypeString() const { return "RegularPolygon"; }
   virtual void translate(const Vector_2 &translation) override;
   void rotateCCW(const Point_2 &center, double angleRadians);
-  virtual Point_2 getCGALPosition() const override { return m_center; }
+  virtual Point_2 getCGALPosition() const override;
   virtual void setCGALPosition(const Point_2 &newPos) override;
   virtual void setPosition(const sf::Vector2f &newSfmlPos) override;
   virtual sf::FloatRect getGlobalBounds() const override;
@@ -45,11 +52,13 @@ class RegularPolygon : public GeometricObject {
   std::vector<Segment_2> getEdges() const override;
 
   // Additional methods (not overrides)
-  sf::Color getColor() const { return m_color; }
-  Point_2 getCenter() const { return m_center; }
+  sf::Color getColor() const override { return m_color; }
+  Point_2 getCenter() const;
   bool isWithinDistance(const sf::Vector2f &screenPos, float tolerance) const;
 
   // RegularPolygon-specific methods
+  std::shared_ptr<Point> getCenterPoint() const { return m_centerPoint; }
+  std::shared_ptr<Point> getFirstVertexPoint() const { return m_firstVertexPoint; }
   int getNumSides() const { return m_numSides; }
   double getRadius() const { return m_radius; }
   double getRotationAngle() const { return m_rotationAngle; }
@@ -70,7 +79,8 @@ class RegularPolygon : public GeometricObject {
   void setCreationPointPosition(size_t index, const Point_2& value);  // 0=center, 1=first vertex
 
  private:
-  Point_2 m_center;                 // Center of the polygon
+  std::shared_ptr<Point> m_centerPoint;      // Center point
+  std::shared_ptr<Point> m_firstVertexPoint; // First vertex point
   std::vector<Point_2> m_vertices;  // Polygon vertices
   int m_numSides;                   // Number of sides (must be >= 3)
   double m_radius;                  // Distance from center to vertex

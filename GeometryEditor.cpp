@@ -1685,6 +1685,7 @@ void GeometryEditor::deleteSelected() {
   hoveredVertexIndex = -1;
 
   // === PHASE 3: COLLECT DEPENDENTS - Find ObjectPoints attached to shapes being deleted ===
+  // Collect dependent ObjectPoints from shapes being deleted
   // Shapes own their ObjectPoints, so we must delete them too
   auto collectDependentObjPoints = [this](GeometricObject* host) {
     std::vector<std::shared_ptr<ObjectPoint>> dependents;
@@ -1740,6 +1741,16 @@ void GeometryEditor::deleteSelected() {
         objPointsToDelete.push_back(dep);
         std::cout << "  + Adding dependent ObjectPoint from Triangle" << std::endl;
       }
+    }
+  }
+  // NEW: Collect dependent ObjectPoints from Lines being deleted
+  for (auto &linePtr : linesToDelete) {
+    auto deps = collectDependentObjPoints(linePtr.get());
+    for (auto &dep : deps) {
+        if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
+            objPointsToDelete.push_back(dep);
+            std::cout << "  + Adding dependent ObjectPoint from Line" << std::endl;
+        }
     }
   }
 

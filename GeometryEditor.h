@@ -175,11 +175,14 @@ class GeometryEditor {
   bool isCreatingRotatableRectangle = false;  // Flag for rotatable rectangle mode
   Point_2 rectangleCorner1;               // First corner of rectangle
   Point_2 rectangleCorner2;               // Second corner for axis-aligned, or adj point for rotatable
+  std::shared_ptr<Point> rectangleCorner1Point = nullptr;  // First corner point (shared)
+  std::shared_ptr<Point> rectangleCorner2Point = nullptr;  // Second corner point (shared)
   std::shared_ptr<Rectangle> previewRectangle;  // Preview during creation
 
   // Polygon Creation
   bool isCreatingPolygon = false;         // Flag indicating if a polygon is being created
   std::vector<Point_2> polygonVertices;   // Vertices being added to polygon
+  std::vector<std::shared_ptr<Point>> polygonVertexPoints; // Shared pointers for topological linking
   std::shared_ptr<Polygon> previewPolygon;  // Preview during creation
 
   // Regular Polygon Creation
@@ -187,12 +190,15 @@ class GeometryEditor {
   int regularPolygonPhase = 0;            // 0: awaiting first vertex, 1: awaiting second vertex
   Point_2 regularPolygonCenter;           // Center point of regular polygon
   Point_2 regularPolygonFirstVertex;      // First vertex (defines radius)
+  std::shared_ptr<Point> regularPolygonCenterPoint = nullptr;      // Shared pointer for center
+  std::shared_ptr<Point> regularPolygonFirstVertexPoint = nullptr; // Shared pointer for first vertex
   int regularPolygonNumSides = 6;         // Default to hexagon
   std::shared_ptr<RegularPolygon> previewRegularPolygon;  // Preview during creation
 
   // Triangle Creation
   bool isCreatingTriangle = false;        // Flag indicating if a triangle is being created
   std::vector<Point_2> triangleVertices;  // Vertices being added to triangle (up to 3)
+  std::vector<std::shared_ptr<Point>> triangleVertexPoints; // Shared pointers for topological linking
   std::shared_ptr<Triangle> previewTriangle;  // Preview during creation
 
   // Angle Creation

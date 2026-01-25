@@ -1,4 +1,5 @@
 #include "Triangle.h"
+#include "Point.h"
 #include "VertexLabelManager.h"
 #include <CGAL/Polygon_2.h>
 #include <CGAL/enum.h>
@@ -16,14 +17,35 @@ Triangle::Triangle(const Point_2& v1, const Point_2& v2, const Point_2& v3,
     }
     
     m_vertices.reserve(3);
-    m_vertices.push_back(v1);
-    m_vertices.push_back(v2);
-    m_vertices.push_back(v3);
+    m_vertices.push_back(std::make_shared<Point>(v1, 1.0f));
+    m_vertices.push_back(std::make_shared<Point>(v2, 1.0f));
+    m_vertices.push_back(std::make_shared<Point>(v3, 1.0f));
     
     sf::Color base = color;
     base.a = 128;  // Semi-transparent fill
     m_color = base;
     
+    updateSFMLShape();
+}
+
+Triangle::Triangle(const std::shared_ptr<Point>& v1, const std::shared_ptr<Point>& v2,
+                   const std::shared_ptr<Point>& v3, const sf::Color& color,
+                   unsigned int id)
+    : GeometricObject(ObjectType::Triangle, color, id) {
+    if (v1 && v2 && v3 &&
+        CGAL::collinear(v1->getCGALPosition(), v2->getCGALPosition(), v3->getCGALPosition())) {
+        std::cerr << "Warning: Triangle vertices are collinear!" << std::endl;
+    }
+
+    m_vertices.reserve(3);
+    m_vertices.push_back(v1);
+    m_vertices.push_back(v2);
+    m_vertices.push_back(v3);
+
+    sf::Color base = color;
+    base.a = 128;
+    m_color = base;
+
     updateSFMLShape();
 }
 
@@ -36,8 +58,10 @@ void Triangle::updateSFMLShapeInternal() {
     m_sfmlShape.setPointCount(3);
     
     for (size_t i = 0; i < 3; ++i) {
-        double x = CGAL::to_double(m_vertices[i].x());
-        double y = CGAL::to_double(m_vertices[i].y());
+        if (!m_vertices[i]) return;
+        Point_2 pos = m_vertices[i]->getCGALPosition();
+        double x = CGAL::to_double(pos.x());
+        double y = CGAL::to_double(pos.y());
         m_sfmlShape.setPoint(i, sf::Vector2f(static_cast<float>(x), static_cast<float>(y)));
     }
     
@@ -85,6 +109,11 @@ void Triangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) co
     }
 }
 
+void Triangle::update() {
+    updateSFMLShape();
+    updateHostedPoints();
+}
+
 void Triangle::setColor(const sf::Color& color) {
     m_color = color;
     m_color.a = 128;  // Maintain semi-transparency
@@ -99,8 +128,10 @@ Point_2 Triangle::getCenter() const {
     // Calculate centroid
     double sumX = 0, sumY = 0;
     for (const auto& v : m_vertices) {
-        sumX += CGAL::to_double(v.x());
-        sumY += CGAL::to_double(v.y());
+        if (!v) continue;
+        Point_2 pos = v->getCGALPosition();
+        sumX += CGAL::to_double(pos.x());
+        sumY += CGAL::to_double(pos.y());
     }
     
     return Point_2(FT(sumX / 3.0), FT(sumY / 3.0));
@@ -115,7 +146,8 @@ bool Triangle::contains(const sf::Vector2f& screenPos, float tolerance) const {
     // Create CGAL polygon from vertices
     CGAL::Polygon_2<Kernel> poly;
     for (const auto& v : m_vertices) {
-        poly.push_back(v);
+        if (!v) return false;
+        poly.push_back(v->getCGALPosition());
     }
     
     // Check if point is inside or on boundary
@@ -146,7 +178,9 @@ bool Triangle::isWithinDistance(const sf::Vector2f& screenPos, float tolerance) 
 
 void Triangle::translate(const Vector_2& translation) {
     for (auto& v : m_vertices) {
-        v = Point_2(v.x() + translation.x(), v.y() + translation.y());
+        if (!v) continue;
+        Point_2 pos = v->getCGALPosition();
+        v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
     }
     updateSFMLShape();
     updateHostedPoints();
@@ -154,10 +188,13 @@ void Triangle::translate(const Vector_2& translation) {
 
 void Triangle::setVertexPosition(size_t index, const Point_2& value) {
     if (index >= 3) return;
-    m_vertices[index] = value;
+    if (!m_vertices[index]) return;
+    m_vertices[index]->setCGALPosition(value);
     
     // Check if vertices are still non-collinear
-    if (CGAL::collinear(m_vertices[0], m_vertices[1], m_vertices[2])) {
+    if (m_vertices[0] && m_vertices[1] && m_vertices[2] &&
+        CGAL::collinear(m_vertices[0]->getCGALPosition(), m_vertices[1]->getCGALPosition(),
+                        m_vertices[2]->getCGALPosition())) {
         std::cerr << "Warning: Triangle vertices became collinear after vertex move!" << std::endl;
     }
     
@@ -169,8 +206,10 @@ std::vector<sf::Vector2f> Triangle::getVerticesSFML() const {
     std::vector<sf::Vector2f> verts;
     verts.reserve(3);
     for (const auto& v : m_vertices) {
-        verts.emplace_back(static_cast<float>(CGAL::to_double(v.x())),
-                          static_cast<float>(CGAL::to_double(v.y())));
+        if (!v) continue;
+        Point_2 pos = v->getCGALPosition();
+        verts.emplace_back(static_cast<float>(CGAL::to_double(pos.x())),
+                          static_cast<float>(CGAL::to_double(pos.y())));
     }
     return verts;
 }
@@ -182,8 +221,10 @@ void Triangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
     for (size_t i = 0; i < m_vertices.size(); ++i) {
         sf::CircleShape handle(handleRadius);
         handle.setOrigin(handleRadius, handleRadius);
-        float x = static_cast<float>(CGAL::to_double(m_vertices[i].x()));
-        float y = static_cast<float>(CGAL::to_double(m_vertices[i].y()));
+        if (!m_vertices[i]) continue;
+        Point_2 pos = m_vertices[i]->getCGALPosition();
+        float x = static_cast<float>(CGAL::to_double(pos.x()));
+        float y = static_cast<float>(CGAL::to_double(pos.y()));
         handle.setPosition(x, y);
         
         sf::Color base;
@@ -212,11 +253,13 @@ void Triangle::rotateCCW(const Point_2& center, double angleRadians) {
     double sin_a = std::sin(angleRadians);
     
     for (auto& v : m_vertices) {
-        double x = CGAL::to_double(v.x()) - centerX;
-        double y = CGAL::to_double(v.y()) - centerY;
+        if (!v) continue;
+        Point_2 pos = v->getCGALPosition();
+        double x = CGAL::to_double(pos.x()) - centerX;
+        double y = CGAL::to_double(pos.y()) - centerY;
         double newX = x * cos_a - y * sin_a + centerX;
         double newY = x * sin_a + y * cos_a + centerY;
-        v = Point_2(FT(newX), FT(newY));
+        v->setCGALPosition(Point_2(FT(newX), FT(newY)));
     }
     
     updateSFMLShape();
@@ -238,7 +281,9 @@ void Triangle::setCGALPosition(const Point_2& newPos) {
     Vector_2 translation = newPos - oldCentroid;
     
     for (auto& v : m_vertices) {
-        v = v + translation;
+        if (!v) continue;
+        Point_2 pos = v->getCGALPosition();
+        v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
     }
     
     updateSFMLShape();
@@ -251,18 +296,29 @@ void Triangle::setPosition(const sf::Vector2f& newSfmlPos) {
 }
 
 std::vector<Point_2> Triangle::getInteractableVertices() const {
-    return m_vertices;  // Return all 3 vertices
+    return getVertices();
 }
 
 std::vector<Segment_2> Triangle::getEdges() const {
     std::vector<Segment_2> edges;
     edges.reserve(3);
     
-    if (m_vertices.size() == 3) {
-        edges.emplace_back(m_vertices[0], m_vertices[1]);
-        edges.emplace_back(m_vertices[1], m_vertices[2]);
-        edges.emplace_back(m_vertices[2], m_vertices[0]);
+    auto verts = getVertices();
+    if (verts.size() == 3) {
+        edges.emplace_back(verts[0], verts[1]);
+        edges.emplace_back(verts[1], verts[2]);
+        edges.emplace_back(verts[2], verts[0]);
     }
     
     return edges;
+}
+
+std::vector<Point_2> Triangle::getVertices() const {
+    std::vector<Point_2> verts;
+    verts.reserve(m_vertices.size());
+    for (const auto& v : m_vertices) {
+        if (!v) continue;
+        verts.push_back(v->getCGALPosition());
+    }
+    return verts;
 }

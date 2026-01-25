@@ -1,5 +1,6 @@
 #include "CharTraitsFix.h"  // Include very early
 #include "GUI.h"
+#include "FileDialogs.h"
 
 #include <iostream>  // For std::cerr
 #include <string>    // Include very early for any string operations
@@ -766,18 +767,28 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
           return true;
         } else if (button.getLabel() == "Save") {
           std::cout << "Save button clicked!" << std::endl;
-          editor.saveProject("project.json");
-          editor.setGUIMessage("Project Saved");
+          std::string path = FileDialogs::SaveFile("JSON Project (*.json)\0*.json\0", "json");
+          if (!path.empty()) {
+            editor.saveProject(path);
+            editor.setGUIMessage("Project Saved");
+          }
           return true;
         } else if (button.getLabel() == "Load") {
           std::cout << "Load button clicked!" << std::endl;
-          editor.loadProject("project.json");
-          editor.setGUIMessage("Project Loaded");
+          std::string path = FileDialogs::OpenFile("JSON Project (*.json)\0*.json\0");
+          if (!path.empty()) {
+            editor.loadProject(path);
+            editor.setGUIMessage("Project Loaded");
+          }
           return true;
         } else if (button.getLabel() == "SVG") {
           std::cout << "SVG Export button clicked!" << std::endl;
-          editor.exportSVG("export.svg");
-          editor.setGUIMessage("Exported to export.svg");
+          std::string path =
+              FileDialogs::SaveFile("Scalable Vector Graphics (*.svg)\0*.svg\0", "svg");
+          if (!path.empty()) {
+            editor.exportSVG(path);
+            editor.setGUIMessage("Exported to SVG");
+          }
           return true;
         }
         // ...existing code for other buttons...

@@ -1,13 +1,30 @@
 #include "Rectangle.h"
+#include "Point.h"
 #include "VertexLabelManager.h"
 #include <cmath>
-#include <iostream>
 
 Rectangle::Rectangle(const Point_2 &corner1, const Point_2 &corner2, bool isRotatable,
                      const sf::Color &color, unsigned int id)
     : GeometricObject(ObjectType::Rectangle, color, id),
-      m_corner1(corner1),
-      m_corner2(corner2),
+  m_corner1(std::make_shared<Point>(corner1, 1.0f)),
+  m_corner2(std::make_shared<Point>(corner2, 1.0f)),
+      m_isRotatable(isRotatable),
+      m_width(0),
+      m_height(0),
+      m_rotationAngle(0),
+      m_center(FT(0), FT(0)),
+      m_color(color) {
+  m_color.a = 0;
+  updateDimensionsFromCorners();
+  updateSFMLShape();
+}
+
+Rectangle::Rectangle(const std::shared_ptr<Point> &corner1,
+                     const std::shared_ptr<Point> &corner2, bool isRotatable,
+                     const sf::Color &color, unsigned int id)
+    : GeometricObject(ObjectType::Rectangle, color, id),
+      m_corner1(corner1 ? corner1 : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_corner2(corner2 ? corner2 : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
       m_isRotatable(isRotatable),
       m_width(0),
       m_height(0),
@@ -22,8 +39,8 @@ Rectangle::Rectangle(const Point_2 &corner1, const Point_2 &corner2, bool isRota
 Rectangle::Rectangle(const Point_2 &corner, const Point_2 &adjacentPoint, double width,
                      const sf::Color &color, unsigned int id)
     : GeometricObject(ObjectType::RectangleRotatable, color, id),
-      m_corner1(corner),
-      m_corner2(corner),
+  m_corner1(std::make_shared<Point>(corner, 1.0f)),
+  m_corner2(std::make_shared<Point>(adjacentPoint, 1.0f)),
       m_isRotatable(true),
       m_width(width),
       m_height(0),
@@ -31,15 +48,78 @@ Rectangle::Rectangle(const Point_2 &corner, const Point_2 &adjacentPoint, double
       m_center(FT(0), FT(0)),
       m_color(color) {
   m_color.a = 0;
-  // Calculate rotation angle from adjacentPoint
-  double dx = CGAL::to_double(adjacentPoint.x()) - CGAL::to_double(corner.x());
-  double dy = CGAL::to_double(adjacentPoint.y()) - CGAL::to_double(corner.y());
-  m_rotationAngle = std::atan2(dy, dx);
+  syncRotatableFromAnchors();
 
-  // Calculate height based on adjacent point
+  updateSFMLShape();
+}
+
+Rectangle::Rectangle(const std::shared_ptr<Point> &corner,
+                     const std::shared_ptr<Point> &adjacentPoint, double width,
+                     const sf::Color &color, unsigned int id)
+    : GeometricObject(ObjectType::RectangleRotatable, color, id),
+      m_corner1(corner ? corner : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_corner2(adjacentPoint ? adjacentPoint
+                              : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_isRotatable(true),
+      m_width(width),
+      m_height(0),
+      m_rotationAngle(0),
+      m_center(FT(0), FT(0)),
+      m_color(color) {
+  m_color.a = 0;
+  syncRotatableFromAnchors();
+  updateSFMLShape();
+}
+
+Point_2 Rectangle::getCorner1() const {
+  return getCorner1Position();
+}
+
+Point_2 Rectangle::getCorner2() const {
+  return getCorner2Position();
+}
+
+Point_2 Rectangle::getCorner1Position() const {
+  if (m_corner1) {
+    return m_corner1->getCGALPosition();
+  }
+  return Point_2(FT(0), FT(0));
+}
+
+Point_2 Rectangle::getCorner2Position() const {
+  if (m_corner2) {
+    return m_corner2->getCGALPosition();
+  }
+  return Point_2(FT(0), FT(0));
+}
+
+void Rectangle::setCorner1Position(const Point_2 &pos) {
+  if (m_corner1) {
+    m_corner1->setCGALPosition(pos);
+  } else {
+    m_corner1 = std::make_shared<Point>(pos, 1.0f);
+  }
+}
+
+void Rectangle::setCorner2Position(const Point_2 &pos) {
+  if (m_corner2) {
+    m_corner2->setCGALPosition(pos);
+  } else {
+    m_corner2 = std::make_shared<Point>(pos, 1.0f);
+  }
+}
+
+void Rectangle::syncRotatableFromAnchors() {
+  if (!m_isRotatable) return;
+
+  Point_2 corner = getCorner1Position();
+  Point_2 adjacent = getCorner2Position();
+
+  double dx = CGAL::to_double(adjacent.x()) - CGAL::to_double(corner.x());
+  double dy = CGAL::to_double(adjacent.y()) - CGAL::to_double(corner.y());
+  m_rotationAngle = std::atan2(dy, dx);
   m_height = std::sqrt(dx * dx + dy * dy);
 
-  // Center is halfway along both local axes from the original corner
   double cos_a = std::cos(m_rotationAngle);
   double sin_a = std::sin(m_rotationAngle);
   double localX = m_width * 0.5;
@@ -47,15 +127,15 @@ Rectangle::Rectangle(const Point_2 &corner, const Point_2 &adjacentPoint, double
   double cx = CGAL::to_double(corner.x()) + localX * cos_a - localY * sin_a;
   double cy = CGAL::to_double(corner.y()) + localX * sin_a + localY * cos_a;
   m_center = Point_2(FT(cx), FT(cy));
-
-  updateSFMLShape();
 }
 
 void Rectangle::updateDimensionsFromCorners() {
-  double x1 = CGAL::to_double(m_corner1.x());
-  double y1 = CGAL::to_double(m_corner1.y());
-  double x2 = CGAL::to_double(m_corner2.x());
-  double y2 = CGAL::to_double(m_corner2.y());
+  Point_2 c1 = getCorner1Position();
+  Point_2 c2 = getCorner2Position();
+  double x1 = CGAL::to_double(c1.x());
+  double y1 = CGAL::to_double(c1.y());
+  double x2 = CGAL::to_double(c2.x());
+  double y2 = CGAL::to_double(c2.y());
 
   m_width = std::abs(x2 - x1);
   m_height = std::abs(y2 - y1);
@@ -64,6 +144,11 @@ void Rectangle::updateDimensionsFromCorners() {
 }
 
 void Rectangle::updateSFMLShape() {
+  if (m_isRotatable) {
+    syncRotatableFromAnchors();
+  } else {
+    updateDimensionsFromCorners();
+  }
   m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(m_height)));
   m_sfmlShape.setFillColor(m_color);
   m_sfmlShape.setOutlineThickness(1.5f);
@@ -76,10 +161,12 @@ void Rectangle::updateSFMLShape() {
     m_sfmlShape.setPosition(static_cast<float>(cx), static_cast<float>(cy));
     m_sfmlShape.setRotation(static_cast<float>(m_rotationAngle * 180.0 / 3.14159265359));
   } else {
-    double x1 = CGAL::to_double(m_corner1.x());
-    double y1 = CGAL::to_double(m_corner1.y());
-    double x2 = CGAL::to_double(m_corner2.x());
-    double y2 = CGAL::to_double(m_corner2.y());
+    Point_2 c1 = getCorner1Position();
+    Point_2 c2 = getCorner2Position();
+    double x1 = CGAL::to_double(c1.x());
+    double y1 = CGAL::to_double(c1.y());
+    double x2 = CGAL::to_double(c2.x());
+    double y2 = CGAL::to_double(c2.y());
 
     double minX = std::min(x1, x2);
     double minY = std::min(y1, y2);
@@ -131,6 +218,11 @@ void Rectangle::draw(sf::RenderWindow &window, float scale, bool forceVisible) c
   drawVertexHandles(window, scale);
 }
 
+void Rectangle::update() {
+  updateSFMLShape();
+  updateHostedPoints();
+}
+
 void Rectangle::setColor(const sf::Color &color) {
   m_color = color;
   m_sfmlShape.setFillColor(color);
@@ -159,8 +251,10 @@ bool Rectangle::isWithinDistance(const sf::Vector2f &screenPos, float tolerance)
 }
 
 void Rectangle::translate(const Vector_2 &translation) {
-  m_corner1 = Point_2(m_corner1.x() + translation.x(), m_corner1.y() + translation.y());
-  m_corner2 = Point_2(m_corner2.x() + translation.x(), m_corner2.y() + translation.y());
+  Point_2 c1 = getCorner1Position();
+  Point_2 c2 = getCorner2Position();
+  setCorner1Position(Point_2(c1.x() + translation.x(), c1.y() + translation.y()));
+  setCorner2Position(Point_2(c2.x() + translation.x(), c2.y() + translation.y()));
   m_center = Point_2(m_center.x() + translation.x(), m_center.y() + translation.y());
   updateSFMLShape();
   updateHostedPoints();
@@ -185,16 +279,16 @@ void Rectangle::rotateCCW(const Point_2 &center, double angleRadians) {
     return Point_2(FT(newX), FT(newY));
   };
 
-  m_corner1 = rotatePoint(m_corner1);
-  m_corner2 = rotatePoint(m_corner2);
+  setCorner1Position(rotatePoint(getCorner1Position()));
+  setCorner2Position(rotatePoint(getCorner2Position()));
   m_center = rotatePoint(m_center);
   updateSFMLShape();
   updateHostedPoints();
 }
 
 void Rectangle::setCorners(const Point_2 &corner1, const Point_2 &corner2) {
-  m_corner1 = corner1;
-  m_corner2 = corner2;
+  setCorner1Position(corner1);
+  setCorner2Position(corner2);
   updateDimensionsFromCorners();
   updateSFMLShape();
 }
@@ -204,10 +298,12 @@ std::vector<Point_2> Rectangle::getVertices() const {
   verts.reserve(4);
 
   if (!m_isRotatable) {
-    double x1 = CGAL::to_double(m_corner1.x());
-    double y1 = CGAL::to_double(m_corner1.y());
-    double x2 = CGAL::to_double(m_corner2.x());
-    double y2 = CGAL::to_double(m_corner2.y());
+    Point_2 c1 = getCorner1Position();
+    Point_2 c2 = getCorner2Position();
+    double x1 = CGAL::to_double(c1.x());
+    double y1 = CGAL::to_double(c1.y());
+    double x2 = CGAL::to_double(c2.x());
+    double y2 = CGAL::to_double(c2.y());
 
     verts.emplace_back(FT(x1), FT(y1));
     verts.emplace_back(FT(x2), FT(y1));
@@ -278,8 +374,8 @@ void Rectangle::setVertexPosition(size_t index, const Point_2 &value) {
     double localY = -m_height * 0.5;
     double rotatedX = localX * cos_a - localY * sin_a;
     double rotatedY = localX * sin_a + localY * cos_a;
-    m_corner1 = Point_2(FT(cx + rotatedX), FT(cy + rotatedY));
-    m_corner2 = Point_2(FT(cx - rotatedX), FT(cy - rotatedY));
+    setCorner1Position(Point_2(FT(cx + rotatedX), FT(cy + rotatedY)));
+    setCorner2Position(Point_2(FT(cx - rotatedX), FT(cy - rotatedY)));
     m_center = center;
 
     // Align active vertex to the dragged quadrant
@@ -300,25 +396,27 @@ void Rectangle::setVertexPosition(size_t index, const Point_2 &value) {
 
   switch (index) {
     case 0: // Dragging Corner 1
-      m_corner1 = value;
+      setCorner1Position(value);
       break;
     case 1: // Dragging Corner (C2.x, C1.y)
-      m_corner2 = Point_2(FT(newX), m_corner2.y());
-      m_corner1 = Point_2(m_corner1.x(), FT(newY));
+      setCorner2Position(Point_2(FT(newX), getCorner2Position().y()));
+      setCorner1Position(Point_2(getCorner1Position().x(), FT(newY)));
       break;
     case 2: // Dragging Corner 2
-      m_corner2 = value;
+      setCorner2Position(value);
       break;
     case 3: // Dragging Corner (C1.x, C2.y)
-      m_corner1 = Point_2(FT(newX), m_corner1.y());
-      m_corner2 = Point_2(m_corner2.x(), FT(newY));
+      setCorner1Position(Point_2(FT(newX), getCorner1Position().y()));
+      setCorner2Position(Point_2(getCorner2Position().x(), FT(newY)));
       break;
   }
 
-  double finalX1 = CGAL::to_double(m_corner1.x());
-  double finalY1 = CGAL::to_double(m_corner1.y());
-  double finalX2 = CGAL::to_double(m_corner2.x());
-  double finalY2 = CGAL::to_double(m_corner2.y());
+  Point_2 finalC1 = getCorner1Position();
+  Point_2 finalC2 = getCorner2Position();
+  double finalX1 = CGAL::to_double(finalC1.x());
+  double finalY1 = CGAL::to_double(finalC1.y());
+  double finalX2 = CGAL::to_double(finalC2.x());
+  double finalY2 = CGAL::to_double(finalC2.y());
 
   m_center = Point_2(FT((finalX1 + finalX2) * 0.5), FT((finalY1 + finalY2) * 0.5));
 
@@ -341,12 +439,11 @@ Point_2 Rectangle::getCGALPosition() const {
 
 void Rectangle::setCGALPosition(const Point_2 &newPos) {
   Vector_2 translation = newPos - getCGALPosition();
-  m_corner1 = Point_2(m_corner1.x() + translation.x(), m_corner1.y() + translation.y());
-  m_corner2 = Point_2(m_corner2.x() + translation.x(), m_corner2.y() + translation.y());
+  Point_2 c1 = getCorner1Position();
+  Point_2 c2 = getCorner2Position();
+  setCorner1Position(Point_2(c1.x() + translation.x(), c1.y() + translation.y()));
+  setCorner2Position(Point_2(c2.x() + translation.x(), c2.y() + translation.y()));
   m_center = Point_2(m_center.x() + translation.x(), m_center.y() + translation.y());
-  if (!m_isRotatable) {
-    updateDimensionsFromCorners();
-  }
   updateSFMLShape();
   updateHostedPoints();
 }
@@ -395,10 +492,12 @@ std::vector<Point_2> Rectangle::getInteractableVertices() const {
   if (!m_isRotatable) {
     std::vector<Point_2> verts;
     verts.reserve(4);
-    verts.emplace_back(m_corner1);
-    verts.emplace_back(Point_2(m_corner2.x(), m_corner1.y()));
-    verts.emplace_back(m_corner2);
-    verts.emplace_back(Point_2(m_corner1.x(), m_corner2.y()));
+    Point_2 c1 = getCorner1Position();
+    Point_2 c2 = getCorner2Position();
+    verts.emplace_back(c1);
+    verts.emplace_back(Point_2(c2.x(), c1.y()));
+    verts.emplace_back(c2);
+    verts.emplace_back(Point_2(c1.x(), c2.y()));
     return verts;
   }
   return getVertices();

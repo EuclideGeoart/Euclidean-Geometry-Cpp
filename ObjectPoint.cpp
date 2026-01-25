@@ -273,27 +273,11 @@ ObjectPoint::~ObjectPoint() {
       m_hostObject.reset();
       m_hostType = ObjectType::None;
 
-      // ✅ Then remove from host's collection using raw pointer comparison
-      if (Line *hostLine = dynamic_cast<Line *>(rawHost)) {
-        std::cout << "ObjectPoint destructor: Removing self from Line host" << std::endl;
-        try {
-          hostLine->removeChildPoint(this);
-        } catch (const std::exception &e) {
-          std::cerr << "ObjectPoint destructor: Exception removing from Line host: " << e.what()
-                    << std::endl;
-        }
-      }
-      // ✅ Handle Circle hosts
-      else if (Circle *hostCircle = dynamic_cast<Circle *>(rawHost)) {
-        std::cout << "ObjectPoint destructor: Removing self from Circle host" << std::endl;
-        try {
-          hostCircle->removeChildPoint(this);
-        } catch (const std::exception &e) {
-          std::cerr << "ObjectPoint destructor: Exception removing from Circle host: " << e.what()
-                    << std::endl;
-        }
-      } else {
-        std::cout << "ObjectPoint destructor: Unknown host type" << std::endl;
+      // ✅ Then remove from host's collection
+      // Use the base class method which handles all host types (Line, Circle, Shape)
+      if (rawHost) {
+          rawHost->removeChildPoint(this);
+          std::cout << "ObjectPoint destructor: Removed self from host" << std::endl;
       }
     }
 

@@ -1,10 +1,12 @@
 #include "RegularPolygon.h"
+#include "Point.h"
 #include "VertexLabelManager.h"
 #include <cmath>
 RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
                                const sf::Color &color, unsigned int id)
     : GeometricObject(ObjectType::RegularPolygon, color, id),
-      m_center(center),
+  m_centerPoint(std::make_shared<Point>(center, 1.0f)),
+  m_firstVertexPoint(std::make_shared<Point>(firstVertex, 1.0f)),
       m_numSides(numSides),
       m_rotationAngle(0),
       m_color(color) {
@@ -23,11 +25,44 @@ RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex
   updateSFMLShape();
 }
 
+RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
+                               const std::shared_ptr<Point> &firstVertex, int numSides,
+                               const sf::Color &color, unsigned int id)
+    : GeometricObject(ObjectType::RegularPolygon, color, id),
+      m_centerPoint(center ? center : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_firstVertexPoint(firstVertex ? firstVertex
+                                     : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_numSides(numSides),
+      m_rotationAngle(0),
+      m_color(color) {
+  m_color.a = 0;
+  if (m_numSides < 3) m_numSides = 3;
+
+  Point_2 centerPos = m_centerPoint->getCGALPosition();
+  Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
+  double dx = CGAL::to_double(firstPos.x()) - CGAL::to_double(centerPos.x());
+  double dy = CGAL::to_double(firstPos.y()) - CGAL::to_double(centerPos.y());
+  m_radius = std::sqrt(dx * dx + dy * dy);
+  m_rotationAngle = std::atan2(dy, dx);
+
+  generateVertices();
+  updateSFMLShape();
+}
+
 void RegularPolygon::generateVertices() {
   m_vertices.clear();
 
-  double centerX = CGAL::to_double(m_center.x());
-  double centerY = CGAL::to_double(m_center.y());
+  Point_2 centerPos = getCenter();
+  if (m_centerPoint && m_firstVertexPoint) {
+    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
+    double dx = CGAL::to_double(firstPos.x()) - CGAL::to_double(centerPos.x());
+    double dy = CGAL::to_double(firstPos.y()) - CGAL::to_double(centerPos.y());
+    m_radius = std::sqrt(dx * dx + dy * dy);
+    m_rotationAngle = std::atan2(dy, dx);
+  }
+
+  double centerX = CGAL::to_double(centerPos.x());
+  double centerY = CGAL::to_double(centerPos.y());
   double angleStep = 2.0 * 3.14159265359 / m_numSides;
 
   for (int i = 0; i < m_numSides; ++i) {
@@ -39,6 +74,7 @@ void RegularPolygon::generateVertices() {
 }
 
 void RegularPolygon::updateSFMLShape() {
+  generateVertices();
   updateSFMLShapeInternal();
 }
 
@@ -93,6 +129,11 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
   drawVertexHandles(window, scale);
 }
 
+void RegularPolygon::update() {
+  updateSFMLShape();
+  updateHostedPoints();
+}
+
 void RegularPolygon::setColor(const sf::Color &color) {
   m_color = color;
   m_sfmlShape.setFillColor(color);
@@ -117,10 +158,15 @@ bool RegularPolygon::isWithinDistance(const sf::Vector2f &screenPos, float toler
 }
 
 void RegularPolygon::translate(const Vector_2 &translation) {
-  m_center = Point_2(m_center.x() + translation.x(), m_center.y() + translation.y());
-
-  for (auto &v : m_vertices) {
-    v = Point_2(v.x() + translation.x(), v.y() + translation.y());
+  if (m_centerPoint) {
+    Point_2 centerPos = m_centerPoint->getCGALPosition();
+    m_centerPoint->setCGALPosition(
+        Point_2(centerPos.x() + translation.x(), centerPos.y() + translation.y()));
+  }
+  if (m_firstVertexPoint) {
+    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
+    m_firstVertexPoint->setCGALPosition(
+        Point_2(firstPos.x() + translation.x(), firstPos.y() + translation.y()));
   }
 
   updateSFMLShape();
@@ -138,13 +184,21 @@ void RegularPolygon::setVertexPosition(size_t index, const Point_2 &value) {
   double dirX = std::cos(m_rotationAngle);
   double dirY = std::sin(m_rotationAngle);
 
-  Vector_2 delta = value - m_center;
+  Vector_2 delta = value - getCenter();
   double projection = CGAL::to_double(delta.x()) * dirX + CGAL::to_double(delta.y()) * dirY;
 
   const double minRadius = 1e-6;
   double newRadius = std::max(minRadius, projection);
 
   m_radius = newRadius;
+
+  if (m_firstVertexPoint) {
+    Point_2 centerPos = getCenter();
+    Point_2 newFirst(FT(CGAL::to_double(centerPos.x()) + dirX * m_radius),
+                     FT(CGAL::to_double(centerPos.y()) + dirY * m_radius));
+    m_firstVertexPoint->setCGALPosition(newFirst);
+  }
+
   generateVertices();
   updateSFMLShape();
   updateHostedPoints();
@@ -167,8 +221,9 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
   {
     sf::CircleShape handle(handleRadius);
     handle.setOrigin(handleRadius, handleRadius);
-    float x = static_cast<float>(CGAL::to_double(m_center.x()));
-    float y = static_cast<float>(CGAL::to_double(m_center.y()));
+    Point_2 centerPos = getCenter();
+    float x = static_cast<float>(CGAL::to_double(centerPos.x()));
+    float y = static_cast<float>(CGAL::to_double(centerPos.y()));
     handle.setPosition(x, y);
     
     sf::Color base = sf::Color(100, 100, 255);  // Blue for center
@@ -219,29 +274,28 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
 }
 
 void RegularPolygon::rotateCCW(const Point_2 &center, double angleRadians) {
-  m_rotationAngle += angleRadians;
-
   double centerX = CGAL::to_double(center.x());
   double centerY = CGAL::to_double(center.y());
   double cos_a = std::cos(angleRadians);
   double sin_a = std::sin(angleRadians);
 
   // Rotate center
-  {
-    double x = CGAL::to_double(m_center.x()) - centerX;
-    double y = CGAL::to_double(m_center.y()) - centerY;
+  if (m_centerPoint) {
+    Point_2 centerPos = m_centerPoint->getCGALPosition();
+    double x = CGAL::to_double(centerPos.x()) - centerX;
+    double y = CGAL::to_double(centerPos.y()) - centerY;
     double newX = x * cos_a - y * sin_a + centerX;
     double newY = x * sin_a + y * cos_a + centerY;
-    m_center = Point_2(FT(newX), FT(newY));
+    m_centerPoint->setCGALPosition(Point_2(FT(newX), FT(newY)));
   }
 
-  // Rotate vertices
-  for (auto &v : m_vertices) {
-    double x = CGAL::to_double(v.x()) - centerX;
-    double y = CGAL::to_double(v.y()) - centerY;
+  if (m_firstVertexPoint) {
+    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
+    double x = CGAL::to_double(firstPos.x()) - centerX;
+    double y = CGAL::to_double(firstPos.y()) - centerY;
     double newX = x * cos_a - y * sin_a + centerX;
     double newY = x * sin_a + y * cos_a + centerY;
-    v = Point_2(FT(newX), FT(newY));
+    m_firstVertexPoint->setCGALPosition(Point_2(FT(newX), FT(newY)));
   }
 
   updateSFMLShape();
@@ -270,11 +324,8 @@ sf::FloatRect RegularPolygon::getGlobalBounds() const {
 }
 
 void RegularPolygon::setCGALPosition(const Point_2 &newPos) {
-  Vector_2 translation = newPos - m_center;
-  m_center = newPos;
-  generateVertices();
-  updateSFMLShape();
-  updateHostedPoints();
+  Vector_2 translation = newPos - getCenter();
+  translate(translation);
 }
 
 void RegularPolygon::setPosition(const sf::Vector2f &newSfmlPos) {
@@ -295,13 +346,15 @@ std::vector<sf::Vector2f> RegularPolygon::getCreationPointsSFML() const {
   pts.reserve(2);
   
   // Creation point 0: Center
-  pts.emplace_back(static_cast<float>(CGAL::to_double(m_center.x())),
-                   static_cast<float>(CGAL::to_double(m_center.y())));
+  Point_2 centerPos = getCenter();
+  pts.emplace_back(static_cast<float>(CGAL::to_double(centerPos.x())),
+                   static_cast<float>(CGAL::to_double(centerPos.y())));
   
   // Creation point 1: First vertex (defines radius)
-  if (!m_vertices.empty()) {
-    pts.emplace_back(static_cast<float>(CGAL::to_double(m_vertices[0].x())),
-                     static_cast<float>(CGAL::to_double(m_vertices[0].y())));
+  if (m_firstVertexPoint) {
+    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
+    pts.emplace_back(static_cast<float>(CGAL::to_double(firstPos.x())),
+                     static_cast<float>(CGAL::to_double(firstPos.y())));
   }
   
   return pts;
@@ -310,7 +363,7 @@ std::vector<sf::Vector2f> RegularPolygon::getCreationPointsSFML() const {
 void RegularPolygon::setCreationPointPosition(size_t index, const Point_2& value) {
   if (index == 0) {
     // Translate entire shape by moving center
-    Vector_2 delta = value - m_center;
+    Vector_2 delta = value - getCenter();
     translate(delta);
   } else if (index == 1) {
     // Scale by moving first vertex (uses existing setVertexPosition which preserves regularity)
@@ -318,11 +371,22 @@ void RegularPolygon::setCreationPointPosition(size_t index, const Point_2& value
   }
 }
 
+Point_2 RegularPolygon::getCenter() const {
+  if (m_centerPoint) {
+    return m_centerPoint->getCGALPosition();
+  }
+  return Point_2(FT(0), FT(0));
+}
+
+Point_2 RegularPolygon::getCGALPosition() const {
+  return getCenter();
+}
+
 std::vector<Point_2> RegularPolygon::getInteractableVertices() const {
   // Return center + all vertices for regular polygon
   std::vector<Point_2> result;
   result.reserve(m_vertices.size() + 1);
-  result.push_back(m_center);
+  result.push_back(getCenter());
   result.insert(result.end(), m_vertices.begin(), m_vertices.end());
   return result;
 }

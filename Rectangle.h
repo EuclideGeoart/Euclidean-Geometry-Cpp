@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 
+class Point;
+
 /**
  * @brief Rectangle class supporting both axis-aligned and rotatable variants
  */
@@ -27,6 +29,10 @@ class Rectangle : public GeometricObject {
   Rectangle(const Point_2 &corner1, const Point_2 &corner2, bool isRotatable = false,
             const sf::Color &color = sf::Color::White, unsigned int id = 0);
 
+  Rectangle(const std::shared_ptr<Point> &corner1, const std::shared_ptr<Point> &corner2,
+            bool isRotatable = false, const sf::Color &color = sf::Color::White,
+            unsigned int id = 0);
+
   /**
    * @brief Constructor for rotatable rectangle
    * @param corner First corner (CGAL point)
@@ -38,10 +44,14 @@ class Rectangle : public GeometricObject {
   Rectangle(const Point_2 &corner, const Point_2 &adjacentPoint, double width,
             const sf::Color &color = sf::Color::White, unsigned int id = 0);
 
+  Rectangle(const std::shared_ptr<Point> &corner, const std::shared_ptr<Point> &adjacentPoint,
+            double width, const sf::Color &color = sf::Color::White, unsigned int id = 0);
+
   virtual ~Rectangle() = default;
 
   // GeometricObject interface
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+  virtual void update() override;
   virtual void setColor(const sf::Color &color) override;
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
   virtual std::string getTypeString() const { return "Rectangle"; }
@@ -56,14 +66,16 @@ class Rectangle : public GeometricObject {
   std::vector<Segment_2> getEdges() const override;
 
   // Additional methods (not overrides)
-  sf::Color getColor() const { return m_color; }
+  sf::Color getColor() const override { return m_color; }
   Point_2 getCenter() const;
   bool isWithinDistance(const sf::Vector2f &screenPos, float tolerance) const;
   void rotateCCW(const Point_2 &center, double angleRadians);
 
   // Rectangle-specific getters
-  Point_2 getCorner1() const { return m_corner1; }
-  Point_2 getCorner2() const { return m_corner2; }
+  std::shared_ptr<Point> getCorner1Point() const { return m_corner1; }
+  std::shared_ptr<Point> getCorner2Point() const { return m_corner2; }
+  Point_2 getCorner1() const;
+  Point_2 getCorner2() const;
   bool isRotatable() const { return m_isRotatable; }
   double getWidth() const { return m_width; }
   double getHeight() const { return m_height; }
@@ -81,8 +93,8 @@ class Rectangle : public GeometricObject {
   void setRotation(double angleRadians);
 
  private:
-  Point_2 m_corner1;        // First corner in CGAL coordinates
-  Point_2 m_corner2;        // Second corner in CGAL coordinates
+  std::shared_ptr<Point> m_corner1;  // First corner point
+  std::shared_ptr<Point> m_corner2;  // Second corner point
   bool m_isRotatable;       // True if rectangle can be rotated
   double m_width;           // Width of the rectangle
   double m_height;          // Height of the rectangle
@@ -98,4 +110,9 @@ class Rectangle : public GeometricObject {
   void updateDimensionsFromCorners();
   void updateCornerPositions();
   void drawVertexHandles(sf::RenderWindow &window, float scale) const;
+  Point_2 getCorner1Position() const;
+  Point_2 getCorner2Position() const;
+  void setCorner1Position(const Point_2 &pos);
+  void setCorner2Position(const Point_2 &pos);
+  void syncRotatableFromAnchors();
 };

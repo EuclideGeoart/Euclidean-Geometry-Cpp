@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Platform-specific compiler flags
 if(WIN32)
     # Use lld only with Clang; GCC may not have lld available in MSYS2 by default
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GCC")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=lld")
     endif()
     # MSYS2 math.h macro workaround - suppress problematic warnings
@@ -24,6 +24,9 @@ if(MSVC)
     add_compile_options(/W4)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
+    add_compile_options($<$<CONFIG:Release>:-O3>)
+    add_compile_options($<$<CONFIG:Release>:-static-libgcc>)
+    add_compile_options($<$<CONFIG:Release>:-static-libstdc++>)
 endif()
 
 # Platform-specific SFML configuration
@@ -115,18 +118,26 @@ add_executable(FluxGeo
     VertexLabelManager.cpp
     PointUtils.cpp
     ProjectSerializer.cpp
+    FileDialogs.cpp
 )
 
 # Platform-specific linking for main executable
 if(WIN32)
     target_link_libraries(FluxGeo PRIVATE 
-        sfml-graphics sfml-window sfml-system CGAL::CGAL
+        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32
     )
+    # [NEW] This hides the console window for the Release build
+    target_link_options(FluxGeo PRIVATE "-mwindows")
 else()
     target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL 
         ${GMP_LIBRARIES} ${MPFR_LIBRARIES}
     )
+endif()
+
+# [NEW] Force Release Optimizations if not specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
 endif()
 
 target_compile_definitions(FluxGeo PRIVATE ${BASE_COMPILE_DEFINITIONS})

@@ -15,7 +15,7 @@
             "label": "Configure Windows Clang64 Build",
             "type": "shell",
             "windows": {
-                "command": "Push-Location \"${workspaceFolder}\\build\"; cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=C:/msys64/clang64/bin/clang.exe -DCMAKE_CXX_COMPILER=C:/msys64/clang64/bin/clang++.exe -DCMAKE_MAKE_PROGRAM=C:/msys64/clang64/bin/ninja.exe; Pop-Location"
+                "command": "Push-Location \"${workspaceFolder}\\build\"; cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=C:/msys64/clang64/bin/clang.exe -DCMAKE_CXX_COMPILER=C:/msys64/clang64/bin/clang++.exe -DCMAKE_MAKE_PROGRAM=C:/msys64/clang64/bin/ninja.exe -DCMAKE_EXE_LINKER_FLAGS=-lcomdlg32; Pop-Location"
             },
             "dependsOn": [
                 "Create Windows Clang64 Build Directory"

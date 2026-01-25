@@ -449,12 +449,12 @@ class DeleteCommandT : public Command {
       removePtr(m_editor.triangles, triPtr);
       return;
     }
-    if (auto pointPtr = std::dynamic_pointer_cast<Point>(ptr)) {
-      removePtr(m_editor.points, pointPtr);
-      return;
-    }
     if (auto objPointPtr = std::dynamic_pointer_cast<ObjectPoint>(ptr)) {
       removePtr(m_editor.ObjectPoints, objPointPtr);
+      return;
+    }
+    if (auto pointPtr = std::dynamic_pointer_cast<Point>(ptr)) {
+      removePtr(m_editor.points, pointPtr);
       return;
     }
     if (auto anglePtr = std::dynamic_pointer_cast<Angle>(ptr)) {

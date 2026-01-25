@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 
+class Point;
+
 /**
  * @brief Triangle class for general (non-regular) triangles with arbitrary vertices
  * 
@@ -30,10 +32,15 @@ public:
     Triangle(const Point_2& v1, const Point_2& v2, const Point_2& v3,
              const sf::Color& color = sf::Color::White, unsigned int id = 0);
 
+    Triangle(const std::shared_ptr<Point>& v1, const std::shared_ptr<Point>& v2,
+             const std::shared_ptr<Point>& v3, const sf::Color& color = sf::Color::White,
+             unsigned int id = 0);
+
     virtual ~Triangle() = default;
 
     // GeometricObject interface
     virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+    virtual void update() override;
     virtual void setColor(const sf::Color& color) override;
     virtual bool contains(const sf::Vector2f& screenPos, float tolerance) const override;
     virtual std::string getTypeString() const { return "Triangle"; }
@@ -48,13 +55,17 @@ public:
     std::vector<Segment_2> getEdges() const override;
 
     // Additional methods (not overrides)
-    sf::Color getColor() const { return m_color; }
+    sf::Color getColor() const override { return m_color; }
     Point_2 getCenter() const;
     bool isWithinDistance(const sf::Vector2f& screenPos, float tolerance) const;
     void rotateCCW(const Point_2& center, double angleRadians);
 
     // Triangle-specific methods
-    const std::vector<Point_2>& getVertices() const { return m_vertices; }
+    std::shared_ptr<Point> getVertexPoint(size_t index) const {
+        if (index < m_vertices.size()) return m_vertices[index];
+        return nullptr;
+    }
+    std::vector<Point_2> getVertices() const;
     std::vector<sf::Vector2f> getVerticesSFML() const;
     void setVertexPosition(size_t index, const Point_2& value);
     void setHoveredVertex(int index) { m_hoveredVertex = index; }
@@ -64,7 +75,7 @@ public:
     bool isValid() const override { return m_vertices.size() == 3; }
 
 private:
-    std::vector<Point_2> m_vertices;  // Exactly 3 vertices
+    std::vector<std::shared_ptr<Point>> m_vertices;  // Exactly 3 vertices
     sf::Color m_color;                // Fill color
     sf::ConvexShape m_sfmlShape;      // SFML shape for rendering
     int m_hoveredVertex = -1;         // For handle coloring
