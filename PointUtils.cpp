@@ -754,6 +754,43 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
     return newPoint;
   }
 
+  // 2b) Line endpoints (prioritize over line edge)
+  {
+    std::shared_ptr<Point> bestEndpoint = nullptr;
+    float bestDist2 = tolerance * tolerance;
+    for (auto &linePtr : editor.lines) {
+      if (!linePtr || !linePtr->isValid()) continue;
+
+      auto startPt = linePtr->getStartPointObjectShared();
+      if (startPt && startPt->isValid()) {
+        sf::Vector2f ptPos = startPt->getSFMLPosition();
+        float dx = ptPos.x - worldPos_sfml.x;
+        float dy = ptPos.y - worldPos_sfml.y;
+        float d2 = dx * dx + dy * dy;
+        if (d2 <= bestDist2) {
+          bestDist2 = d2;
+          bestEndpoint = startPt;
+        }
+      }
+
+      auto endPt = linePtr->getEndPointObjectShared();
+      if (endPt && endPt->isValid()) {
+        sf::Vector2f ptPos = endPt->getSFMLPosition();
+        float dx = ptPos.x - worldPos_sfml.x;
+        float dy = ptPos.y - worldPos_sfml.y;
+        float d2 = dx * dx + dy * dy;
+        if (d2 <= bestDist2) {
+          bestDist2 = d2;
+          bestEndpoint = endPt;
+        }
+      }
+    }
+
+    if (bestEndpoint) {
+      return bestEndpoint;
+    }
+  }
+
   // 3) Lines/edges (ObjectPoints)
   // 3a) Shape vertex
   GeometricObject *shape = nullptr;

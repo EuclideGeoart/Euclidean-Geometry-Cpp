@@ -14,17 +14,19 @@ class ObjectPoint;
 
 class Circle : public GeometricObject, public std::enable_shared_from_this<Circle> {
  public:
-  // Constructor - now takes a Point pointer for the center
-  Circle(Point *centerPoint, double radius, const sf::Color &color = sf::Color::Blue);
+    // Constructor - now takes a Point pointer for the center
+    Circle(Point *centerPoint, std::shared_ptr<Point> radiusPoint, double radius,
+      const sf::Color &color = sf::Color::Blue);
   ~Circle();
 
   // Factory method
-  static std::shared_ptr<Circle> create(Point *centerPoint, double radius,
-                                        const sf::Color &color = sf::Color::Blue);
+  static std::shared_ptr<Circle> create(Point *centerPoint, std::shared_ptr<Point> radiusPoint,
+                                        double radius, const sf::Color &color = sf::Color::Blue);
 
   // Geometry
   Point_2 getCenterPoint() const;
   Point *getCenterPointObject() const { return m_centerPoint; }  // Get the Point object
+  Point *getRadiusPointObject() const { return m_radiusPoint.get(); }
   double getRadius() const { return m_radius; }
   Circle_2 getCGALCircle() const;
 
@@ -74,6 +76,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
  private:
   // Geometry
   Point *m_centerPoint;  // Reference to the actual center Point object
+  std::shared_ptr<Point> m_radiusPoint;
   double m_radius;
 
   // Visual

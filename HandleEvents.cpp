@@ -2226,7 +2226,7 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
 
         // Create preview circle using the center point with selected color
         sf::Color selectedColor = editor.getCurrentColor();
-        editor.previewCircle = Circle::create(centerPoint.get(), 0.0, selectedColor);
+        editor.previewCircle = Circle::create(centerPoint.get(), nullptr, 0.0, selectedColor);
         std::cout << "Preview circle created at address: " << editor.previewCircle.get()
                   << std::endl;
         std::cout << "Creating circle with center at (" << CGAL::to_double(center.x()) << ", "
@@ -2234,16 +2234,31 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       } else {
         // Complete circle creation
         try {
-          Point_2 center = editor.createStart_cgal;
-          double radius_sq = CGAL::to_double(CGAL::squared_distance(center, worldPos_cgal));
+          float tolerance = editor.getScaledTolerance(editor.drawingView);
+          auto radiusPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+          if (!radiusPoint || !radiusPoint->isValid()) {
+            return;
+          }
+
+          Point *centerPoint = editor.previewCircle ? editor.previewCircle->getCenterPointObject()
+                                                    : nullptr;
+          if (!centerPoint) {
+            return;
+          }
+
+          Point_2 center = centerPoint->getCGALPosition();
+          double radius_sq = CGAL::to_double(
+              CGAL::squared_distance(center, radiusPoint->getCGALPosition()));
           double radius = std::sqrt(radius_sq);
 
           if (radius >= Constants::MIN_CIRCLE_RADIUS) {
             // The center point already exists from preview creation
-            // Just update the preview circle's radius and move it to the permanent list
-            if (editor.previewCircle && editor.previewCircle->isValid()) {
-              editor.previewCircle->setRadius(radius);
-              editor.circles.push_back(editor.previewCircle);
+            // Create the final circle with a persistent radius point
+            sf::Color selectedColor = editor.previewCircle ? editor.previewCircle->getColor()
+                                                           : editor.getCurrentColor();
+            auto finalCircle = Circle::create(centerPoint, radiusPoint, radius, selectedColor);
+            if (finalCircle && finalCircle->isValid()) {
+              editor.circles.push_back(finalCircle);
               std::cout << "Circle Created with radius: " << radius << std::endl;
             } else {
               std::cerr << "Preview circle is invalid" << std::endl;
@@ -3359,11 +3374,12 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
           std::cout << "Point position updated to: (" << worldPos.x << ", " << worldPos.y << ")"
                     << std::endl;
           
-          // Update any circles that use this point as their center
+          // Update any circles that use this point as their center or radius point
           for (auto &circlePtr : editor.circles) {
             if (circlePtr && circlePtr->isValid()) {
               // Check if this circle's center Point is the selected point (by pointer)
-              if (circlePtr->getCenterPointObject() == selectedPoint) {
+              if (circlePtr->getCenterPointObject() == selectedPoint ||
+                  circlePtr->getRadiusPointObject() == selectedPoint) {
                 circlePtr->update();  // Trigger circle to re-render in real-time
               }
             }

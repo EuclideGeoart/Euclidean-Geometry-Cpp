@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Platform-specific compiler flags
 if(WIN32)
     # Use lld only with Clang; GCC may not have lld available in MSYS2 by default
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GCC")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=lld")
     endif()
     # MSYS2 math.h macro workaround - suppress problematic warnings

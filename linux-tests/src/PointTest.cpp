@@ -147,7 +147,7 @@ TEST(CircleTest, CircleProperties) {
     auto centerPointPtr = std::make_shared<Point>(center, sf::Color::Red);
     
     // Use the correct constructor signature - adding outline and fill colors
-    Circle circle(centerPointPtr.get(), 5.0, sf::Color::Green, sf::Color::Transparent);
+    Circle circle(centerPointPtr.get(), nullptr, 5.0, sf::Color::Green);
     
     // Adjust methods to match what Circle class actually has
     auto centerPt = circle.getCenterPoint();

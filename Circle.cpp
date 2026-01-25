@@ -6,9 +6,11 @@
 #include <iostream>
 
 // Constructor
-Circle::Circle(Point *centerPoint, double radius, const sf::Color &color)
-    : GeometricObject(ObjectType::Circle, color), m_centerPoint(centerPoint), m_radius(radius),
-      m_outlineColor(color), m_fillColor(sf::Color(color.r, color.g, color.b, 50)) {
+Circle::Circle(Point *centerPoint, std::shared_ptr<Point> radiusPoint, double radius,
+               const sf::Color &color)
+    : GeometricObject(ObjectType::Circle, color), m_centerPoint(centerPoint),
+      m_radiusPoint(radiusPoint), m_radius(radius), m_outlineColor(color),
+      m_fillColor(sf::Color(color.r, color.g, color.b, 50)) {
   updateSFMLShape();
 }
 
@@ -23,9 +25,9 @@ Circle::~Circle() {
 }
 
 // Factory method
-std::shared_ptr<Circle> Circle::create(Point *centerPoint, double radius,
-                                       const sf::Color &color) {
-  auto circle = std::make_shared<Circle>(centerPoint, radius, color);
+std::shared_ptr<Circle> Circle::create(Point *centerPoint, std::shared_ptr<Point> radiusPoint,
+                                       double radius, const sf::Color &color) {
+  auto circle = std::make_shared<Circle>(centerPoint, radiusPoint, radius, color);
   return circle;
 }
 
@@ -140,8 +142,14 @@ bool Circle::contains(const sf::Vector2f &worldPos, float tolerance) const {
 
 bool Circle::isValid() const {
   if (!m_centerPoint) return false;
+  if (m_radiusPoint && !m_radiusPoint->isValid()) return false;
   Point_2 center = m_centerPoint->getCGALPosition();
-  return m_radius > 0 && std::isfinite(m_radius) && 
+  double radiusToCheck = m_radius;
+  if (m_radiusPoint && m_radiusPoint->isValid()) {
+    radiusToCheck = std::sqrt(CGAL::to_double(
+        CGAL::squared_distance(center, m_radiusPoint->getCGALPosition())));
+  }
+  return radiusToCheck > 0 && std::isfinite(radiusToCheck) &&
          CGAL::is_finite(center.x()) && CGAL::is_finite(center.y());
 }
 
@@ -253,6 +261,10 @@ void Circle::updateSFMLShape() {
 
   try {
     Point_2 center = getCenterPoint();
+    if (m_radiusPoint && m_radiusPoint->isValid()) {
+      m_radius = std::sqrt(CGAL::to_double(
+          CGAL::squared_distance(center, m_radiusPoint->getCGALPosition())));
+    }
     auto sfmlCenter = Point::cgalToSFML(center);
     float sfmlRadius = static_cast<float>(m_radius);
 

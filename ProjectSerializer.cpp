@@ -479,7 +479,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 editor.points.push_back(centerPoint);
                 
                 // Create circle with raw pointer to the center point
-                auto circle = Circle::create(centerPoint.get(), radius, color);
+                auto circle = Circle::create(centerPoint.get(), nullptr, radius, color);
                 
                 unsigned int originalId = ciJson["id"].get<unsigned int>();
                 idToObject[originalId] = circle;

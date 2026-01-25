@@ -791,7 +791,7 @@ void GeometryEditor::createCircle(const Point_2 &center, double radius, const sf
   points.push_back(std::move(centerPoint));
   
   // Create circle attached to the center point
-  circles.push_back(std::make_shared<Circle>(centerPtr, radius, selectedColor));
+  circles.push_back(std::make_shared<Circle>(centerPtr, nullptr, radius, selectedColor));
   std::cout << "Circle created programmatically." << std::endl;
 }
 
