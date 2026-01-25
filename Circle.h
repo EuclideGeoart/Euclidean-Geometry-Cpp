@@ -34,6 +34,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   void setCenter(const Point_2 &newCenter);
   void setCenterPointObject(Point *newCenterPoint);
   void clearCenterPoint();
+  void setRadiusPoint(std::shared_ptr<Point> pt);
 
   // GeometricObject overrides
   ObjectType getType() const override { return ObjectType::Circle; }

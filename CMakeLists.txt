@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(GeometryTool2)
+project(FluxGeo)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
@@ -87,7 +87,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(include)
 
 # MAIN EXECUTABLE - Only main program files, NO test files
-add_executable(GeometryTool2
+add_executable(FluxGeo
     main.cpp
     GeometryEditor.cpp
     GeometricObject.cpp
@@ -119,27 +119,27 @@ add_executable(GeometryTool2
 
 # Platform-specific linking for main executable
 if(WIN32)
-    target_link_libraries(GeometryTool2 PRIVATE 
+    target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL
     )
 else()
-    target_link_libraries(GeometryTool2 PRIVATE 
+    target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL 
         ${GMP_LIBRARIES} ${MPFR_LIBRARIES}
     )
 endif()
 
-target_compile_definitions(GeometryTool2 PRIVATE ${BASE_COMPILE_DEFINITIONS})
+target_compile_definitions(FluxGeo PRIVATE ${BASE_COMPILE_DEFINITIONS})
 
 # Platform-specific post-build steps
 if(WIN32)
-    add_custom_command(TARGET GeometryTool2 POST_BUILD
+    add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/arial.ttf
-            $<TARGET_FILE_DIR:GeometryTool2>/arial.ttf
+            $<TARGET_FILE_DIR:FluxGeo>/arial.ttf
     )
 else()
-    add_custom_command(TARGET GeometryTool2 POST_BUILD
+    add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/fonts
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf

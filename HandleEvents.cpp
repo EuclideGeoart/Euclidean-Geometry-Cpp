@@ -552,28 +552,20 @@ void handlePointCreation(GeometryEditor &editor, const sf::Event::MouseButtonEve
   float tolerance = editor.getScaledTolerance(editor.drawingView);
   auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
   if (smartPoint && smartPoint->isValid()) {
+    // Check if this shared_ptr is already in our points list
+    auto it = std::find(editor.points.begin(), editor.points.end(), smartPoint);
+    
+    // Check if it's an ObjectPoint (to avoid duplicating it into the free points list)
+    bool isObjectPoint = false;
+    for (const auto& op : editor.ObjectPoints) {
+        if (op == smartPoint) { isObjectPoint = true; break; }
+    }
+
+    if (it == editor.points.end() && !isObjectPoint) {
+        // It's a truly new point (Free or Intersection), add it
+        editor.points.push_back(smartPoint);
+    }
     smartPoint->setSelected(true);
-
-    bool exists = false;
-    for (auto &p : editor.points) {
-      if (p == smartPoint) {
-        exists = true;
-        break;
-      }
-    }
-    if (!exists) {
-      for (auto &p : editor.ObjectPoints) {
-        if (p == smartPoint) {
-          exists = true;
-          break;
-        }
-      }
-    }
-
-    if (!exists) {
-      editor.points.push_back(smartPoint);
-      std::cout << "Persisted new intersection point." << std::endl;
-    }
   }
 
   std::cout << "Point created at (" << cgalWorldPos.x() << ", " << cgalWorldPos.y() << ")"
@@ -1921,11 +1913,15 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
     if (mouseEvent.button == sf::Mouse::Left) {
       float tolerance = editor.getScaledTolerance(editor.drawingView);
       double bestDistSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
-      Line *bestLine = nullptr;
-      EndpointSelection bestEndpoint = EndpointSelection::None;
+      
+      GeometricObject* bestObj = nullptr;
+      std::shared_ptr<Point> pointToDetach = nullptr;
+      enum class PointRole { None, LineStart, LineEnd, CircleCenter, CircleRadius };
+      PointRole role = PointRole::None;
 
       Point_2 clickPos = editor.toCGALPoint(worldPos_sfml);
 
+      // Check Lines
       for (auto &linePtr : editor.lines) {
         if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
         auto start = linePtr->getStartPointObjectShared();
@@ -1935,8 +1931,9 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
           double d1 = CGAL::to_double(CGAL::squared_distance(clickPos, start->getCGALPosition()));
           if (d1 <= bestDistSq) {
             bestDistSq = d1;
-            bestLine = linePtr.get();
-            bestEndpoint = EndpointSelection::Start;
+            bestObj = linePtr.get();
+            pointToDetach = start;
+            role = PointRole::LineStart;
           }
         }
 
@@ -1944,48 +1941,120 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
           double d2 = CGAL::to_double(CGAL::squared_distance(clickPos, end->getCGALPosition()));
           if (d2 <= bestDistSq) {
             bestDistSq = d2;
-            bestLine = linePtr.get();
-            bestEndpoint = EndpointSelection::End;
+            bestObj = linePtr.get();
+            pointToDetach = end;
+            role = PointRole::LineEnd;
           }
         }
       }
 
-      if (bestLine && bestEndpoint != EndpointSelection::None) {
-        auto endpointPoint = (bestEndpoint == EndpointSelection::Start)
-                                 ? bestLine->getStartPointObjectShared()
-                                 : bestLine->getEndPointObjectShared();
-        if (!endpointPoint || !endpointPoint->isValid()) {
-          return;
-        }
+      // Check Circles
+      for (auto &circlePtr : editor.circles) {
+          if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible()) continue;
+          
+          // Check Center
+          // Note: Circle stores center as raw pointer typically, but we need shared_ptr to detach/manage it.
+          // GeometricObjects usually don't expose shared_ptr to components easily if stored as raw.
+          // BUT PointUtils checks editor.points.
+          // We need the shared_ptr of the center point.
+          Point* centerRaw = circlePtr->getCenterPointObject();
+          std::shared_ptr<Point> centerShared;
+          
+          // Find shared ptr for center
+          if (centerRaw) {
+              for (auto& p : editor.points) {
+                  if (p.get() == centerRaw) { centerShared = p; break; }
+              }
+              if (!centerShared) {
+                 for (auto& p : editor.ObjectPoints) {
+                    if (p.get() == centerRaw) { centerShared = std::static_pointer_cast<Point>(p); break; }
+                 }
+              }
+          }
 
+          if (centerShared) {
+              double dCenter = CGAL::to_double(CGAL::squared_distance(clickPos, centerShared->getCGALPosition()));
+              if (dCenter <= bestDistSq) {
+                  bestDistSq = dCenter;
+                  bestObj = circlePtr.get();
+                  pointToDetach = centerShared;
+                  role = PointRole::CircleCenter;
+              }
+          }
+          
+          // Check Radius Point (if exists)
+          // Access radius point if available (we added getter? No, only setter/raw getter)
+          Point* radiusRaw = circlePtr->getRadiusPointObject(); // We have this raw getter
+          std::shared_ptr<Point> radiusShared;
+           if (radiusRaw) {
+              for (auto& p : editor.points) {
+                  if (p.get() == radiusRaw) { radiusShared = p; break; }
+              }
+               if (!radiusShared) {
+                 for (auto& p : editor.ObjectPoints) {
+                    if (p.get() == radiusRaw) { radiusShared = std::static_pointer_cast<Point>(p); break; }
+                 }
+              }
+          }
+          
+          if (radiusShared) {
+               double dRadius = CGAL::to_double(CGAL::squared_distance(clickPos, radiusShared->getCGALPosition()));
+               if (dRadius <= bestDistSq) {
+                  bestDistSq = dRadius;
+                  bestObj = circlePtr.get();
+                  pointToDetach = radiusShared;
+                  role = PointRole::CircleRadius;
+               }
+          }
+      }
+
+      if (bestObj && pointToDetach) {
+        // Calculate usage count
         int usageCount = 0;
+        
+        // Count lines using this point
         for (auto &linePtr : editor.lines) {
           if (!linePtr || !linePtr->isValid()) continue;
-          if (linePtr->getStartPointObjectShared() == endpointPoint ||
-              linePtr->getEndPointObjectShared() == endpointPoint) {
+          if (linePtr->getStartPointObjectShared() == pointToDetach ||
+              linePtr->getEndPointObjectShared() == pointToDetach) {
             ++usageCount;
           }
         }
+        
+        // Count circles using this point
+        for (auto &circlePtr : editor.circles) {
+            if (!circlePtr || !circlePtr->isValid()) continue;
+            Point* c = circlePtr->getCenterPointObject();
+            Point* r = circlePtr->getRadiusPointObject();
+            if (c == pointToDetach.get()) ++usageCount;
+            if (r == pointToDetach.get()) ++usageCount;
+        }
 
         if (usageCount > 1) {
-          auto newPoint = std::make_shared<Point>(endpointPoint->getCGALPosition(), 1.0f,
-                                                   endpointPoint->getFillColor(),
-                                                   endpointPoint->getOutlineColor());
+          // Clone
+          auto newPoint = std::make_shared<Point>(pointToDetach->getCGALPosition(), 1.0f,
+                                                   pointToDetach->getFillColor(),
+                                                   pointToDetach->getOutlineColor());
           newPoint->setVisible(true);
           newPoint->update();
           editor.points.push_back(newPoint);
 
-          if (bestEndpoint == EndpointSelection::Start) {
-            bestLine->setPoints(newPoint, bestLine->getEndPointObjectShared());
-          } else {
-            bestLine->setPoints(bestLine->getStartPointObjectShared(), newPoint);
+          // Update reference
+          if (role == PointRole::LineStart) {
+              static_cast<Line*>(bestObj)->setPoints(newPoint, static_cast<Line*>(bestObj)->getEndPointObjectShared());
+          } else if (role == PointRole::LineEnd) {
+              static_cast<Line*>(bestObj)->setPoints(static_cast<Line*>(bestObj)->getStartPointObjectShared(), newPoint);
+          } else if (role == PointRole::CircleCenter) {
+              static_cast<Circle*>(bestObj)->setCenterPointObject(newPoint.get());
+          } else if (role == PointRole::CircleRadius) {
+              static_cast<Circle*>(bestObj)->setRadiusPoint(newPoint);
           }
 
           editor.selectedObject = newPoint.get();
           editor.selectedObject->setSelected(true);
-          editor.setGUIMessage("Endpoint detached.");
+          editor.setGUIMessage("Endpoint/Center detached.");
         } else {
-          editor.setGUIMessage("Endpoint is not shared.");
+          editor.setGUIMessage("Point is not shared.");
         }
       }
       return;
@@ -2561,18 +2630,39 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       std::cout << "Object found! Type: " << static_cast<int>(potentialSelection->getType())
                 << std::endl;
 
-      // Only deselect all if we're not clicking on the currently selected
-      // object
-      if (potentialSelection != previousSelection) {
-        deselectAllAndClearInteractionState(editor);
+      // Additive Selection (Ctrl)
+      bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) ||
+                        sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+
+      if (potentialSelection) {
+        if (isCtrlHeld) {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(),
+                              potentialSelection);
+          if (it != editor.selectedObjects.end()) {
+            potentialSelection->setSelected(false);
+            editor.selectedObjects.erase(it);
+            if (editor.selectedObject == potentialSelection) {
+              editor.selectedObject = nullptr;
+            }
+          } else {
+            potentialSelection->setSelected(true);
+            editor.selectedObjects.push_back(potentialSelection);
+            editor.selectedObject = potentialSelection;
+          }
+        } else {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(),
+                              potentialSelection);
+          if (it == editor.selectedObjects.end()) {
+            deselectAllAndClearInteractionState(editor);
+            editor.selectedObject = potentialSelection;
+            editor.selectedObjects.push_back(potentialSelection);
+            potentialSelection->setSelected(true);
+          } else {
+            editor.selectedObject = potentialSelection;
+          }
+        }
       }
 
-      // Set the selected object
-      editor.selectedObject = potentialSelection;
-      editor.selectedObjects.clear();
-      if (editor.selectedObject) {
-        editor.selectedObjects.push_back(editor.selectedObject);
-      }
       if (editor.selectedObject) {
         try {
           std::cout << "Setting object as selected" << std::endl;
@@ -2654,17 +2744,35 @@ void handleMousePress(GeometryEditor &editor, const sf::Event::MouseButtonEvent 
       std::cout << "Object found! Type: " << static_cast<int>(potentialSelection->getType())
                 << std::endl;
 
-      if (potentialSelection != previousSelection) {
-        deselectAllAndClearInteractionState(editor);
-      }
+      bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) ||
+                        sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
 
-      editor.selectedObject = potentialSelection;
-      if (editor.selectedObject) {
-        try {
-          std::cout << "Setting object as selected" << std::endl;
-          editor.selectedObject->setSelected(true);
-        } catch (const std::exception &e) {
-          std::cerr << "Error setting selection state: " << e.what() << std::endl;
+      if (potentialSelection) {
+        if (isCtrlHeld) {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(),
+                              potentialSelection);
+          if (it != editor.selectedObjects.end()) {
+            potentialSelection->setSelected(false);
+            editor.selectedObjects.erase(it);
+            if (editor.selectedObject == potentialSelection) {
+              editor.selectedObject = nullptr;
+            }
+          } else {
+            potentialSelection->setSelected(true);
+            editor.selectedObjects.push_back(potentialSelection);
+            editor.selectedObject = potentialSelection;
+          }
+        } else {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(),
+                              potentialSelection);
+          if (it == editor.selectedObjects.end()) {
+            deselectAllAndClearInteractionState(editor);
+            editor.selectedObject = potentialSelection;
+            editor.selectedObjects.push_back(potentialSelection);
+            potentialSelection->setSelected(true);
+          } else {
+            editor.selectedObject = potentialSelection;
+          }
         }
       }
 
@@ -2830,9 +2938,9 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
     worldPos.y = std::round(worldPos.y / g) * g;
   }
 
-  // Snapping Status Feedback (Ctrl)
+  // Snapping Status Feedback (Alt)
   static bool wasSnapping = false;
-  bool isSnapping = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) || sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+  bool isSnapping = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
   if (isSnapping != wasSnapping) {
       if (isSnapping) editor.setGUIMessage("Vertex Snapping: Enabled");
       else editor.setGUIMessage("Vertex Snapping: Disabled");
@@ -3216,13 +3324,54 @@ void handleMouseMove(GeometryEditor &editor, const sf::Event::MouseMoveEvent &mo
     }
 
   // Handle dragging
-  if (editor.isDragging) {
+    if (editor.isDragging) {
     QUICK_PROFILE("DragOperations");
     // 1. Calculate Raw World Position from Mouse
     Point_2 targetPos = editor.toCGALPoint(worldPos);
 
+    // 2a. UNIFIED MULTI-OBJECT TRANSLATION
+    if (editor.selectedObjects.size() > 1) {
+      sf::Vector2f delta_sfml = worldPos - editor.lastMousePos_sfml;
+      Vector_2 cgal_Delta = editor.toCGALVector(delta_sfml);
+
+        std::set<Point *> pointsMovedByParents;
+        for (auto *obj : editor.selectedObjects) {
+          if (!obj || !obj->isValid()) continue;
+          if (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment) {
+            Line *line = static_cast<Line *>(obj);
+            if (line->getStartPointObject()) {
+              pointsMovedByParents.insert(line->getStartPointObject());
+            }
+            if (line->getEndPointObject()) {
+              pointsMovedByParents.insert(line->getEndPointObject());
+            }
+          } else if (obj->getType() == ObjectType::Circle) {
+            Circle *circle = static_cast<Circle *>(obj);
+            if (circle->getCenterPointObject()) {
+              pointsMovedByParents.insert(circle->getCenterPointObject());
+            }
+            if (circle->getRadiusPointObject()) {
+              pointsMovedByParents.insert(circle->getRadiusPointObject());
+            }
+          }
+        }
+
+      for (auto* obj : editor.selectedObjects) {
+        if (obj && obj->isValid()) {
+                if (obj->getType() == ObjectType::Point &&
+                    pointsMovedByParents.find(static_cast<Point *>(obj)) !=
+                        pointsMovedByParents.end()) {
+                  continue;
+                }
+          obj->translate(cgal_Delta);
+        }
+      }
+      editor.lastMousePos_sfml = worldPos;
+      return; // Skip individual drag logic
+    }
+
     // 2. SNAP LOGIC (Must happen BEFORE applying position)
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) &&
+    if ((sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt)) &&
         (editor.dragMode == DragMode::MoveFreePoint ||
          editor.dragMode == DragMode::MoveLineEndpointStart ||
          editor.dragMode == DragMode::MoveLineEndpointEnd)) {
@@ -3887,16 +4036,20 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
   if (editor.isDrawingSelectionBox && mouseEvent.button == sf::Mouse::Left) {
     editor.isDrawingSelectionBox = false;
 
+    // Check for Ctrl Additive Selection
+    bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) || 
+              sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+
+    if (!isCtrlHeld) {
+      editor.clearSelection();
+      deselectAllAndClearInteractionState(editor);
+    }
     sf::FloatRect selectionBox(std::min(editor.selectionBoxStart_sfml.x, worldPos.x),
                                std::min(editor.selectionBoxStart_sfml.y, worldPos.y),
                                std::abs(worldPos.x - editor.selectionBoxStart_sfml.x),
                                std::abs(worldPos.y - editor.selectionBoxStart_sfml.y));
 
     try {
-      // Deselect everything first. This also sets editor.selectedObject to
-      // nullptr.
-      deselectAllAndClearInteractionState(editor);
-
       std::vector<GeometricObject *> newlySelectedObjects;
 
       for (auto &pointPtr : editor.points) {
@@ -3969,11 +4122,13 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
       // Apply selection to all found objects
       for (GeometricObject *obj : newlySelectedObjects) {
         if (obj) {  // Basic safety check
-          obj->setSelected(true);
+          if (std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(), obj) ==
+              editor.selectedObjects.end()) {
+            obj->setSelected(true);
+            editor.selectedObjects.push_back(obj);
+          }
         }
       }
-
-      editor.selectedObjects = newlySelectedObjects;
 
       // If exactly one object was selected by the box, set it as the
       // primary selected object
@@ -3996,6 +4151,7 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
     }
 
     std::cout << "Selection box completed" << std::endl;
+    editor.lastMousePos_sfml = worldPos;
     return;  // Selection box handling is exclusive
   }
 
@@ -4071,6 +4227,15 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
       DragMode previousDragMode = editor.dragMode;
 
       // Topological merge on snap release
+      // Check Ctrl key state explicitly if m_wasSnapped is unreliable? 
+      // Actually, standard behavior relies on m_wasSnapped being effectively 'latched' until release.
+      bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) || sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+
+      std::cout << "[DEBUG] handleMouseRelease: m_wasSnapped=" << editor.m_wasSnapped 
+                << ", m_snapTargetPoint=" << (editor.m_snapTargetPoint ? "Valid" : "Null") 
+                << ", CtrlHeld=" << isCtrlHeld 
+                << ", DragMode=" << (int)previousDragMode << std::endl;
+
       if (editor.m_wasSnapped && editor.m_snapTargetPoint &&
           (previousDragMode == DragMode::MoveFreePoint ||
            previousDragMode == DragMode::MoveLineEndpointStart ||
@@ -4097,14 +4262,22 @@ void handleMouseRelease(GeometryEditor &editor, const sf::Event::MouseButtonEven
                                    : selectedLine->getEndPointObjectShared();
         }
 
-        if (draggedPointShared && draggedPointShared != editor.m_snapTargetPoint) {
-          editor.replacePoint(draggedPointShared, editor.m_snapTargetPoint);
-          draggedPointShared = nullptr;
-        }
+    // TOPOLOGICAL MERGE: Replace all references to the dragged point with the target point
+    if (draggedPointShared && draggedPointShared != editor.m_snapTargetPoint) {
+        std::cout << "[TOPOLOGY] Merging Point " << draggedPointShared->getID() 
+                  << " into " << editor.m_snapTargetPoint->getID() << std::endl;
+        
+        // This function updates all Lines, Circles, and Polygons to use the target point
+        editor.replacePoint(draggedPointShared, editor.m_snapTargetPoint);
+    }
       }
 
       editor.m_wasSnapped = false;
       editor.m_snapTargetPoint = nullptr;
+      // Clear snapping message
+      if (!editor.isDrawingSelectionBox) {
+         editor.setGUIMessage(""); 
+      }
 
       editor.isDragging = false;  // Stop dragging state
 
@@ -4305,6 +4478,24 @@ void handleEvents(GeometryEditor &editor) {
         break;
       case sf::Event::KeyPressed:
         handleKeyPress(editor, event.key);
+        if (event.key.code == sf::Keyboard::LAlt || event.key.code == sf::Keyboard::RAlt) {
+             // Force update of snap state (magnet effect) immediately on key press
+             sf::Vector2i mousePos = sf::Mouse::getPosition(editor.window);
+             sf::Event::MouseMoveEvent moveEvent;
+             moveEvent.x = mousePos.x;
+             moveEvent.y = mousePos.y;
+             handleMouseMove(editor, moveEvent);
+        }
+        break;
+      case sf::Event::KeyReleased:
+        if (event.key.code == sf::Keyboard::LAlt || event.key.code == sf::Keyboard::RAlt) {
+             // Force update of snap state (unsnap) immediately on key release
+             sf::Vector2i mousePos = sf::Mouse::getPosition(editor.window);
+             sf::Event::MouseMoveEvent moveEvent;
+             moveEvent.x = mousePos.x;
+             moveEvent.y = mousePos.y;
+             handleMouseMove(editor, moveEvent);
+        }
         break;
       default:
         break;

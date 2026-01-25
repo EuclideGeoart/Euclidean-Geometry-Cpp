@@ -73,6 +73,20 @@ void Circle::setCenterPointObject(Point *newCenterPoint) {
   }
 }
 
+void Circle::setRadiusPoint(std::shared_ptr<Point> pt) {
+    if (pt) {
+        m_radiusPoint = pt;
+        // Recalculate radius based on new point?
+        // Actually, if we just swap the point object, the radius should stay defined by the DISTANCE to that point.
+        // We should probably update the radius to match the new point's position relative to center?
+        // Or should we move the new point to match current radius?
+        // The Detach tool creates a CLONE at the SAME position.
+        // So distance is same.
+        updateSFMLShape();
+        updateHostedPoints(); // In case any object points depend on radius?
+    }
+}
+
 // GeometricObject overrides
 void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
   if (!m_visible && !forceVisible) return;

@@ -817,13 +817,51 @@ void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<
     }
   }
 
-  // Update circle centers if they reference the old point
+  // Update circle centers/radii if they reference the old point
   for (auto &circlePtr : circles) {
     if (!circlePtr || !circlePtr->isValid()) continue;
+    
+    // Check Center
     if (circlePtr->getCenterPointObject() == oldPt.get()) {
       circlePtr->setCenterPointObject(newPt.get());
-      circlePtr->update();
     }
+    
+    // Check Radius Point
+    if (circlePtr->getRadiusPointObject() == oldPt.get()) {
+        circlePtr->setRadiusPoint(newPt);
+    }
+    
+    circlePtr->update(); // Update shape after changes
+  }
+  
+  // SANITIZE / UPDATE EDITOR REFERENCES
+  if (selectedObject == oldPt.get()) {
+      selectedObject = newPt.get();
+      newPt->setSelected(true);
+  }
+  if (hoveredObject == oldPt.get()) {
+      hoveredObject = newPt.get();
+      newPt->setHovered(true);
+  }
+  if (lineCreationPoint1 == oldPt) lineCreationPoint1 = newPt;
+  // If we are dragging the old point, we should probably update drag target?
+  // But replacePoint is called ON RELEASE, so dragging is done.
+  
+  // Remove the old point from the editor to prevent ghost points
+  auto it = std::remove(points.begin(), points.end(), oldPt);
+  if (it != points.end()) {
+      points.erase(it, points.end());
+      std::cout << "Replaced point removed from master list." << std::endl;
+  }
+  
+  // Also check ObjectPoints
+  for(size_t i=0; i<ObjectPoints.size(); ) {
+      if (ObjectPoints[i] == oldPt) {
+          ObjectPoints.erase(ObjectPoints.begin() + i);
+          std::cout << "Replaced point removed from ObjectPoints list." << std::endl;
+      } else {
+          ++i;
+      }
   }
 
   // Update polygon vertices (match by proximity)
@@ -2222,4 +2260,15 @@ void GeometryEditor::exportSVG(const std::string& filepath) {
   } else {
     setGUIMessage("Error exporting SVG!");
   }
+}
+
+void GeometryEditor::clearSelection() {
+    if (selectedObject) {
+        selectedObject->setSelected(false);
+        selectedObject = nullptr;
+    }
+    for (auto* obj : selectedObjects) {
+        if (obj) obj->setSelected(false);
+    }
+    selectedObjects.clear();
 }

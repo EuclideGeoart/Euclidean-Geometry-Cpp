@@ -687,15 +687,12 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
     GeometryEditor &editor,
     const sf::Vector2f &worldPos_sfml,
     float tolerance) {
-  // 1) Existing points (free + object points)
-  for (auto &pt : editor.points) {
-    if (pt && pt->isValid() && pt->contains(worldPos_sfml, tolerance)) {
-      return pt;
-    }
-  }
-  for (auto &op : editor.ObjectPoints) {
-    if (op && op->isValid() && op->contains(worldPos_sfml, tolerance)) {
-      return std::static_pointer_cast<Point>(op);
+  // 1. INSTANCE CHECK (Topological Glue)
+  // Check if the click is on an EXISTING physical Point entity
+  for (const auto& pt : editor.points) {
+    if (pt && pt->isValid() && pt->isVisible() && pt->contains(worldPos_sfml, tolerance)) {
+        std::cout << "[TOPOLOGY] Found existing instance. Merging." << std::endl;
+        return pt; // Return the ACTUAL shared_ptr
     }
   }
 
@@ -752,6 +749,13 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
     newPoint->lock();
     editor.points.push_back(newPoint);
     return newPoint;
+  }
+
+  // 2b) Existing ObjectPoints (after intersections)
+  for (const auto &op : editor.ObjectPoints) {
+    if (op && op->isValid() && op->isVisible() && op->contains(worldPos_sfml, tolerance)) {
+      return std::static_pointer_cast<Point>(op);
+    }
   }
 
   // 2b) Line endpoints (prioritize over line edge)
