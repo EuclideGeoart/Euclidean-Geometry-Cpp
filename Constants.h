@@ -54,7 +54,7 @@ const float MIN_VISIBLE_SIZE = 0.5f;   // Minimum visible size in world units fo
 constexpr float GRID_SIZE = 50.0f;                           // Base size for grid cells
 const sf::Color GRID_COLOR = sf::Color(200, 200, 200, 150);  // Light grey, semi-transparent
 const sf::Color GRID_AXIS_COLOR = sf::Color(0, 0, 0, 200);   // Darker grey for axes
-const unsigned int GRID_LABEL_FONT_SIZE = 16;
+constexpr unsigned int GRID_LABEL_FONT_SIZE = 18;
 const sf::Color AXIS_LABEL_COLOR = sf::Color(0, 0, 0, 255);  // Solid black for visibility
 const sf::Color LOCKED_COLOR = sf::Color(128, 0, 128, 200);  // Changed to const
 
@@ -159,9 +159,9 @@ const sf::Color BUTTON_DEFAULT_COLOR = sf::Color(200, 200, 200);
 const sf::Color BUTTON_ACTIVE_COLOR = sf::Color(100, 100, 255, 200);    // Blueish, active tool
 const sf::Color BUTTON_INACTIVE_COLOR = sf::Color(180, 180, 180, 200);  // Greyish, inactive
 const sf::Color BUTTON_HOVER_COLOR = sf::Color(150, 150, 220, 220);     // Lighter blueish for hover
-const unsigned int BUTTON_TEXT_SIZE = 14;              // Example value, adjust as needed
+inline unsigned int BUTTON_TEXT_SIZE = 14;              // Helper for adjustable
 const sf::Color BUTTON_TEXT_COLOR = sf::Color::Black;  // Example value
-const unsigned int GUI_MESSAGE_TEXT_SIZE = 16;         // Example value // Example value
+inline unsigned int GUI_MESSAGE_TEXT_SIZE = 30;         // Helper for adjustable
 const float GUI_MESSAGE_DURATION = 3.0f;               // Seconds, example value
 
 // --- General Interaction & Snapping ---

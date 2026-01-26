@@ -17,6 +17,7 @@
 #include <limits>
 #include <iostream>
 #include <algorithm>
+#include <unordered_set>
 
 std::shared_ptr<Point> PointUtils::findAnchorPoint(
     GeometryEditor& editor,
@@ -742,12 +743,12 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
       return existing;
     }
 
-    auto newPoint = std::make_shared<Point>(hit->position, 1.0f,
-                                            Constants::INTERSECTION_POINT_COLOR);
+    // Use centralized factory
+    auto newPoint = editor.createPoint(hit->position);
     newPoint->setIntersectionPoint(true);
+    newPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
     newPoint->setSelected(false);
     newPoint->lock();
-    editor.points.push_back(newPoint);
     return newPoint;
   }
 
@@ -882,10 +883,57 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
   }
 
   // 4) Free point
+  // 4) Free point
   Point_2 cgalPos = editor.toCGALPoint(worldPos_sfml);
-  auto newPoint = std::make_shared<Point>(cgalPos, 1.0f, Constants::POINT_DEFAULT_COLOR);
-  editor.points.push_back(newPoint);
-  return newPoint;
+  // Centralized factory handles creation, labeling, and registration
+  return editor.createPoint(cgalPos);
 }
 
-// Force rebuild
+// --- LabelManager Implementation ---
+
+std::string LabelManager::getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints) {
+    // Collect specific used names for fast lookup
+    std::unordered_set<std::string> usedNames;
+    for (const auto& pt : existingPoints) {
+        if (pt) {
+            std::string label = pt->getLabel();
+            if (!label.empty()) {
+                usedNames.insert(label);
+            }
+        }
+    }
+
+    // Generator sequences
+    // 1. A..Z
+    for (char c = 'A'; c <= 'Z'; ++c) {
+        std::string candidate(1, c);
+        if (usedNames.find(candidate) == usedNames.end()) {
+            return candidate;
+        }
+    }
+
+    // 2. A'..Z'
+    for (char c = 'A'; c <= 'Z'; ++c) {
+        std::string candidate(1, c);
+        candidate += "'";
+        if (usedNames.find(candidate) == usedNames.end()) {
+            return candidate;
+        }
+    }
+
+    // 3. A_1..Z_1, A_2..Z_2, etc. (Fallback)
+    int subscript = 1;
+    while (true) {
+        for (char c = 'A'; c <= 'Z'; ++c) {
+            std::string candidate(1, c);
+            candidate += "_" + std::to_string(subscript);
+            if (usedNames.find(candidate) == usedNames.end()) {
+                return candidate;
+            }
+        }
+        subscript++;
+        if (subscript > 1000) break; // Safety break
+    }
+
+    return "P?"; // Fallback (should rarely reach here)
+}

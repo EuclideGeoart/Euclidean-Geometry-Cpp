@@ -171,6 +171,7 @@ class Button {
 
   void setPosition(sf::Vector2f pos);  // Added for responsive layout
   void setSize(sf::Vector2f size);     // Added for justified layout
+  void updateFontSize();               // Refresh character size from Constants
 
  private:
   void centerText();
@@ -205,6 +206,7 @@ class GUI {
   float getToolbarHeight() const { return m_toolbarHeight; }
   void update(sf::Time deltaTime);                        // Add declaration for update method
 
+  void updateFontSizes();                                 // Refresh all UI text sizes
   bool isGridActive() const;
   bool isPointActive() const;
   bool isObjPointActive() const;

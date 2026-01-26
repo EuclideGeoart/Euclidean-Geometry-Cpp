@@ -91,6 +91,11 @@ GeometryEditor::GeometryEditor()
 // initialized in-class (in .h)
 {
   loadFont();
+  // Initialize Shared Font for Points
+  if (Button::getFontLoaded()) {
+      Point::commonFont = &Button::getFont();
+  }
+  
   setupDefaultViews();
   window.setVerticalSyncEnabled(true);
   window.setFramerateLimit(120);
@@ -535,15 +540,62 @@ void GeometryEditor::render() {
     if (isCreatingTriangle && previewTriangle && previewTriangle->isValid())
       previewTriangle->draw(window, scale);
 
+    // --- LABEL PASS (Screen Space) ---
+    // Switch to screen space (1:1 pixels) for sharp text
+    window.setView(window.getDefaultView());
+    
+    auto drawLabel = [&](const auto& obj) {
+        if(obj) obj->drawLabel(window, drawingView); // Pass original World View for mapping
+    };
+    
+    for (const auto &pt : points) drawLabel(pt);
+    for (const auto &op : ObjectPoints) drawLabel(op);
+    
     // hover message
     if (showHoverMessage) {
-      window.setView(guiView);
+      window.setView(window.getDefaultView());
       window.draw(hoverMessageText);
     }
 
     // finally GUI
-    window.setView(guiView);
+    window.setView(window.getDefaultView());
     gui.draw(window, drawingView, *this);
+
+    // --- RENAME OVERLAY ---
+    if (isRenaming && pointToRename) {
+         // Map point position to GUI space (Screen Space)
+         sf::Vector2f worldPos = pointToRename->getSFMLPosition();
+         sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
+         sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, window.getDefaultView());
+
+         sf::Text text;
+         if (Button::getFontLoaded()) {
+             text.setFont(Button::getFont());
+         } 
+         text.setString(renameBuffer + "|"); // Cursor
+         text.setCharacterSize(16);
+         text.setFillColor(sf::Color::Black);
+         text.setPosition(uiPos + sf::Vector2f(15.f, -15.f)); // Offset
+         
+         sf::FloatRect bounds = text.getGlobalBounds();
+         sf::RectangleShape bg(sf::Vector2f(bounds.width + 10.f, bounds.height + 6.f));
+         bg.setPosition(bounds.left - 5.f, bounds.top - 3.f);
+         bg.setFillColor(sf::Color(255, 255, 255, 220)); // Semi-transparent white
+         bg.setOutlineColor(sf::Color(0, 100, 255));
+         bg.setOutlineThickness(1.0f);
+         
+         window.draw(bg);
+         window.draw(text);
+         
+         // Helper instruction
+         sf::Text hintText;
+         if (Button::getFontLoaded()) hintText.setFont(Button::getFont());
+         hintText.setString("Enter to Apply, Esc to Cancel");
+         hintText.setCharacterSize(12);
+         hintText.setFillColor(sf::Color(50, 50, 50));
+         hintText.setPosition(bg.getPosition() + sf::Vector2f(0.f, bg.getSize().y + 2.f));
+         window.draw(hintText);
+    }
 
     window.display();
 
@@ -793,6 +845,25 @@ void GeometryEditor::createCircle(const Point_2 &center, double radius, const sf
   // Create circle attached to the center point
   circles.push_back(std::make_shared<Circle>(centerPtr, nullptr, radius, selectedColor));
   std::cout << "Circle created programmatically." << std::endl;
+}
+
+// --- Centralized Point Factory ---
+std::shared_ptr<Point> GeometryEditor::createPoint(const Point_2 &cgalPos) {
+    auto newPoint = std::make_shared<Point>(cgalPos, Constants::CURRENT_ZOOM, m_currentDrawingColor);
+    
+    // 1. Assign Label
+    std::string label = LabelManager::getNextLabel(points);
+    newPoint->setLabel(label);
+    newPoint->setShowLabel(true);
+    
+    // 2. Register Global
+    points.push_back(newPoint);
+    
+    return newPoint;
+}
+
+std::shared_ptr<Point> GeometryEditor::createPoint(const sf::Vector2f &sfmlPos) {
+    return createPoint(toCGALPoint(sfmlPos));
 }
 
 void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<Point> newPt) {

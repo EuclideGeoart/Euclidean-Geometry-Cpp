@@ -1217,6 +1217,14 @@ void Line::setColor(const sf::Color &color) {
   this->updateSFMLShape();  // Update the SFML shape
 }
 
+void Line::setAsConstructionLine() {
+  m_isConstructionLine = true;
+}
+
+bool Line::isConstructionLine() const {
+  return m_isConstructionLine;
+}
+
 void Line::setVisible(bool visible) {
   m_visible = visible;
   m_hidden = !visible;

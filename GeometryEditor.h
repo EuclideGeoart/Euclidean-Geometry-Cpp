@@ -170,6 +170,23 @@ class GeometryEditor {
                                           // creation
   std::shared_ptr<Circle> previewCircle;  // For visual feedback during circle creation
 
+  // Perpendicular Bisector tool state
+  bool isCreatingPerpendicularBisector = false;
+  std::shared_ptr<Point> perpBisectorP1 = nullptr;
+  std::shared_ptr<Point> perpBisectorP2 = nullptr;
+  std::shared_ptr<Line> perpBisectorLineRef = nullptr; // optional line-segment input
+
+  // Angle Bisector tool state
+  bool isCreatingAngleBisector = false;
+  std::vector<std::shared_ptr<Point>> angleBisectorPoints; // expecting up to 3 points A,B,C (B vertex)
+  std::shared_ptr<Line> angleBisectorLine1 = nullptr;
+  std::shared_ptr<Line> angleBisectorLine2 = nullptr;
+
+  // Tangent tool state
+  bool isCreatingTangent = false;
+  std::shared_ptr<Point> tangentAnchorPoint = nullptr;
+  std::shared_ptr<Circle> tangentCircle = nullptr;
+
   // Rectangle Creation
   bool isCreatingRectangle = false;       // Flag indicating if a rectangle is being created
   bool isCreatingRotatableRectangle = false;  // Flag for rotatable rectangle mode
@@ -240,6 +257,12 @@ class GeometryEditor {
 
   unsigned int objectIdCounter = 0;
   GeometricObject *fillTarget = nullptr;  // Right-click fill target
+  
+  // --- Renaming State ---
+  bool isRenaming = false;
+  std::shared_ptr<Point> pointToRename = nullptr;
+  std::string renameBuffer;
+  
   bool objectExistsInAnyList(GeometricObject *obj);
   void sanitizeReferences(const GeometricObject* objToDelete);
   // --- Utility Methods ---
@@ -291,7 +314,13 @@ class GeometryEditor {
   ObjectType getCurrentTool() const { return m_currentToolType; }
   std::string getCurrentToolName() const;
   // Object creation helpers
+  // Object creation helpers
   void createNewPoint(const Point_2 &cgalPos, bool isIntersection = false);
+  
+  // -- Centralized Point Factory --
+  // Creates, labels, and registers a new Point.
+  std::shared_ptr<Point> createPoint(const Point_2 &cgalPos); 
+  std::shared_ptr<Point> createPoint(const sf::Vector2f &sfmlPos);
   void startLineCreation(Point *startPt);
   void updateLinePreview(const Point_2 &currentMouseCgalPos);
   void finishLineCreation(Point *endPt);

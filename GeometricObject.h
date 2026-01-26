@@ -35,6 +35,8 @@ class GeometricObject {
 
   // Geometry operations
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const = 0;
+  // NEW: Screen-space label rendering
+  virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {}
   virtual bool contains(const sf::Vector2f &worldPos, float tolerance) const = 0;
   virtual sf::FloatRect getGlobalBounds() const = 0;
   virtual void update() {}

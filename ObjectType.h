@@ -24,7 +24,10 @@ enum class ObjectType {
   Intersection,            // Intersection tool
   IntersectionPoint,       // Resulting intersection point
   ParallelLine,            // Tool for creating parallel lines
-  PerpendicularLine        // Tool for creating perpendicular lines
+  PerpendicularLine,       // Tool for creating perpendicular lines
+  PerpendicularBisector,   // Tool for constructing perpendicular bisectors
+  AngleBisector,           // Tool for constructing angle bisectors
+  TangentLine              // Tool for constructing tangents to a circle
                            // Add more object types as needed
 };
 

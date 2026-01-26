@@ -152,3 +152,16 @@ static std::optional<IntersectionHit> getHoveredIntersection(
     Point_2& outProjection,
     double& outRelativePos);
 };
+
+/**
+ * @brief Utility for automatic label generation
+ */
+class LabelManager {
+public:
+    /**
+     * @brief Generates the next available label (A..Z, A'..Z', A_1..Z_1)
+     * @param existingPoints Collection of points to check for collision
+     * @return Unique label string
+     */
+    static std::string getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints);
+};

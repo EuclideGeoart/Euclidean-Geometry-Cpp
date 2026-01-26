@@ -46,6 +46,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
 
   // --- GeometricObject Overrides ---
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+  void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   bool contains(const sf::Vector2f &worldPos,
                 float tolerance = Constants::POINT_INTERACTION_RADIUS) const override;
   void setSelected(bool sel) override;
@@ -165,6 +166,22 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   bool m_deferConstraintUpdates;
   bool m_visible = true;
   std::vector<std::weak_ptr<Line>> m_connectedLines;  // Lines connected to this point
+
+  // --- Labeling ---
+  std::string m_label;
+  bool m_showLabel = true;
+  sf::Vector2f m_labelOffset = {10.0f, -10.0f}; // Default: Top-Right
+  
+public: // Public for initialization in GeometryEditor
+    static const sf::Font* commonFont; // Shared font pointer
+
+public:
+    void setLabel(const std::string& label) { m_label = label; }
+    std::string getLabel() const { return m_label; }
+    void setShowLabel(bool show) { m_showLabel = show; }
+    bool getShowLabel() const { return m_showLabel; }
+    void setLabelOffset(const sf::Vector2f& offset) { m_labelOffset = offset; }
+    sf::Vector2f getLabelOffset() const { return m_labelOffset; }
 };
 
 #endif  // POINT_H

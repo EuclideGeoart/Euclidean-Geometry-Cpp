@@ -119,9 +119,10 @@ void Button::centerText() {
   if (!Button::getFontLoaded()) return;  // Don't try to center if font isn't there
 
   sf::FloatRect textRect = text.getLocalBounds();
-  text.setOrigin(textRect.left + textRect.width / 2.0f, textRect.top + textRect.height / 2.0f);
-  text.setPosition(shape.getPosition().x + shape.getSize().x / 2.0f,
-                   shape.getPosition().y + shape.getSize().y / 2.0f);
+  text.setOrigin(std::round(textRect.left + textRect.width / 2.0f), 
+                 std::round(textRect.top + textRect.height / 2.0f));
+  text.setPosition(std::round(shape.getPosition().x + shape.getSize().x / 2.0f),
+                   std::round(shape.getPosition().y + shape.getSize().y / 2.0f));
 }
 
 void Button::setLabel(const std::string &label) {
@@ -181,6 +182,10 @@ void Button::setPosition(sf::Vector2f pos) {
 
 void Button::setSize(sf::Vector2f size) {
   shape.setSize(size);
+  centerText();
+}
+void Button::updateFontSize() {
+  text.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
   centerText();
 }
 
@@ -256,6 +261,24 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   // Perpendicular line tool - use "Perp" for the label to match
   // isPerpendicularLineActive()
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Perp",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Perpendicular Bisector tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "PerpBis",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Angle Bisector tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "AngBis",
+                       Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
+                       Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Tangent tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Tangent",
                        Constants::BUTTON_DEFAULT_COLOR, Constants::BUTTON_ACTIVE_COLOR,
                        Constants::BUTTON_HOVER_COLOR);
   currentX += buttonWidth + spacing;
@@ -401,8 +424,20 @@ void GUI::setMessage(const std::string &message) {
 }
 void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
                GeometryEditor &editor) const {
-  (void)drawingView;        // Mark as unused if no longer needed for preview circle
-  window.setView(guiView);  // Set view for drawing GUI elements
+  (void)drawingView;          // Mark as unused
+  window.setView(window.getDefaultView());  // Use Default View (Screen Space)
+
+  // Fixed left sidebar layout: 80px width, vertical stacking
+  const float sidebarWidth = 80.f;
+  const float padding = 8.f;
+  const float buttonHeight = Constants::BUTTON_SIZE.y;
+  float currentY = padding;
+  for (auto &button : const_cast<std::vector<Button>&>(buttons)) {
+    // Snap button dimensions/position to integers
+    button.setSize(sf::Vector2f(std::round(sidebarWidth - 2 * padding), std::round(buttonHeight)));
+    button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
+    currentY += buttonHeight + padding;
+  }
 
   for (const auto &button : buttons) {
     button.draw(window);
@@ -448,41 +483,41 @@ void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
   // ContextMenu::draw is non-const; cast away const to call it from this const method
   const_cast<ContextMenu&>(m_contextMenu).draw(window);
   if (messageActive) {
-    // Position message (e.g., bottom center of guiView)
+    // Position message (e.g., bottom center of window)
     sf::FloatRect messageBounds = guiMessage.getLocalBounds();
-    guiMessage.setPosition(guiView.getSize().x / 2.f - messageBounds.width / 2.f,
-                           guiView.getSize().y - messageBounds.height - 20.f);
+    sf::Vector2u winSize = window.getSize();
+    guiMessage.setPosition(std::round(winSize.x / 2.f - messageBounds.width / 2.f),
+                           std::round(winSize.y - messageBounds.height - 20.f));
     window.draw(guiMessage);
   }
 
-
-  
   // Render Tool Hint
   if (m_fontLoaded) {
       sf::Text hintText;
       hintText.setFont(messageFont);
-      hintText.setCharacterSize(16);
+      hintText.setCharacterSize(Constants::GUI_MESSAGE_TEXT_SIZE);
       hintText.setFillColor(sf::Color(200, 200, 200)); // Light grey
       hintText.setString(editor.getToolHint());
       
       // Position at bottom center, above message if active
       sf::FloatRect bounds = hintText.getLocalBounds();
-      float yPos = guiView.getSize().y - bounds.height - 10.f;
+      sf::Vector2u winSize = window.getSize();
+      float yPos = winSize.y - bounds.height - 10.f;
       if (messageActive) yPos -= 30.f; // Move up if message is significant
       
-      hintText.setPosition(guiView.getSize().x / 2.f - bounds.width / 2.f, yPos);
+      hintText.setPosition(std::round(winSize.x / 2.f - bounds.width / 2.f), std::round(yPos));
       window.draw(hintText);
   }
-  // This is now handled by GeometryEditor::render()
-  // if (isCreatingCircle && previewCircle) { // REMOVE THIS BLOCK
-  //   window.setView(drawingView); // Switch to world view for preview
-  //   previewCircle->draw(window);
-  //   // window.setView(guiView); // Switch back if more GUI elements followed,
-  //   or
   //   // let editor manage views
   // }
-  //   // let editor manage views
-  // }
+}
+
+void GUI::updateFontSizes() {
+  for (auto &button : buttons) {
+    button.updateFontSize();
+  }
+  guiMessage.setCharacterSize(Constants::GUI_MESSAGE_TEXT_SIZE);
+  m_angleReflexLabel.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
 }
 
 void GUI::toggleColorPicker() {
@@ -515,8 +550,22 @@ bool GUI::isMouseOverPalette(const sf::Vector2f &guiPos) const {
 }
 
 bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, GeometryEditor &editor) {
-  sf::Vector2f currentMousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window), guiView);
+  // Use DefaultView for UI Hit Testing to match Screen Space rendering
+  sf::Vector2f currentMousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window), window.getDefaultView());
   if (m_contextMenu.handleEvent(event, currentMousePos, editor)) return true;
+
+  // Ensure sidebar layout matches draw() before hit-tests
+  {
+    const float sidebarWidth = 80.f;
+    const float padding = 8.f;
+    const float buttonHeight = Constants::BUTTON_SIZE.y;
+    float currentY = padding;
+    for (auto &button : buttons) {
+      button.setSize(sf::Vector2f(sidebarWidth - 2 * padding, buttonHeight));
+      button.setPosition(sf::Vector2f(padding, currentY));
+      currentY += buttonHeight + padding;
+    }
+  }
 
   auto applyColorToSelection = [&](const sf::Color &color) -> bool {
     bool applied = false;
@@ -549,9 +598,9 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
   }
 
   if (event.type == sf::Event::MouseMoved) {
-    // Convert mouse position to GUI view coordinates once
+    // Convert mouse position to GUI view (Screen Space) coordinates once
     sf::Vector2f mousePosView =
-        window.mapPixelToCoords(sf::Vector2i(event.mouseMove.x, event.mouseMove.y), guiView);
+        window.mapPixelToCoords(sf::Vector2i(event.mouseMove.x, event.mouseMove.y), window.getDefaultView());
 
     if (m_colorPicker && m_colorPicker->isOpen()) {
       if (m_colorPicker->handleMouseMove(event, mousePosView)) {
@@ -586,7 +635,7 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
   // Handle color picker - but allow clicks outside the picker in application mode
   if (m_colorPicker && m_colorPicker->isOpen()) {
     sf::Vector2f mousePosView =
-      window.mapPixelToCoords(sf::Mouse::getPosition(window), guiView);
+      window.mapPixelToCoords(sf::Mouse::getPosition(window), window.getDefaultView());
 
     // If in application mode, check if click is actually on the color picker
     if (m_colorPicker->isInApplicationMode()) {
@@ -660,7 +709,7 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
   // Inside the button click handler, when buttons are clicked:
   if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
     for (auto &button : buttons) {
-      if (button.isMouseOver(window, guiView)) {
+      if (button.isMouseOver(window, window.getDefaultView())) {
         std::cout << "Button clicked: " << button.getLabel() << std::endl;
 
         if (button.getLabel() == "Parallel") {
@@ -682,6 +731,29 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
           std::cout << "Perpendicular line tool activated. Click on a "
                        "reference line first."
                     << std::endl;
+          return true;
+        } else if (button.getLabel() == "PerpBis") {
+          editor.setCurrentTool(ObjectType::PerpendicularBisector);
+          editor.setToolHint("Pick two points or one segment to build its perpendicular bisector.");
+          editor.isCreatingPerpendicularBisector = false;
+          editor.perpBisectorP1 = nullptr;
+          editor.perpBisectorP2 = nullptr;
+          editor.perpBisectorLineRef = nullptr;
+          return true;
+        } else if (button.getLabel() == "AngBis") {
+          editor.setCurrentTool(ObjectType::AngleBisector);
+          editor.setToolHint("Select A, vertex B, C or two lines to bisect the angle.");
+          editor.isCreatingAngleBisector = false;
+          editor.angleBisectorPoints.clear();
+          editor.angleBisectorLine1 = nullptr;
+          editor.angleBisectorLine2 = nullptr;
+          return true;
+        } else if (button.getLabel() == "Tangent") {
+          editor.setCurrentTool(ObjectType::TangentLine);
+          editor.setToolHint("Select a point then a circle to draw tangents.");
+          editor.isCreatingTangent = false;
+          editor.tangentAnchorPoint = nullptr;
+          editor.tangentCircle = nullptr;
           return true;
         } else if (button.getLabel() == "Point") {
           editor.setCurrentTool(ObjectType::Point);

@@ -55,7 +55,8 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   }
   void setSelected(bool sel) override;
   void setHovered(bool hov) override;
-  
+   // Helper
+  void updateSFMLShape();
   // Point/Edge provider interface overrides
   // Circle returns center as interactable vertex; circumference handled via ObjectPoint creation
   std::vector<Point_2> getInteractableVertices() const override;
@@ -92,8 +93,6 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   // Child ObjectPoints
   // std::vector<std::weak_ptr<ObjectPoint>> m_hostedObjectPoints; // Inherited from GeometricObject
 
-  // Helper
-  void updateSFMLShape();
+ 
 };
-
 #endif  // CIRCLE_H

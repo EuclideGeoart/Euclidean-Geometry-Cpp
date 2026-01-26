@@ -15,6 +15,10 @@
 #include <iostream>
 
 using namespace CGALSafeUtils;
+
+// Definiing Static Font Member
+const sf::Font* Point::commonFont = nullptr;
+
 // void debug_cgal_point(const Point_2 &pt, const std::string &point_name,
 //                       const std::string &context);
 // --- Constructors ---
@@ -458,6 +462,41 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
   }
 
   window.draw(pointToDraw);
+
+
+}
+
+void Point::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
+  if (!m_visible) return;
+  if (!m_showLabel || m_label.empty() || !Point::commonFont) return;
+  if (!isValid()) return;
+
+  // 1. World -> Screen conversion
+  sf::Vector2f worldPos = cgalToSFML(m_cgalPosition);
+  sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, worldView);
+
+  // 2. Setup setup
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(m_label);
+  text.setCharacterSize(Constants::GRID_LABEL_FONT_SIZE); // Dynamic font size
+  text.setFillColor(Constants::AXIS_LABEL_COLOR);
+  
+  // 3. Position (Screen Space)
+  sf::Vector2f finalPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  
+  // Apply visual offset (m_labelOffset is treated as screen pixels)
+  // Default offset is usually (10, -10)
+  finalPos += m_labelOffset; 
+  
+  // 4. Pixel Snapping for sharpness
+  finalPos.x = std::round(finalPos.x);
+  finalPos.y = std::round(finalPos.y);
+  
+  text.setPosition(finalPos);
+  
+  // 5. Draw (Caller ensures view is DefaultView)
+  window.draw(text);
 }
 bool Point::contains(const sf::Vector2f &worldPos_sfml,
                      float tolerance) const {  // Ensure tolerance is used

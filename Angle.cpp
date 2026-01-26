@@ -29,7 +29,7 @@ Angle::Angle(const std::shared_ptr<Point> &a, const std::shared_ptr<Point> &vert
     m_text.setFont(s_font);
   }
   m_text.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
-  m_text.setFillColor(sf::Color::White);
+  m_text.setFillColor(sf::Color::Black);
   updateSFMLShape();
 }
 
@@ -127,40 +127,113 @@ void Angle::updateSFMLShape() {
       m_arcRadius = std::max(15.0, std::min(lenA, lenB) * 0.3);
   }
 
-  int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
-  
-  // Update Outline (Arc)
-  m_arc.clear();
-  m_arc.setPrimitiveType(sf::LineStrip);
-  m_arc.resize(static_cast<size_t>(segments + 1));
-
-  // Update Fill (Sector)
-  m_fillFan.clear();
-  m_fillFan.setPrimitiveType(sf::TriangleFan);
+  // --- VISUALIZATION SETUP ---
   bool hasFill = (m_color.a > 0); // Only generate fill geometry if alpha > 0
-  if (hasFill) {
-      m_fillFan.resize(static_cast<size_t>(segments + 2)); // Center + arc points
-      m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy));
-      m_fillFan[0].color = m_color;
-  }
-
   double cx = vx;
   double cy = vy;
-  for (int i = 0; i <= segments; ++i) {
-    double t = (segments == 0) ? 0.0 : (static_cast<double>(i) / segments);
-    double ang = m_startAngle + m_sweepAngle * t;
-    float px = static_cast<float>(cx + m_arcRadius * std::cos(ang));
-    float py = static_cast<float>(cy + m_arcRadius * std::sin(ang));
-    
-    // Outline point
-    m_arc[static_cast<size_t>(i)].position = sf::Vector2f(px, py);
-    m_arc[static_cast<size_t>(i)].color = m_outlineColor;
 
-    // Fill point
+  // --- RIGHT ANGLE VISUALIZATION ---
+  bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.1f;
+  
+  if (isRightAngle) {
+    // Render Square Symbol
+    m_arc.clear();
+    m_arc.setPrimitiveType(sf::LineStrip);
+    m_arc.resize(5); // V -> P1 -> P2 -> P3 -> V (Closed loop or just open?)
+                 // Typically right angle symbol is just the two internal lines.
+                 // Let's do: Start(on A side) -> Corner -> End(on B side)
+                 // But typically it's a square.
+                 // Points: P_A = V + dirA * R
+                 //         P_Corner = V + dirA * R + dirB * R
+                 //         P_B = V + dirB * R
+                 // Path: P_A -> P_Corner -> P_B
+    
+    double dirAx = std::cos(m_startAngle);
+    double dirAy = std::sin(m_startAngle);
+    double dirBx = std::cos(m_startAngle + m_sweepAngle); // dirB
+    double dirBy = std::sin(m_startAngle + m_sweepAngle);
+
+    // If reflex, we might need to be careful, but 90 degrees usually isn't reflex in this context unless explicit.
+    // The sweep handles direction naturally.
+
+    double pxA = cx + dirAx * m_arcRadius;
+    double pyA = cy + dirAy * m_arcRadius;
+
+    double pxB = cx + dirBx * m_arcRadius;
+    double pyB = cy + dirBy * m_arcRadius;
+
+    double pxCorner = cx + (dirAx + dirBx) * m_arcRadius; 
+    // Actually exact square corner is V + dA*R + dB*R
+    // Check math: If A is X-axis, B is Y-axis. V=0.
+    // dirA=(1,0), dirB=(0,1). P_A=(R,0), P_B=(0,R).
+    // P_Corner = (R, R). Correct.
+    
+    double pyCorner = cy + (dirAy + dirBy) * m_arcRadius;
+
+    // We can draw the full square or just the L-bracket. 
+    // Standard is L-bracket from the sides.
+    // Let's draw: P_A -> P_Corner -> P_B.
+    
+    m_arc.resize(3);
+    m_arc[0].position = sf::Vector2f(static_cast<float>(pxA), static_cast<float>(pyA));
+    m_arc[1].position = sf::Vector2f(static_cast<float>(pxCorner), static_cast<float>(pyCorner));
+    m_arc[2].position = sf::Vector2f(static_cast<float>(pxB), static_cast<float>(pyB));
+
+    for(int i=0; i<3; ++i) m_arc[i].color = m_outlineColor;
+
+    // Fill for Right Angle (Square sector)
     if (hasFill) {
-        m_fillFan[static_cast<size_t>(i+1)].position = sf::Vector2f(px, py);
-        m_fillFan[static_cast<size_t>(i+1)].color = m_fillColor;
+      m_fillFan.clear();
+      m_fillFan.setPrimitiveType(sf::Quads); // Just a quad
+      m_fillFan.resize(4);
+      m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy)); // V
+      m_fillFan[1].position = sf::Vector2f(static_cast<float>(pxA), static_cast<float>(pyA));
+      m_fillFan[2].position = sf::Vector2f(static_cast<float>(pxCorner), static_cast<float>(pyCorner));
+      m_fillFan[3].position = sf::Vector2f(static_cast<float>(pxB), static_cast<float>(pyB));
+      
+      sf::Color transparentFill = m_fillColor;
+      transparentFill.a = 50;
+      for(int i=0; i<4; ++i) m_fillFan[i].color = transparentFill;
     }
+
+  } else {
+      // --- STANDARD ARC VISUALIZATION ---
+      int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
+      
+      // Update Outline (Arc)
+      m_arc.clear();
+      m_arc.setPrimitiveType(sf::LineStrip);
+      m_arc.resize(static_cast<size_t>(segments + 1));
+
+      // Update Fill (Sector)
+      m_fillFan.clear();
+      m_fillFan.setPrimitiveType(sf::TriangleFan);
+      if (hasFill) {
+          m_fillFan.resize(static_cast<size_t>(segments + 2)); // Center + arc points
+          m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy));
+         sf::Color transparentFill = m_fillColor;
+          transparentFill.a = 50;
+          m_fillFan[0].color = transparentFill;
+      }
+
+      for (int i = 0; i <= segments; ++i) {
+        double t = (segments == 0) ? 0.0 : (static_cast<double>(i) / segments);
+        double ang = m_startAngle + m_sweepAngle * t;
+        float px = static_cast<float>(cx + m_arcRadius * std::cos(ang));
+        float py = static_cast<float>(cy + m_arcRadius * std::sin(ang));
+        
+        // Outline point
+        m_arc[static_cast<size_t>(i)].position = sf::Vector2f(px, py);
+        m_arc[static_cast<size_t>(i)].color = m_outlineColor;
+
+        // Fill point
+        if (hasFill) {
+            m_fillFan[static_cast<size_t>(i+1)].position = sf::Vector2f(px, py);
+            sf::Color transparentFill = m_fillColor;
+            transparentFill.a = 50;
+            m_fillFan[static_cast<size_t>(i+1)].color = transparentFill;
+        }
+      }
   }
 
   float midAngle = static_cast<float>(m_startAngle + m_sweepAngle * 0.5);
@@ -177,7 +250,7 @@ void Angle::updateSFMLShape() {
   float hy = static_cast<float>(cy + m_arcRadius * std::sin(midAngle));
   m_resizeHandle.setPosition(hx, hy);
   m_resizeHandle.setFillColor(sf::Color(100, 100, 255, 200));
-  m_resizeHandle.setOutlineColor(sf::Color::White);
+  m_resizeHandle.setOutlineColor(sf::Color::Black);
   m_resizeHandle.setOutlineThickness(1.0f);
 
   sf::FloatRect bounds;

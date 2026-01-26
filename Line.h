@@ -135,7 +135,7 @@ public:
   // --- Internal Update Methods ---
 
   // --- Internal Update Methods ---
-  void updateSFMLShape();
+  virtual void updateSFMLShape();
   void updateCGALLine();
   void validate() const; // For debugging
   void setIsUnderDirectManipulation(bool isManipulated);
