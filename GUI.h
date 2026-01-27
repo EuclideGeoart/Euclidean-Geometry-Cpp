@@ -225,6 +225,7 @@ class GUI {
   std::unique_ptr<ColorPicker>& getColorPicker() { return m_colorPicker; }
   bool isMouseOverPalette(const sf::Vector2f& guiPos) const;
   ContextMenu& getContextMenu() { return m_contextMenu; }
+  bool handleSliderInteraction(const sf::Vector2i& mousePos, GeometryEditor& editor);
 
  private:
   std::vector<Button> buttons;
@@ -244,6 +245,13 @@ class GUI {
   // Angle inspector UI
   sf::RectangleShape m_angleReflexBox;
   sf::Text m_angleReflexLabel;
+
+  // Thickness slider UI
+  mutable sf::RectangleShape m_thicknessTrack;
+  mutable sf::CircleShape m_thicknessKnob;
+  mutable sf::Text m_thicknessLabel;
+  bool m_draggingThickness = false;
+  void updateThicknessSliderLayout(const sf::Vector2u& windowSize, float currentValue) const;
 
   // Utility function
   float distance(const sf::Vector2f& a, const sf::Vector2f& b) { return std::sqrt(std::pow(a.x - b.x, 2) + std::pow(a.y - b.y, 2)); }

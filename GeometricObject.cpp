@@ -25,6 +25,10 @@ bool GeometricObject::isHovered() const { return m_hovered; }
 
 void GeometricObject::setColor(const sf::Color &color) { m_color = color; }
 
+void GeometricObject::setLocked(bool locked) { m_locked = locked; }
+
+bool GeometricObject::isLocked() const { return m_locked; }
+
 // --- Hosted ObjectPoint Management ---
 
 void GeometricObject::addChildPoint(std::shared_ptr<ObjectPoint> point) {

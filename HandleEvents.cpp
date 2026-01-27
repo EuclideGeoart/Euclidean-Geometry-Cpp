@@ -73,6 +73,7 @@
 #include "Triangle.h"
 #include "Types.h"
 #include "VertexLabelManager.h"
+#include "VariantUtils.h"
 
 using namespace CGALSafeUtils;
 // Helper functions for checking if CGAL types contain finite values
@@ -94,6 +95,16 @@ bool is_cgal_point_finite(const Point_2& point) {
               << e.what() << std::endl;
     return false;
   }
+}
+
+// Helper for dynamic tolerance scaling (Fix for selection precision at high zoom)
+static float getDynamicSelectionTolerance(const GeometryEditor& editor) {
+    if (editor.window.getSize().x > 0) {
+      double scale = editor.drawingView.getSize().x / static_cast<double>(editor.window.getSize().x);
+      double pixelTolerance = 10.0;
+      return static_cast<float>(pixelTolerance * scale);
+    }
+    return 0.1f;
 }
 
 bool is_cgal_ft_finite(const Kernel::FT& value) {
@@ -363,6 +374,13 @@ void createObjectPointOnLine(GeometryEditor& editor, Line* lineHost, const Point
     auto newObjPoint = ObjectPoint::create(hostLineShared, relativePos, Constants::OBJECT_POINT_DEFAULT_COLOR);
 
     if (newObjPoint && newObjPoint->isValid()) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      std::string label = LabelManager::getNextLabel(labelPool);
+      newObjPoint->setLabel(label);
+      newObjPoint->setShowLabel(true);
       editor.ObjectPoints.push_back(newObjPoint);
       std::cout << "ObjectPoint created successfully at position " << relativePos << std::endl;
       std::cout << "Total ObjectPoints: " << editor.ObjectPoints.size() << std::endl;
@@ -391,6 +409,13 @@ void createObjectPointOnCircle(GeometryEditor& editor, std::shared_ptr<Circle> c
     auto objectPoint = ObjectPoint::create(circlePtr, angleRad, sf::Color::Red);
 
     if (objectPoint) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      std::string label = LabelManager::getNextLabel(labelPool);
+      objectPoint->setLabel(label);
+      objectPoint->setShowLabel(true);
       editor.ObjectPoints.push_back(objectPoint);
       std::cout << "ObjectPoint created successfully on circle" << std::endl;
     }
@@ -539,7 +564,7 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
   auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
   if (smartPoint && smartPoint->isValid()) {
     bool addedPoint = false;
@@ -620,7 +645,7 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
       return;
     }
 
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
 
     std::cout << "Line creation: Click at (" << CGAL::to_double(cgalWorldPos.x()) << ", " << CGAL::to_double(cgalWorldPos.y()) << ")" << std::endl;
 
@@ -805,7 +830,7 @@ void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseBu
     editor.resetParallelLineToolState();
     return;
   }
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
 
   try {
     if (!editor.m_isPlacingParallel) {  // First click: Select reference
@@ -1145,7 +1170,7 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
     editor.resetPerpendicularLineToolState();
     return;
   }
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
 
   try {
     if (!editor.m_isPlacingPerpendicular) {  // First click: Select reference
@@ -1359,7 +1384,7 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
 // Construct a perpendicular bisector from two points or a single segment selection
 void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), editor.drawingView);
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
 
   auto resetState = [&]() {
     editor.isCreatingPerpendicularBisector = false;
@@ -1430,7 +1455,7 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
 // Angle bisector from three points (A,B,C with B as vertex) or two lines
 void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), editor.drawingView);
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
 
   auto resetState = [&]() {
     editor.isCreatingAngleBisector = false;
@@ -1464,7 +1489,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
       resetState();
       return;
     }
-    const Point_2* I = std::get_if<Point_2>(&(*result));
+    const Point_2* I = safe_get_point<Point_2>(&(*result));
     if (!I) {
       editor.setGUIMessage("AngleBis: Intersection not a point.");
       resetState();
@@ -1548,7 +1573,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
 // Tangent tool: handle point+circle selection and build tangents (outside and on-circle cases)
 void handleTangentCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), editor.drawingView);
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
 
   auto resetState = [&]() {
     editor.isCreatingTangent = false;
@@ -1658,7 +1683,7 @@ void handleObjectPointCreation(GeometryEditor& editor, const sf::Event::MouseBut
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   Point_2 cgalWorldPos = editor.toCGALPoint(worldPos);
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
 
   std::cout << "Looking for host at (" << worldPos.x << ", " << worldPos.y << ") with tolerance " << tolerance << std::endl;
 
@@ -1843,7 +1868,7 @@ void handleRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButto
   try {
     sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
 
     auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
@@ -1896,7 +1921,7 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
   try {
     sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
     auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
@@ -1956,7 +1981,7 @@ void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
   try {
     sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
     auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
@@ -2015,7 +2040,7 @@ void handleRegularPolygonCreation(GeometryEditor& editor, const sf::Event::Mouse
   try {
     sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
     auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
@@ -2059,7 +2084,7 @@ void handleTriangleCreation(GeometryEditor& editor, const sf::Event::MouseButton
   try {
     sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
     auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
@@ -2138,7 +2163,8 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     std::cerr << "Error converting to CGAL point: " << e.what() << std::endl;
   }
 
-  float tolerance = editor.getScaledTolerance(editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
+  std::cout << "Dynamic tolerance: " << tolerance << std::endl;
   std::cout << "Current tolerance: " << tolerance << std::endl;
 
   editor.showHoverMessage = false;  // Hide hover message on press
@@ -2165,6 +2191,70 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   }
   if (eventHandledByGui) {
     return;  // GUI handled the event
+  }
+
+  if (mouseEvent.button == sf::Mouse::Left && editor.showGlobalLabels) {
+    sf::Vector2f mouseScreenPos(static_cast<float>(pixelPos.x), static_cast<float>(pixelPos.y));
+
+    auto hitLabel = [&](GeometricObject* obj, sf::Vector2f& outLabelPos) -> bool {
+      if (!obj) return false;
+      if (!obj->getShowLabel()) return false;
+
+      auto* pt = dynamic_cast<Point*>(obj);
+      if (!pt || !pt->isVisible()) return false;
+
+      std::string label = pt->getLabel();
+      if (label.empty()) return false;
+
+      const sf::Font* labelFont = Point::commonFont ? Point::commonFont : (Button::getFontLoaded() ? &Button::getFont() : nullptr);
+      if (!labelFont) return false;
+
+      sf::Vector2f worldPos = pt->getSFMLPosition();
+      sf::Vector2i screenPos = editor.window.mapCoordsToPixel(worldPos, editor.drawingView);
+      sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+      labelPos += pt->getLabelOffset();
+      labelPos.x = std::round(labelPos.x);
+      labelPos.y = std::round(labelPos.y);
+
+      sf::Text text;
+      text.setFont(*labelFont);
+      text.setString(label);
+      text.setCharacterSize(Constants::GRID_LABEL_FONT_SIZE);
+      text.setPosition(labelPos);
+
+      sf::FloatRect bounds = text.getGlobalBounds();
+      if (bounds.contains(mouseScreenPos)) {
+        outLabelPos = labelPos;
+        return true;
+      }
+      return false;
+    };
+
+    auto tryLabelDrag = [&](const auto& container) -> bool {
+      for (const auto& obj : container) {
+        if (!obj) continue;
+        sf::Vector2f labelPos;
+        if (hitLabel(obj.get(), labelPos)) {
+          deselectAllAndClearInteractionState(editor);
+          editor.selectedObject = obj.get();
+          editor.selectedObjects.clear();
+          editor.selectedObjects.push_back(obj.get());
+          obj->setSelected(true);
+
+          editor.isDraggingLabel = true;
+          editor.labelDragObject = obj.get();
+          editor.labelDragGrabOffset = mouseScreenPos - labelPos;
+          editor.isDragging = false;
+          editor.dragMode = DragMode::None;
+          editor.m_selectedEndpoint = EndpointSelection::None;
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (tryLabelDrag(editor.points)) return;
+    if (tryLabelDrag(editor.ObjectPoints)) return;
   }
 
   // Removed Legacy Right-Click logic block that blocked Context Menu
@@ -2202,11 +2292,13 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
     if (rightClickCount == 2) {
       // Use tolerance consistent with other tools
-      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
       GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
 
       if (hitObj) {
         editor.selectedObject = hitObj;
+        hitObj->setShowLabel(!hitObj->getShowLabel());
+        std::cout << "Toggle Label Visibility" << std::endl;
         // Map to GUI coordinates (using default view to match GUI overlay)
         sf::View DefaultView = editor.window.getDefaultView();
         sf::Vector2f guiPos = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), DefaultView);
@@ -2236,7 +2328,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   // Hide tool handling
   if (editor.m_currentToolType == ObjectType::Hide) {
     if (mouseEvent.button == sf::Mouse::Left) {
-      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
       GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
       if (hitObj) {
         hitObj->setVisible(!hitObj->isVisible());  // Toggle visibility
@@ -2253,7 +2345,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   // Detach tool handling
   if (editor.m_currentToolType == ObjectType::Detach) {
     if (mouseEvent.button == sf::Mouse::Left) {
-      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
       double bestDistSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
 
       GeometricObject* bestObj = nullptr;
@@ -2416,7 +2508,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   // Angle tool handling
   if (editor.m_currentToolType == ObjectType::Angle) {
     if (mouseEvent.button == sf::Mouse::Left) {
-      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
 
       // 1. Try to find a Point first (standard 3-point method)
       auto anchor = PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
@@ -2535,9 +2627,9 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
               const Point_2* intersectionPt = nullptr;
               Point_2 tempPt;
 
-              if (const Point_2* p = std::get_if<Point_2>(&(*result))) {
+              if (const Point_2* p = safe_get_point<Point_2>(&(*result))) {
                 intersectionPt = p;
-              } else if (const auto* p = std::get_if<Point_2>(&(*result))) {
+              } else if (const auto* p = safe_get_point<Point_2>(&(*result))) {
                 intersectionPt = p;
               }
 
@@ -2648,7 +2740,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   // Intersection tool handling (mirror Point tool intersection creation)
   if (editor.m_currentToolType == ObjectType::Intersection) {
     if (mouseEvent.button == sf::Mouse::Left) {
-      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
       auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
       if (smartPoint && smartPoint->isValid()) {
         smartPoint->setSelected(true);
@@ -2704,7 +2796,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
         // Start circle creation - create the center point first
         sf::Vector2i mousePos = sf::Mouse::getPosition(editor.window);
         sf::Vector2f worldPos = editor.window.mapPixelToCoords(mousePos, editor.drawingView);
-        float tolerance = editor.getScaledTolerance(editor.drawingView);
+        float tolerance = getDynamicSelectionTolerance(editor);
         auto centerPoint = PointUtils::createSmartPoint(editor, worldPos, tolerance);
 
         if (!centerPoint || !centerPoint->isValid()) {
@@ -2724,7 +2816,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       } else {
         // Complete circle creation
         try {
-          float tolerance = editor.getScaledTolerance(editor.drawingView);
+          float tolerance = getDynamicSelectionTolerance(editor);
           auto radiusPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
           if (!radiusPoint || !radiusPoint->isValid()) {
             return;
@@ -2856,7 +2948,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
     // 1. ObjectPoints (Snap points) - Highest Priority
     for (auto& objPointPtr : editor.ObjectPoints) {
-      if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && objPointPtr->contains(worldPos_sfml, tolerance)) {
+      if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && !objPointPtr->isLocked() && objPointPtr->contains(worldPos_sfml, tolerance)) {
         std::cout << "Found ObjectPoint (Priority 1)" << std::endl;
         potentialSelection = objPointPtr.get();
         potentialDragMode = DragMode::DragObjectPoint;
@@ -2867,7 +2959,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     // 2. Free Points (Entities) - Includes Line Endpoints if they are Points
     // This fixes the "Free Point Mobility" and "Line Endpoint" conflict by treating all Points as first-class draggables.
     for (auto& pointPtr : editor.points) {
-      if (pointPtr && pointPtr->isValid() && pointPtr->isVisible() && pointPtr->contains(worldPos_sfml, tolerance)) {
+      if (pointPtr && pointPtr->isValid() && pointPtr->isVisible() && !pointPtr->isLocked() && pointPtr->contains(worldPos_sfml, tolerance)) {
         std::cout << "Found Point (Priority 2)" << std::endl;
         potentialSelection = pointPtr.get();
         potentialDragMode = DragMode::MoveFreePoint;
@@ -2879,7 +2971,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     {
       auto checkVertexHit = [&](auto& container) -> bool {
         for (auto& ptr : container) {
-          if (!ptr || !ptr->isValid() || !ptr->isVisible()) continue;
+          if (!ptr || !ptr->isValid() || !ptr->isVisible() || ptr->isLocked()) continue;
           auto verts = ptr->getInteractableVertices();
           for (size_t i = 0; i < verts.size(); ++i) {
             float vx = static_cast<float>(CGAL::to_double(verts[i].x()));
@@ -2904,7 +2996,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       // Special handling for RegularPolygon creation points
       auto checkRegularPolygonCreationPoints = [&]() -> bool {
         for (auto& ptr : editor.regularPolygons) {
-          if (!ptr || !ptr->isValid() || !ptr->isVisible()) continue;
+          if (!ptr || !ptr->isValid() || !ptr->isVisible() || ptr->isLocked()) continue;
           auto creationPts = ptr->getCreationPointsSFML();
           for (size_t i = 0; i < creationPts.size(); ++i) {
             float dx = creationPts[i].x - worldPos_sfml.x;
@@ -2929,7 +3021,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
     // 3. Angles (selection only)
     for (auto& anglePtr : editor.angles) {
-      if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && anglePtr->contains(worldPos_sfml, tolerance)) {
+      if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && !anglePtr->isLocked() && anglePtr->contains(worldPos_sfml, tolerance)) {
         std::cout << "Found Angle (Priority 2.8)" << std::endl;
         potentialSelection = anglePtr.get();
 
@@ -2951,7 +3043,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
     // 4. Lines (Bodies)
     for (auto& linePtr : editor.lines) {
-      if (linePtr && linePtr->isValid() && linePtr->isVisible() && linePtr->contains(worldPos_sfml, tolerance)) {
+      if (linePtr && linePtr->isValid() && linePtr->isVisible() && !linePtr->isLocked() && linePtr->contains(worldPos_sfml, tolerance)) {
         std::cout << "Found Line Body (Priority 3)" << std::endl;
         potentialSelection = linePtr.get();
         potentialDragMode = DragMode::TranslateLine;
@@ -2965,7 +3057,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     {
       auto checkShapeEdges = [&](auto& container) -> bool {
         for (auto& shape : container) {
-          if (!shape || !shape->isValid() || !shape->isVisible()) continue;
+          if (!shape || !shape->isValid() || !shape->isVisible() || shape->isLocked()) continue;
           auto edges = shape->getEdges();
           for (const auto& edge : edges) {
             Point_2 proj;
@@ -2996,7 +3088,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     {
       // 6. Circles (Center then Body)
       for (auto& circlePtr : editor.circles) {
-        if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible()) continue;
+        if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible() || circlePtr->isLocked()) continue;
         // Center check (already covered by Point check if center is a Point obj, but Point might be hidden)
         float centerTolerance = tolerance * 4.0f;
         if (circlePtr->isCenterPointHovered(worldPos_sfml, centerTolerance)) {
@@ -3017,7 +3109,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       // 7. Shape Interiors (Global Contains)
       auto checkShapeContains = [&](auto& container) -> bool {
         for (auto& ptr : container) {
-          if (!ptr || !ptr->isValid() || !ptr->isVisible()) continue;
+          if (!ptr || !ptr->isValid() || !ptr->isVisible() || ptr->isLocked()) continue;
           if (ptr->contains(worldPos_sfml, tolerance)) {
             std::cout << "Found Shape Interior (Priority 4)" << std::endl;
             potentialSelection = ptr.get();
@@ -3081,6 +3173,15 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
         } catch (const std::exception& e) {
           std::cerr << "Error setting selection state: " << e.what() << std::endl;
         }
+      }
+
+      if (editor.selectedObject && editor.selectedObject->isLocked()) {
+        editor.dragMode = DragMode::None;
+        editor.m_selectedEndpoint = EndpointSelection::None;
+        editor.isDragging = false;
+        editor.lastMousePos_sfml = worldPos_sfml;
+        editor.dragStart_sfml = worldPos_sfml;
+        return;
       }
 
       // Configure drag mode
@@ -3183,6 +3284,15 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       editor.lastMousePos_sfml = worldPos_sfml;
       editor.dragStart_sfml = worldPos_sfml;
 
+      if (editor.selectedObject && editor.selectedObject->isLocked()) {
+        editor.dragMode = DragMode::None;
+        editor.m_selectedEndpoint = EndpointSelection::None;
+        editor.isDragging = false;
+        editor.lastMousePos_sfml = worldPos_sfml;
+        editor.dragStart_sfml = worldPos_sfml;
+        return;
+      }
+
       // Set vertex state for MoveShapeVertex mode (CRITICAL FIX)
       if (potentialDragMode == DragMode::MoveShapeVertex) {
         editor.activeVertexIndex = potentialVertexIndex;
@@ -3226,6 +3336,11 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 }
 void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent) {
   // Handle key press events
+  if (keyEvent.code == sf::Keyboard::Home) {
+    editor.resetView();
+    editor.setGUIMessage("View Reset");
+    return;
+  }
   if (keyEvent.code == sf::Keyboard::R) {
     if (!editor.isRenaming && editor.selectedObject &&
         (editor.selectedObject->getType() == ObjectType::Point || editor.selectedObject->getType() == ObjectType::ObjectPoint ||
@@ -3345,7 +3460,7 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
 
     auto collectSelected = [&](const auto& container) {
       for (const auto& obj : container) {
-        if (obj && obj->isSelected()) {
+        if (obj && obj->isSelected() && !obj->isLocked()) {
           objectsToDelete.push_back(obj);
         }
       }
@@ -3416,6 +3531,10 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     bool visible = VertexLabelManager::instance().isVisible();
     editor.setGUIMessage(visible ? "Vertex labels: ON" : "Vertex labels: OFF");
     std::cout << "Vertex labels toggled: " << (visible ? "ON" : "OFF") << std::endl;
+  } else if (keyEvent.code == sf::Keyboard::H) {
+    editor.showGlobalLabels = !editor.showGlobalLabels;
+    editor.setGUIMessage(editor.showGlobalLabels ? "Labels: ON" : "Labels: OFF");
+    std::cout << "Global labels toggled: " << (editor.showGlobalLabels ? "ON" : "OFF") << std::endl;
   }
   // Add other key handlers as needed
 }
@@ -3439,6 +3558,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   sf::Vector2i pixelPos(moveEvent.x, moveEvent.y);
   sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
 
+  // Dynamic hover tolerance (match selection/preview logic)
+  double dynamicWorldTolerance = getDynamicSelectionTolerance(editor);
+
   // Angle Resizing Logic
   if (editor.isDragging && editor.isResizingAngle && editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
     auto angle = dynamic_cast<Angle*>(editor.selectedObject);
@@ -3454,6 +3576,19 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       angle->setRadius(newRadius);
     }
     return;  // Consume event
+  }
+
+  if (editor.isDraggingLabel && editor.labelDragObject) {
+    sf::Vector2f mouseScreenPos(static_cast<float>(moveEvent.x), static_cast<float>(moveEvent.y));
+    if (auto* pt = dynamic_cast<Point*>(editor.labelDragObject)) {
+      sf::Vector2f worldPos = pt->getSFMLPosition();
+      sf::Vector2i pointScreen = editor.window.mapCoordsToPixel(worldPos, editor.drawingView);
+      sf::Vector2f pointScreenPos(static_cast<float>(pointScreen.x), static_cast<float>(pointScreen.y));
+      sf::Vector2f labelTopLeft = mouseScreenPos - editor.labelDragGrabOffset;
+      sf::Vector2f newOffset = labelTopLeft - pointScreenPos;
+      pt->setLabelOffset(newOffset);
+    }
+    return;
   }
   sf::Vector2f guiPos = editor.window.mapPixelToCoords(pixelPos, editor.guiView);
 
@@ -3564,7 +3699,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   // === LINE TOOL VERTEX/EDGE SNAP PREVIEW ===
   // When Line Tool is active, highlight nearby vertices/edges to give visual feedback
   if (editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment) {
-    float tolerance = editor.getScaledTolerance(editor.drawingView) * 2.0f;
+    float tolerance = getDynamicSelectionTolerance(editor) * 2.0f;
 
     // Clear previous hover state
     if (editor.hoveredVertexShape) {
@@ -3719,7 +3854,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       editor.m_currentToolType == ObjectType::Intersection || editor.m_currentToolType == ObjectType::Rectangle ||
       editor.m_currentToolType == ObjectType::RectangleRotatable || editor.m_currentToolType == ObjectType::Polygon ||
       editor.m_currentToolType == ObjectType::RegularPolygon || editor.m_currentToolType == ObjectType::Triangle) {
-    float tolerance = editor.getScaledTolerance(editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
     editor.m_snapState = PointUtils::checkSnapping(editor, worldPos, tolerance);
 
     // Apply snap to cursor position if snapping is active (Alt key)
@@ -3845,6 +3980,12 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // Handle dragging
   if (editor.isDragging) {
+    if (editor.selectedObject && editor.selectedObject->isLocked()) {
+      editor.dragMode = DragMode::None;
+      editor.m_selectedEndpoint = EndpointSelection::None;
+      editor.isDragging = false;
+      return;
+    }
     QUICK_PROFILE("DragOperations");
     // 1. Calculate Raw World Position from Mouse
     Point_2 targetPos = editor.toCGALPoint(worldPos);
@@ -4422,13 +4563,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     lastHoverCheckPos = worldPos;
 
     QUICK_PROFILE("HoverDetection");
-    float baseTolerance = editor.getScaledTolerance(editor.drawingView);
-    float tolerance = baseTolerance * 1.5f;  // Slightly larger tolerance for
-    // hover detection
-    const float MIN_TOLERANCE = 8.0f;  // Minimum 8 pixels
-    if (tolerance < MIN_TOLERANCE) {
-      tolerance = MIN_TOLERANCE;
-    }
+    float tolerance = static_cast<float>(dynamicWorldTolerance);
     // IMPROVED: Only reset hover if something was previously hovered
 
     // Reset only the previously hovered object if it's still valid and not being deleted
@@ -4454,6 +4589,150 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     // Check for hover, prioritizing smaller objects
     GeometricObject* newHoveredObject = nullptr;
     const float QUICK_REJECT_DISTANCE = tolerance * 3.0f;
+
+    // --- SMART BEST-CANDIDATE HOVER (conservative override) ---
+    bool useSmartHover = true;
+    if (useSmartHover) {
+      // Reset hover state on all objects
+      auto clearHover = [&](auto& container) {
+        for (auto& ptr : container) {
+          if (!ptr || isObjectBeingDeleted(ptr.get())) continue;
+          try { ptr->setHovered(false); } catch (...) {}
+        }
+      };
+      clearHover(editor.ObjectPoints);
+      clearHover(editor.points);
+      clearHover(editor.lines);
+      clearHover(editor.circles);
+      clearHover(editor.rectangles);
+      clearHover(editor.polygons);
+      clearHover(editor.regularPolygons);
+      clearHover(editor.triangles);
+      clearHover(editor.angles);
+
+      g_lastHoveredObject = nullptr;
+      editor.hoveredObject = nullptr;
+
+      GeometricObject* bestObj = nullptr;
+      double bestDist = static_cast<double>(tolerance);
+      int bestPriority = -1;  // 0 = Axis, 1 = Line/Shape, 2 = Point
+
+      auto considerCandidate = [&](GeometricObject* obj, double dist, int priority) {
+        if (!obj) return;
+        if (dist > tolerance) return;
+        if (!bestObj) {
+          bestObj = obj;
+          bestDist = dist;
+          bestPriority = priority;
+          return;
+        }
+        bool near = std::abs(dist - bestDist) < (tolerance * 0.1f);
+        if (near) {
+          if (priority > bestPriority) {
+            bestObj = obj;
+            bestDist = dist;
+            bestPriority = priority;
+          }
+        } else if (dist < bestDist) {
+          bestObj = obj;
+          bestDist = dist;
+          bestPriority = priority;
+        }
+      };
+
+      auto distanceToSegment = [&](const sf::Vector2f& a, const sf::Vector2f& b, const sf::Vector2f& p, bool clamp) -> double {
+        sf::Vector2f ab = b - a;
+        float len2 = ab.x * ab.x + ab.y * ab.y;
+        if (len2 < 1e-8f) {
+          float dx = p.x - a.x;
+          float dy = p.y - a.y;
+          return std::sqrt(dx * dx + dy * dy);
+        }
+        float t = ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2;
+        if (clamp) t = std::clamp(t, 0.0f, 1.0f);
+        sf::Vector2f proj(a.x + ab.x * t, a.y + ab.y * t);
+        float dx = p.x - proj.x;
+        float dy = p.y - proj.y;
+        return std::sqrt(dx * dx + dy * dy);
+      };
+
+      // Points and ObjectPoints (highest priority)
+      for (auto& objPointPtr : editor.ObjectPoints) {
+        if (!objPointPtr || !objPointPtr->isValid() || !objPointPtr->isVisible() || isObjectBeingDeleted(objPointPtr.get())) continue;
+        sf::Vector2f pos = objPointPtr->getSFMLPosition();
+        double dist = std::sqrt(std::pow(pos.x - worldPos.x, 2) + std::pow(pos.y - worldPos.y, 2));
+        considerCandidate(objPointPtr.get(), dist, 2);
+      }
+      for (auto& pointPtr : editor.points) {
+        if (!pointPtr || !pointPtr->isValid() || !pointPtr->isVisible() || isObjectBeingDeleted(pointPtr.get())) continue;
+        sf::Vector2f pos = pointPtr->getSFMLPosition();
+        double dist = std::sqrt(std::pow(pos.x - worldPos.x, 2) + std::pow(pos.y - worldPos.y, 2));
+        considerCandidate(pointPtr.get(), dist, 2);
+      }
+
+      // Shapes (priority 1)
+      auto considerEdges = [&](auto& container) {
+        for (auto& shape : container) {
+          if (!shape || !shape->isValid() || !shape->isVisible() || isObjectBeingDeleted(shape.get())) continue;
+          auto edges = shape->getEdges();
+          double minDist = static_cast<double>(tolerance) + 1.0;
+          for (size_t i = 0; i < edges.size(); ++i) {
+            Point_2 proj;
+            double relPos;
+            double dist = PointUtils::projectPointOntoSegment(cgalWorldPos, edges[i], proj, relPos);
+            if (dist < minDist) minDist = dist;
+          }
+          considerCandidate(shape.get(), minDist, 1);
+        }
+      };
+      considerEdges(editor.rectangles);
+      considerEdges(editor.polygons);
+      considerEdges(editor.regularPolygons);
+      considerEdges(editor.triangles);
+
+      // Lines (priority 1, axes lower)
+      for (auto& linePtr : editor.lines) {
+        if (!linePtr || !linePtr->isValid() || !linePtr->isVisible() || isObjectBeingDeleted(linePtr.get())) continue;
+        sf::Vector2f p1 = editor.toSFMLVector(linePtr->getStartPoint());
+        sf::Vector2f p2 = editor.toSFMLVector(linePtr->getEndPoint());
+        double dist = distanceToSegment(p1, p2, worldPos, linePtr->isSegment());
+        int priority = linePtr->isLocked() ? 0 : 1;
+        considerCandidate(linePtr.get(), dist, priority);
+      }
+
+      // Circles (priority 1)
+      for (auto& circlePtr : editor.circles) {
+        if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible() || isObjectBeingDeleted(circlePtr.get())) continue;
+        sf::Vector2f center = editor.toSFMLVector(circlePtr->getCenterPoint());
+        double dx = center.x - worldPos.x;
+        double dy = center.y - worldPos.y;
+        double distCenter = std::sqrt(dx * dx + dy * dy);
+        double dist = std::abs(distCenter - circlePtr->getRadius());
+        considerCandidate(circlePtr.get(), dist, 1);
+      }
+
+      // Angles (priority 1)
+      for (auto& anglePtr : editor.angles) {
+        if (!anglePtr || !anglePtr->isValid() || !anglePtr->isVisible() || isObjectBeingDeleted(anglePtr.get())) continue;
+        if (anglePtr->contains(worldPos, tolerance)) {
+          considerCandidate(anglePtr.get(), 0.0, 1);
+        }
+      }
+
+      if (bestObj && !isObjectBeingDeleted(bestObj)) {
+        try {
+          bestObj->setHovered(true);
+          g_lastHoveredObject = bestObj;
+          editor.hoveredObject = bestObj;
+        } catch (const std::exception& e) {
+          std::cerr << "Error setting hover on object: " << e.what() << std::endl;
+          bestObj = nullptr;
+        }
+      }
+      newHoveredObject = bestObj;
+    }
+
+    if (!useSmartHover) {
 
     // Check vertex handles first
     auto checkVertexHover = [&](auto& container) -> bool {
@@ -4611,6 +4890,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       g_lastHoveredObject = newHoveredObject;
     }
 
+    }
+
   } catch (const std::exception& e) {
     std::cerr << "Error in hover detection: " << e.what() << std::endl;
   } catch (...) {
@@ -4621,7 +4902,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   // Only check for edge hover if no object is currently hovered
   try {
     if (!g_lastHoveredObject && !editor.isDragging) {
-      float tolerance = editor.getScaledTolerance(editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
       auto edgeHit = PointUtils::findNearestEdge(editor, worldPos, tolerance);
 
       if (edgeHit) {
@@ -4647,9 +4928,74 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   editor.lastMousePos_sfml = worldPos;
 }
 
+// --- Precise Selection Helpers ---
+
+// Helper: Check if line segment intersects AABB (FloatRect)
+// Using Liang-Barsky algorithm or checking endpoints + intersection with rect edges
+bool lineIntersectsRect(const sf::Vector2f& p1, const sf::Vector2f& p2, const sf::FloatRect& rect) {
+    // 1. AABB Trivial Reject
+    float minX = std::min(p1.x, p2.x);
+    float maxX = std::max(p1.x, p2.x);
+    float minY = std::min(p1.y, p2.y);
+    float maxY = std::max(p1.y, p2.y);
+    
+    if (maxX < rect.left || minX > rect.left + rect.width ||
+        maxY < rect.top || minY > rect.top + rect.height) {
+        return false;
+    }
+    
+    // 2. Check if either endpoint is inside (Trivial Accept)
+    if (rect.contains(p1) || rect.contains(p2)) return true;
+    
+    // 3. Line-Segment Intersects Rect Edges?
+    // Function to check intersection of segment p1-p2 with segment q1-q2
+    auto intersect = [](sf::Vector2f a, sf::Vector2f b, sf::Vector2f c, sf::Vector2f d) {
+        auto cross = [](sf::Vector2f v, sf::Vector2f w) { return v.x*w.y - v.y*w.x; };
+        sf::Vector2f r = b - a;
+        sf::Vector2f s = d - c;
+        float rxs = cross(r, s);
+        if (std::abs(rxs) < 1e-5f) return false;
+        sf::Vector2f cma = c - a;
+        float t = cross(cma, s) / rxs;
+        float u = cross(cma, r) / rxs;
+        return (t >= 0 && t <= 1 && u >= 0 && u <= 1);
+    };
+    
+    sf::Vector2f tl(rect.left, rect.top);
+    sf::Vector2f tr(rect.left + rect.width, rect.top);
+    sf::Vector2f br(rect.left + rect.width, rect.top + rect.height);
+    sf::Vector2f bl(rect.left, rect.top + rect.height);
+    
+    if (intersect(p1, p2, tl, tr)) return true; // Top
+    if (intersect(p1, p2, tr, br)) return true; // Right
+    if (intersect(p1, p2, br, bl)) return true; // Bottom
+    if (intersect(p1, p2, bl, tl)) return true; // Left
+    
+    return false;
+}
+
+// Helper: Check if Circle intersects AABB
+bool circleIntersectsRect(const sf::Vector2f& center, float radius, const sf::FloatRect& rect) {
+    // Find closest point on Rect to Circle Center
+    float closestX = std::clamp(center.x, rect.left, rect.left + rect.width);
+    float closestY = std::clamp(center.y, rect.top, rect.top + rect.height);
+    
+    float dx = center.x - closestX;
+    float dy = center.y - closestY;
+    
+    // If the distance is less than radius, they intersect
+    return (dx * dx + dy * dy) < (radius * radius);
+}
+
 void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+
+  if (mouseEvent.button == sf::Mouse::Left && editor.isDraggingLabel) {
+    editor.isDraggingLabel = false;
+    editor.labelDragObject = nullptr;
+    return;
+  }
 
   // Clear active vertex drag state
   if (editor.activeVertexShape) {
@@ -4662,7 +5008,6 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
   editor.activeVertexIndex = -1;
 
   // Check if GUI (especially color picker) should handle this release event
-  sf::Vector2f guiPos = editor.window.mapPixelToCoords(pixelPos, editor.guiView);
 
   sf::Event eventToForward;
   eventToForward.type = sf::Event::MouseButtonReleased;
@@ -4688,57 +5033,80 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
     try {
       std::vector<GeometricObject*> newlySelectedObjects;
 
+      // Points: Keep standard intersection (AABB is fine for small points)
       for (auto& pointPtr : editor.points) {
         if (pointPtr && pointPtr->isValid() && pointPtr->isVisible() && selectionBox.intersects(pointPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(pointPtr.get());
         }
       }
+      
+      // Lines: Use precise Line-Rect intersection
       for (auto& linePtr : editor.lines) {
-        if (linePtr && linePtr->isValid() && linePtr->isVisible() && selectionBox.intersects(linePtr->getGlobalBounds())) {
-          if (Constants::DEBUG_SELECTION) {  // Use your DEBUG_SELECTION flag
-            std::cout << "SelectionBox Check: Line " << linePtr.get() << " bounds: (" << linePtr->getGlobalBounds().left << ","
-                      << linePtr->getGlobalBounds().top << "," << linePtr->getGlobalBounds().width << "," << linePtr->getGlobalBounds().height << ")"
-                      << " intersects: " << selectionBox.intersects(linePtr->getGlobalBounds()) << std::endl;
-          }
-          newlySelectedObjects.push_back(linePtr.get());
+        if (linePtr && linePtr->isValid() && linePtr->isVisible() && !linePtr->isLocked()) {
+             // Get standard points (start/end)
+             // ...
+             // Logic: Existing getGlobalBounds returns bounds for the *segment* representation in standard Line impl.
+             // Let's assume Segment behavior for selection to be intuitive (select the observable part).
+             
+             Point_2 start = linePtr->getStartPoint();
+             Point_2 end = linePtr->getEndPoint();
+             // Convert to float for SFML check
+             sf::Vector2f p1(static_cast<float>(CGAL::to_double(start.x())), static_cast<float>(CGAL::to_double(start.y())));
+             sf::Vector2f p2(static_cast<float>(CGAL::to_double(end.x())), static_cast<float>(CGAL::to_double(end.y())));
+             
+             if (lineIntersectsRect(p1, p2, selectionBox)) {
+                  newlySelectedObjects.push_back(linePtr.get());
+             }
         }
       }
+      
+      // Circles: Use precise Circle-Rect intersection
       for (auto& circlePtr : editor.circles) {
-        if (circlePtr && circlePtr->isValid() && circlePtr->isVisible() && selectionBox.intersects(circlePtr->getGlobalBounds())) {
-          newlySelectedObjects.push_back(circlePtr.get());
+        if (circlePtr && circlePtr->isValid() && circlePtr->isVisible() && !circlePtr->isLocked()) {
+             Point_2 c = circlePtr->getCenterPoint();
+             sf::Vector2f center(static_cast<float>(CGAL::to_double(c.x())), static_cast<float>(CGAL::to_double(c.y())));
+             float radius = static_cast<float>(circlePtr->getRadius());
+             
+             if (circleIntersectsRect(center, radius, selectionBox)) {
+                newlySelectedObjects.push_back(circlePtr.get());
+             }
         }
       }
+      
+      // ObjectPoints
       for (auto& objPointPtr : editor.ObjectPoints) {
-        if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && selectionBox.intersects(objPointPtr->getGlobalBounds())) {
+        if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && !objPointPtr->isLocked() && selectionBox.intersects(objPointPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(objPointPtr.get());
         }
       }
       // Add Rectangle selection
       for (auto& rectPtr : editor.rectangles) {
-        if (rectPtr && rectPtr->isValid() && rectPtr->isVisible() && selectionBox.intersects(rectPtr->getGlobalBounds())) {
+        if (rectPtr && rectPtr->isValid() && rectPtr->isVisible() && !rectPtr->isLocked() && selectionBox.intersects(rectPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(rectPtr.get());
         }
       }
       // Add Polygon selection
       for (auto& polyPtr : editor.polygons) {
-        if (polyPtr && polyPtr->isValid() && polyPtr->isVisible() && selectionBox.intersects(polyPtr->getGlobalBounds())) {
+        if (polyPtr && polyPtr->isValid() && polyPtr->isVisible() && !polyPtr->isLocked() && selectionBox.intersects(polyPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(polyPtr.get());
         }
       }
       // Add RegularPolygon selection
       for (auto& regPolyPtr : editor.regularPolygons) {
-        if (regPolyPtr && regPolyPtr->isValid() && regPolyPtr->isVisible() && selectionBox.intersects(regPolyPtr->getGlobalBounds())) {
+        if (regPolyPtr && regPolyPtr->isValid() && regPolyPtr->isVisible() && !regPolyPtr->isLocked() && selectionBox.intersects(regPolyPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(regPolyPtr.get());
         }
       }
       // Add Triangle selection
       for (auto& triPtr : editor.triangles) {
-        if (triPtr && triPtr->isValid() && triPtr->isVisible() && selectionBox.intersects(triPtr->getGlobalBounds())) {
-          newlySelectedObjects.push_back(triPtr.get());
+        if (triPtr && triPtr->isValid() && triPtr->isVisible() && !triPtr->isLocked()) {
+             if(selectionBox.intersects(triPtr->getGlobalBounds())) {
+                 newlySelectedObjects.push_back(triPtr.get());
+             }
         }
       }
       for (auto& anglePtr : editor.angles) {
-        if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && selectionBox.intersects(anglePtr->getGlobalBounds())) {
+        if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && !anglePtr->isLocked() && selectionBox.intersects(anglePtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(anglePtr.get());
         }
       }
@@ -4960,7 +5328,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
       if (previousDragMode == DragMode::MoveFreePoint || previousDragMode == DragMode::DragObjectPoint ||
           previousDragMode == DragMode::TranslateLine || previousDragMode == DragMode::TranslateShape) {
         sf::Vector2f totalDeltaSfml = worldPos - editor.dragStart_sfml;
-        float threshold = std::max(0.001f, editor.getScaledTolerance(editor.drawingView) * 0.1f);
+        float threshold = std::max(0.001f, getDynamicSelectionTolerance(editor) * 0.1f);
         if (editor.length(totalDeltaSfml) > threshold) {
           std::vector<GeometricObject*> translationTargets = editor.selectedObjects;
           if (translationTargets.empty() && draggedObject) {

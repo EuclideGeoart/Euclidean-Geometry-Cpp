@@ -268,7 +268,7 @@ class DeleteCommandT : public Command {
     if (m_objects.empty()) return;
 
     for (auto &obj : m_objects) {
-      if (obj) {
+      if (obj && !obj->isLocked()) {
         m_editor.sanitizeReferences(obj.get());
       }
     }
@@ -355,6 +355,7 @@ class DeleteCommandT : public Command {
   void categorizeObjects() {
     for (auto &obj : m_objects) {
       if (!obj) continue;
+      if (obj->isLocked()) continue;
       switch (obj->getType()) {
         case ObjectType::Point:
         case ObjectType::IntersectionPoint:

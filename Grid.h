@@ -40,20 +40,21 @@ private:
   formatNumber(float number) const; // Helper to format numbers for labels
   void setupGridLines(const sf::View &currentView,
                       const sf::Vector2u &windowSize);
-  std::vector<sf::VertexArray> m_gridLines;
+  mutable std::vector<sf::VertexArray> m_gridLines;
 
   sf::VertexArray m_vertices;
   float m_gridSize;
   bool m_visible;
   bool m_adaptive;            // Whether the grid spacing adapts to zoom
   float m_baseGridSpacing;    // The initial grid spacing
-  float m_currentGridSpacing; // Current grid spacing, adapted for zoom
+  mutable float m_currentGridSpacing; // Current grid spacing, adapted for zoom
   Line m_xAxisPseudoLine;
   Line m_yAxisPseudoLine;
   sf::Font m_font;               // Font for labels
   bool m_fontLoaded;                // Flag to check if font was loaded
   mutable sf::Text m_axisLabelText; // Reusable sf::Text for labels
   mutable sf::Text m_axisText;      // Reusable sf::Text for drawing labels
+  mutable sf::View m_lastView;      // Cache last view to detect changes
 
   // Constants for adaptive grid behavior (can be tuned)
   float m_minPixelSpacing; // Minimum desired pixel spacing for grid lines on

@@ -6,6 +6,7 @@
 #include "Line.h"
 #include "Circle.h"
 #include "Constants.h"
+#include "VariantUtils.h"
 
 // Dynamic construction helpers that recompute geometry from parents.
 class PerpendicularBisector : public Line {
@@ -100,7 +101,7 @@ class AngleBisector : public Line {
 
         auto result = CGAL::intersection(l1Locked->getCGALLine(), l2Locked->getCGALLine());
         if (!result) return;
-        const Point_2 *I = std::get_if<Point_2>(&(*result));
+        const Point_2 *I = safe_get_point<Point_2>(&(*result));
         if (!I) return;
         origin = *I;
 

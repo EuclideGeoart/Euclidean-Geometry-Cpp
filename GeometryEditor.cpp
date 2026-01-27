@@ -67,6 +67,8 @@
 #include "ObjectPoint.h"
 #include "Point.h"
 #include "Types.h"  // For Point_2, Line_2 etc.
+#include "VariantUtils.h"  // For safe_get_point
+
 
 // #include "Command.h" // If base Command class is needed directly
 // #include "GenericDeleteCommand.h" // If used directly here
@@ -75,11 +77,12 @@
 float Constants::CURRENT_ZOOM = 1.0f;
 // Constructor
 GeometryEditor::GeometryEditor()
-    : settings(0, 0, 0),
+    : settings(0, 0, 8),
       window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.8f, sf::VideoMode::getDesktopMode().height * 0.8f), "Geometry Editor",
              sf::Style::Default, settings),
-      drawingView(sf::FloatRect(0.f, 0.f, static_cast<float>(sf::VideoMode::getDesktopMode().width * 0.8f),
-                                static_cast<float>(sf::VideoMode::getDesktopMode().height * 0.8f))),
+      // Initialize drawing view: Width = 30 units (approx), centered at (0,0)
+      drawingView(sf::Vector2f(0.f, 0.f), sf::Vector2f(20.0f, 20.0f * (static_cast<float>(sf::VideoMode::getDesktopMode().height) / static_cast<float>(sf::VideoMode::getDesktopMode().width)))),
+      // Initialize GUI view: matches window pixels exactly (top-left 0,0)
       guiView(sf::FloatRect(0.f, 0.f, static_cast<float>(sf::VideoMode::getDesktopMode().width * 0.8f),
                             static_cast<float>(sf::VideoMode::getDesktopMode().height * 0.8f))),
       gui(),
@@ -96,7 +99,7 @@ GeometryEditor::GeometryEditor()
       Point::commonFont = &Button::getFont();
   }
   
-  setupDefaultViews();
+  // Use resetView() to establish the desired default zoom
   window.setVerticalSyncEnabled(true);
   window.setFramerateLimit(120);
   
@@ -123,7 +126,30 @@ GeometryEditor::GeometryEditor()
     // fallback if SFML allows.
   }
 
+
+
   // gui.setView(guiView); // Or gui.updateView(guiView);
+
+
+  // Initialize Axes (as Class Members)
+  auto xAxisStart = std::make_shared<Point>(Point_2(-1e8, 0), Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, objectIdCounter++);
+  auto xAxisEnd = std::make_shared<Point>(Point_2(1e8, 0), Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, objectIdCounter++);
+  xAxis = std::make_shared<Line>(xAxisStart, xAxisEnd, false, Constants::GRID_AXIS_COLOR, objectIdCounter++);
+  xAxis->setLocked(true);
+  xAxis->setVisible(true);
+  xAxis->setThickness(1.5f);
+  lines.push_back(xAxis);
+
+  auto yAxisStart = std::make_shared<Point>(Point_2(0, -1e8), Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, objectIdCounter++);
+  auto yAxisEnd = std::make_shared<Point>(Point_2(0, 1e8), Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, objectIdCounter++);
+  yAxis = std::make_shared<Line>(yAxisStart, yAxisEnd, false, Constants::GRID_AXIS_COLOR, objectIdCounter++);
+  yAxis->setLocked(true);
+  yAxis->setVisible(true);
+  yAxis->setThickness(1.5f);
+  lines.push_back(yAxis);
+
+  // Apply default view state (40 world units wide, Y+ up)
+  resetView();
 
   std::cout << "GeometryEditor initialized." << std::endl;
 }
@@ -423,7 +449,8 @@ void GeometryEditor::render() {
     }
 
     // Get zoom level from view (for safety checks)
-    float zoomLevel = drawingView.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
+    float viewHeightAbs = std::abs(drawingView.getSize().y);
+    float zoomLevel = viewHeightAbs / static_cast<float>(Constants::WINDOW_HEIGHT);
 
     // CRITICAL FIX: Reset the views to their default state if they seem
     // corrupted
@@ -432,19 +459,12 @@ void GeometryEditor::render() {
       std::cerr << "Error: View appears corrupted with zoom level " << zoomLevel
                 << ". Resetting views to default." << std::endl;
 
-      // Reset drawing view
-      drawingView = sf::View(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x),
-                                           static_cast<float>(window.getSize().y)));
-
-      // Reset GUI view
-      guiView = sf::View(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x),
-                                       static_cast<float>(window.getSize().y)));
-
-      // Update grid for new view
-      grid.update(drawingView, window.getSize());
+      // Reset drawing view to default state
+      resetView();
 
       // Recalculate zoom level
-      zoomLevel = drawingView.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
+      viewHeightAbs = std::abs(drawingView.getSize().y);
+      zoomLevel = viewHeightAbs / static_cast<float>(Constants::WINDOW_HEIGHT);
       std::cout << "Views reset. New zoom level: " << zoomLevel << std::endl;
     }
 
@@ -464,18 +484,31 @@ void GeometryEditor::render() {
     window.setView(drawingView);
 
     // Calculate scale factor for invariant rendering (world units per screen pixel)
-    float scale = drawingView.getSize().y / static_cast<float>(window.getSize().y);
+    float scale = viewHeightAbs / static_cast<float>(window.getSize().y);
+
+    // Sync axis visibility to the actual axis state (UI reflects this elsewhere)
+    const bool axesVisible = areAxesVisible();
+    if (xAxis) xAxis->setVisible(axesVisible);
+    if (yAxis) yAxis->setVisible(axesVisible);
 
     // Helper lambda for ghost rendering
     auto drawObject = [&](auto& obj) {
         if (!obj || !obj->isValid()) return;
-        
+
         // Check if we are in Ghost Mode (Hide Tool active)
         bool ghostMode = (m_currentToolType == ObjectType::Hide);
-        
+
+        float objectScale = scale;
+        if (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment) {
+          float thickness = obj->getThickness();
+          if (thickness > 0.0f) {
+            objectScale = scale * (thickness / Constants::LINE_THICKNESS_DEFAULT);
+          }
+        }
+
         // Pass forceVisible=true if in ghost mode
         // The object's draw method handles the alpha/transparency logic if valid but hidden
-        obj->draw(window, scale, ghostMode);
+        obj->draw(window, objectScale, ghostMode);
     };
 
     // points
@@ -515,7 +548,11 @@ void GeometryEditor::render() {
     PointUtils::drawSnappingVisuals(window, m_snapState, scale);
 
     // selection box
-    if (isDrawingSelectionBox) window.draw(selectionBoxShape);
+    if (isDrawingSelectionBox) {
+        // dynamic thickness to keep it sharp (approx 2 pixels)
+        selectionBoxShape.setOutlineThickness(2.0f * scale);
+        window.draw(selectionBoxShape);
+    }
 
     // preview circle
     if (isCreatingCircle && previewCircle && previewCircle->isValid()) previewCircle->draw(window, scale);
@@ -545,11 +582,18 @@ void GeometryEditor::render() {
     window.setView(window.getDefaultView());
     
     auto drawLabel = [&](const auto& obj) {
-        if(obj) obj->drawLabel(window, drawingView); // Pass original World View for mapping
+      if (!obj) return;
+      if (!showGlobalLabels) return;
+      if (!obj->getShowLabel()) return;
+      obj->drawLabel(window, drawingView); // Pass original World View for mapping
     };
     
     for (const auto &pt : points) drawLabel(pt);
     for (const auto &op : ObjectPoints) drawLabel(op);
+    for (const auto &rect : rectangles) drawLabel(rect);
+    for (const auto &reg : regularPolygons) drawLabel(reg);
+    for (const auto &tri : triangles) drawLabel(tri);
+    for (const auto &poly : polygons) drawLabel(poly);
     
     // hover message
     if (showHoverMessage) {
@@ -1178,7 +1222,8 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
     contentHeight = 1.0f;
   }
 
-  drawingView.setSize(static_cast<float>(width), contentHeight);
+  // Preserve Y+ up by keeping negative height
+  drawingView.setSize(static_cast<float>(width), -contentHeight);
 
   float topNorm = clampedToolbar / static_cast<float>(height);
   drawingView.setViewport(sf::FloatRect(0.f, topNorm, 1.f, 1.f - topNorm));
@@ -1188,6 +1233,40 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
 
   // Update the grid when the view changes
   grid.update(drawingView, window.getSize());
+}
+
+void GeometryEditor::resetView() {
+    // 1. Define the "Perfect Grid" Density
+    // 48.0f means 1 world unit = 48 screen pixels.
+    // This density is spacious enough for the grid to show 1, 2, 3...
+    const float pixelsPerUnit = 48.0f; 
+
+    // 2. Get current window dimensions
+    const sf::Vector2u winSize = window.getSize();
+
+    // 3. Calculate View Size in World Units
+    // ViewWidth = ScreenWidth / PixelsPerUnit
+    float viewW = static_cast<float>(winSize.x) / pixelsPerUnit;
+    float viewH = static_cast<float>(winSize.y) / pixelsPerUnit;
+
+    // 4. Apply to Drawing View
+    // Note: We use negative height (-viewH) to enforce Y-Up (Cartesian) coordinates.
+    drawingView.setSize(viewW, -viewH);
+    drawingView.setCenter(0.0f, 0.0f);
+    window.setView(drawingView);
+
+    // 5. Reset GUI View (Standard 1:1 pixel mapping for UI overlays)
+    guiView.setSize(static_cast<float>(winSize.x), static_cast<float>(winSize.y));
+    guiView.setCenter(static_cast<float>(winSize.x) / 2.0f, static_cast<float>(winSize.y) / 2.0f);
+
+    // 6. Sync Global Zoom Variable
+    // Update the zoom tracker so mouse wheel operations don't "jump"
+    if (Constants::WINDOW_HEIGHT > 0) {
+        Constants::CURRENT_ZOOM = std::abs(drawingView.getSize().y) / static_cast<float>(Constants::WINDOW_HEIGHT);
+    }
+
+    // 7. Force Grid Update to match the new view
+    grid.update(drawingView, winSize);
 }
 
 void GeometryEditor::startPanning(const sf::Vector2f &mousePos) {
@@ -1220,124 +1299,76 @@ void GeometryEditor::createIntersectionPoint(Line *line1, Line *line2) {
     Line_2 cline1(line1->getStartPoint(), line1->getEndPoint());
     Line_2 cline2(line2->getStartPoint(), line2->getEndPoint());
 
-    auto intersectionExistsNearby = [&](const Point_2 &p) {
-      const double dupTol2 = 1e-6;  // world units squared
-      for (auto &pt : points) {
-        if (pt && pt->isValid()) {
-          if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
-            return true;
-          }
-        }
-      }
-      return false;
-    };
+    // --- Helper: Business Logic (Reuse) ---
+    auto processPoint = [&](const Point_2& p) {
+        // 1. Check if point is actually ON the segments (Bounding Box Check)
+        auto isPointOnSegments = [&](const Point_2& pt) {
+             auto check = [&](Line* l) {
+                if (l->getType() == ObjectType::LineSegment) {
+                    double px = CGAL::to_double(pt.x());
+                    double py = CGAL::to_double(pt.y());
+                    Point_2 s = l->getStartPoint();
+                    Point_2 e = l->getEndPoint();
+                    
+                    double minX = std::min(CGAL::to_double(s.x()), CGAL::to_double(e.x())) - 0.001;
+                    double maxX = std::max(CGAL::to_double(s.x()), CGAL::to_double(e.x())) + 0.001;
+                    double minY = std::min(CGAL::to_double(s.y()), CGAL::to_double(e.y())) - 0.001;
+                    double maxY = std::max(CGAL::to_double(s.y()), CGAL::to_double(e.y())) + 0.001;
+                    
+                    if (px < minX || px > maxX || py < minY || py > maxY) return false;
+                }
+                return true;
+             };
+             return check(line1) && check(line2);
+        };
 
-    if (cline1.is_degenerate() || cline2.is_degenerate()) {
-      std::cout << "One of the lines is degenerate (a point). No intersection." << std::endl;
-      return;
-    }
-
-    auto isPointOnSegments = [&](const Point_2& pt) -> bool {
-         auto check = [&](Line* l) {
-            if (l->getType() == ObjectType::LineSegment) {
-                double px = CGAL::to_double(pt.x());
-                double py = CGAL::to_double(pt.y());
-                Point_2 s = l->getStartPoint();
-                Point_2 e = l->getEndPoint();
-                double sx = CGAL::to_double(s.x());
-                double ex = CGAL::to_double(e.x());
-                double sy = CGAL::to_double(s.y());
-                double ey = CGAL::to_double(e.y());
-                
-                double minX = std::min(sx, ex) - 0.001;
-                double maxX = std::max(sx, ex) + 0.001;
-                double minY = std::min(sy, ey) - 0.001;
-                double maxY = std::max(sy, ey) + 0.001;
-                
-                if (px < minX || px > maxX || py < minY || py > maxY) return false;
+        if (isPointOnSegments(p)) {
+            // 2. Check for Duplicates
+            bool exists = false;
+            double dupTol2 = 1e-6;
+            for (auto &pt : points) {
+                if (pt && pt->isValid()) {
+                    if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
+                        exists = true; break;
+                    }
+                }
             }
-            return true;
-         };
-         return check(line1) && check(line2);
+            // 3. Create Point
+            if (!exists) {
+                auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
+                                                        Constants::INTERSECTION_POINT_COLOR);
+                newPoint->setIntersectionPoint(true);
+              std::string label = LabelManager::getNextLabel(points);
+              newPoint->setLabel(label);
+              newPoint->setShowLabel(true);
+                points.push_back(newPoint);
+                std::cout << "Line-Line intersection point created." << std::endl;
+            } else {
+                std::cout << "Intersection point already exists nearby." << std::endl;
+            }
+        } else {
+            std::cout << "Intersection outside segment bounds." << std::endl;
+        }
     };
 
+    // --- EXECUTION ---
     auto result = CGAL::intersection(cline1, cline2);
 
     if (result) {
-      using ActualVariantType = std::decay_t<decltype(*result)>;
+        // MAGIC: The compiler picks the correct 'safe_get_point' based on the type of result!
+        const Point_2* pPtr = safe_get_point<Point_2>(&(*result));
 
-      if constexpr (std::is_same_v<ActualVariantType, std::variant<Point_2, Line_2>>) {
-        if (const Point_2 *p = std::get_if<Point_2>(&(*result))) {
-          if (isPointOnSegments(*p)) {
-              if (!intersectionExistsNearby(*p)) {
-                auto newPoint = std::make_shared<Point>(*p, Constants::CURRENT_ZOOM,
-                                                        Constants::INTERSECTION_POINT_COLOR);
-                newPoint->setIntersectionPoint(true);
-                points.push_back(newPoint);
-                std::cout << "Line-Line intersection point created." << std::endl;
-              } else {
-                std::cout << "Intersection point already exists nearby, skipping duplicate." << std::endl;
-              }
-          } else {
-             std::cout << "Intersection outside segment bounds." << std::endl;
-          }
+        if (pPtr) {
+            processPoint(*pPtr);
+        } else {
+            std::cout << "Intersection is not a single point (Overlap or other)." << std::endl;
         }
-      } else if constexpr (std::is_same_v<ActualVariantType, boost::variant<Point_2, Line_2>>) {
-        struct BoostIntersectionVisitor : public boost::static_visitor<void> {
-          GeometryEditor *editor_ptr;
-          std::function<bool(const Point_2&)> checker;
-          std::function<bool(const Point_2&)> dupChecker;
-
-          BoostIntersectionVisitor(GeometryEditor *ed, std::function<bool(const Point_2&)> c,
-                                   std::function<bool(const Point_2&)> dc) 
-            : editor_ptr(ed), checker(c), dupChecker(dc) {}
-
-          void operator()(const Point_2 &p_val) {
-            if (checker(p_val)) {
-                if (!dupChecker(p_val)) {
-                  auto newPoint = std::make_shared<Point>(p_val, Constants::CURRENT_ZOOM,
-                                                          Constants::INTERSECTION_POINT_COLOR);
-                  newPoint->setIntersectionPoint(true);
-                  editor_ptr->points.push_back(newPoint);
-                  std::cout << "Line-Line intersection point created." << std::endl;
-                } else {
-                  std::cout << "Intersection point already exists nearby, skipping duplicate." << std::endl;
-                }
-            } else {
-                std::cout << "Intersection outside segment bounds." << std::endl;
-            }
-          }
-
-          void operator()(const Line_2 &) {
-            std::cout << "Lines are coincident, no unique intersection point." << std::endl;
-          }
-        };
-
-        BoostIntersectionVisitor visitor(this, isPointOnSegments, intersectionExistsNearby);
-        boost::apply_visitor(visitor, *result);
-      }
     } else {
       std::cout << "Lines are parallel or do not intersect." << std::endl;
     }
+
   } catch (const std::exception &e) {
     std::cerr << "Error creating line-line intersection: " << e.what() << std::endl;
-  }
-}
-
-void GeometryEditor::handlePointDragging(Point *draggedPoint, const Point_2 &newPosition) {
-  // Move the point
-  draggedPoint->setCGALPosition(newPosition);
-
-  // Force immediate update of all connected lines and their constraints
-  for (auto &line : lines) {
-    if (line &&
-        (line->getStartPointPtr() == draggedPoint || line->getEndPointPtr() == draggedPoint)) {
-      line->setExternallyMovedEndpoint(draggedPoint);
-      line->update();
-
-      // Force immediate constraint propagation
-      line->notifyConstraintObserversOfChange();
-    }
   }
 }
 
@@ -1381,6 +1412,10 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
       // Tangent case
       if (isPointOnSegment(projectedCenter)) {
           auto newPoint = std::make_unique<Point>(projectedCenter, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+          newPoint->setIntersectionPoint(true);
+          std::string label = LabelManager::getNextLabel(points);
+          newPoint->setLabel(label);
+          newPoint->setShowLabel(true);
           points.push_back(std::move(newPoint));
           std::cout << "Line tangent to circle. Point created." << std::endl;
       }
@@ -1400,10 +1435,20 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
                           projectedCenter.y() - unitLineDir.y() * halfChordLength);
 
     if (isPointOnSegment(intersection1)) {
-        points.push_back(std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR));
+      auto newPoint = std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+      newPoint->setIntersectionPoint(true);
+      std::string label = LabelManager::getNextLabel(points);
+      newPoint->setLabel(label);
+      newPoint->setShowLabel(true);
+      points.push_back(std::move(newPoint));
     }
     if (isPointOnSegment(intersection2)) {
-        points.push_back(std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR));
+      auto newPoint = std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+      newPoint->setIntersectionPoint(true);
+      std::string label = LabelManager::getNextLabel(points);
+      newPoint->setLabel(label);
+      newPoint->setShowLabel(true);
+      points.push_back(std::move(newPoint));
     }
     std::cout << "Line-Circle intersection check complete." << std::endl;
   } catch (const std::exception &e) {
@@ -1505,6 +1550,10 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
       Point_2 intersectionPoint(radicalX, radicalY);
       auto newPoint =
           std::make_unique<Point>(intersectionPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+        newPoint->setIntersectionPoint(true);
+        std::string label = LabelManager::getNextLabel(points);
+        newPoint->setLabel(label);
+        newPoint->setShowLabel(true);
       points.push_back(std::move(newPoint));
       std::cout << "Circles are tangent. One intersection point created." << std::endl;
       return;
@@ -1528,6 +1577,16 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
         std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR);
     auto newPoint2 =
         std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+
+    newPoint1->setIntersectionPoint(true);
+    std::string label1 = LabelManager::getNextLabel(points);
+    newPoint1->setLabel(label1);
+    newPoint1->setShowLabel(true);
+
+    newPoint2->setIntersectionPoint(true);
+    std::string label2 = LabelManager::getNextLabel(points);
+    newPoint2->setLabel(label2);
+    newPoint2->setShowLabel(true);
 
     points.push_back(std::move(newPoint1));
     points.push_back(std::move(newPoint2));
@@ -1693,42 +1752,42 @@ void GeometryEditor::deleteSelected() {
 
   // Collect selected objects by their actual shared_ptr (keeps them alive)
   for (auto &ptr : points) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       pointsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : lines) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       linesToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : circles) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       circlesToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : ObjectPoints) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       objPointsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : rectangles) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       rectanglesToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : polygons) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       polygonsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : regularPolygons) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       regularPolygonsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : triangles) {
-    if (ptr && ptr->isSelected()) {
+    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
       trianglesToDelete.push_back(ptr);
     }
   }
@@ -2252,4 +2311,22 @@ void GeometryEditor::clearSelection() {
         if (obj) obj->setSelected(false);
     }
     selectedObjects.clear();
+}
+
+void GeometryEditor::toggleAxes() {
+  bool newState = false;
+  if (xAxis) {
+      newState = !xAxis->isVisible();
+      xAxis->setVisible(newState);
+  }
+  if (yAxis) {
+      // If xAxis exists, we sync to it. If not, we toggle yAxis based on its own state
+      if (!xAxis) newState = !yAxis->isVisible();
+      yAxis->setVisible(newState);
+  }
+  setGUIMessage(newState ? "Axes Visible" : "Axes Hidden");
+}
+
+bool GeometryEditor::areAxesVisible() const {
+  return xAxis && xAxis->isVisible();
 }

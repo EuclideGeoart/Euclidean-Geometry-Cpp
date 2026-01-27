@@ -43,125 +43,83 @@ bool Grid::isVisible() const { return m_visible; }
 
 void Grid::toggleVisibility() { m_visible = !m_visible; }
 
-void Grid::update(const sf::View &view, const sf::Vector2u &/* windowSize */) {
-  // Get the visible area in world coordinates
-  sf::Vector2f viewSize = view.getSize();
-  sf::Vector2f viewCenter = view.getCenter();
-  float left = viewCenter.x - viewSize.x / 2.f;
-  float top = viewCenter.y - viewSize.y / 2.f;
-  float right = viewCenter.x + viewSize.x / 2.f;
-  float bottom = viewCenter.y + viewSize.y / 2.f;
+void Grid::update(const sf::View &view, const sf::Vector2u &windowSize) {
+  // Update the cached view state
+  m_lastView = view;
 
-  // Get current zoom level (Magnification factor)
-  // zoomLevel from code was "ViewSize / WindowSize", which is Inverse Zoom
-  float inverseZoom = view.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
-  float currentZoom = 1.0f;
-  if (inverseZoom > 0.0001f) currentZoom = 1.0f / inverseZoom;
+  // 1. Calculate how many world units equal ~50 pixels (the desired gap)
+  if (windowSize.x == 0 || view.getSize().x == 0) return;
 
-  // Calculate visually pleasing step size
-  float baseStep = Constants::GRID_SIZE; // e.g. 50.0f
+  float pixelsPerUnit = static_cast<float>(windowSize.x) / view.getSize().x;
+  float minScreenGap = 50.0f; // Minimum pixels between lines
+  float minWorldGap = minScreenGap / pixelsPerUnit;
 
-  // Adjust step based on zoom to keep screen spacing consistent
-  // (e.g., keep visual grid lines between 25px and 100px apart)
-  if (currentZoom > 0) { // Avoid infinite loop if 0
-      while ((baseStep * currentZoom) > 100.0f) baseStep /= 2.0f; // Zoomed in? Divide grid
-      while ((baseStep * currentZoom) < 25.0f)  baseStep *= 2.0f; // Zoomed out? Multiply grid
-  }
+  // 2. Determine best step size (1, 2, 5, 10, 20, 50, etc.)
+  // We use log10 to find the magnitude (power of 10)
+  float magnitude = std::pow(10.0f, std::floor(std::log10(minWorldGap)));
+  float residual = minWorldGap / magnitude;
 
-  float gridSpacing = baseStep;
+  // Pick the cleanest multiplier
+  if (residual > 5.0f)
+    m_currentGridSpacing = 10.0f * magnitude;
+  else if (residual > 2.0f)
+    m_currentGridSpacing = 5.0f * magnitude;
+  else if (residual > 1.0f)
+    m_currentGridSpacing = 2.0f * magnitude;
+  else
+    m_currentGridSpacing = 1.0f * magnitude;
 
-  // Recreate grid lines for the visible area with some margin
-  float margin = viewSize.x * 0.2f; // 20% margin on each side
+  // 3. Robust Loop Bounds (Infinite Scrolling)
+  sf::Vector2f center = view.getCenter();
+  sf::Vector2f size = view.getSize();
 
-  // Clear previous grid lines
+  // Safety padding to ensure lines don't pop out at edges.
+  // We add 'step' to the half-sizes to ensure we cover the full view plus a bit more.
+  float step = m_currentGridSpacing;
+  float extraPad = step * 2.0f; // Generous padding
+
+  float left = center.x - size.x / 2.0f - extraPad;
+  float right = center.x + size.x / 2.0f + extraPad;
+  float top = center.y - size.y / 2.0f - extraPad;
+  float bottom = center.y + size.y / 2.0f + extraPad;
+
+  float startX = std::floor(left / step) * step;
+ 
+  // Handle inverted Y or negative sizing: simply find min/max for loops
+  float minY = std::min(top, bottom);
+  float maxY = std::max(top, bottom);
+  float startY = std::floor(minY / step) * step;
+
+  // Recreate grid lines
   m_gridLines.clear();
-
-  // Create vertical grid lines
-  for (float x = std::floor((left - margin) / gridSpacing) * gridSpacing;
-       x <= right + margin; x += gridSpacing) {
-    sf::Vertex line[] = {
-        sf::Vertex(sf::Vector2f(x, top - margin), Constants::GRID_COLOR),
-        sf::Vertex(sf::Vector2f(x, bottom + margin), Constants::GRID_COLOR)};
-
-    // Add thicker lines for axes
-    if (std::abs(x) < 0.001f * gridSpacing) {
-      line[0].color = Constants::GRID_AXIS_COLOR;
-      line[1].color = Constants::GRID_AXIS_COLOR;
-    }
-
-    m_gridLines.push_back(sf::VertexArray(sf::Lines, 2));
-    m_gridLines.back()[0] = line[0];
-    m_gridLines.back()[1] = line[1];
-  }
-
-  // Create horizontal grid lines
-  for (float y = std::floor((top - margin) / gridSpacing) * gridSpacing;
-       y <= bottom + margin; y += gridSpacing) {
-    sf::Vertex line[] = {
-        sf::Vertex(sf::Vector2f(left - margin, y), Constants::GRID_COLOR),
-        sf::Vertex(sf::Vector2f(right + margin, y), Constants::GRID_COLOR)};
-
-    // Add thicker lines for axes
-    if (std::abs(y) < 0.001f * gridSpacing) {
-      line[0].color = Constants::GRID_AXIS_COLOR;
-      line[1].color = Constants::GRID_AXIS_COLOR;
-    }
-
-    m_gridLines.push_back(sf::VertexArray(sf::Lines, 2));
-    m_gridLines.back()[0] = line[0];
-    m_gridLines.back()[1] = line[1];
-  }
-}
-
-void Grid::setupGridLines(const sf::View &currentView, const sf::Vector2u &) {
-  m_gridLines.clear();
-  if (!m_visible || m_gridSize <= 0)
-    return;
-
-  sf::Vector2f viewCenter = currentView.getCenter();
-  sf::Vector2f viewSize = currentView.getSize();
-  float left = viewCenter.x - viewSize.x / 2.f;
-  float right = viewCenter.x + viewSize.x / 2.f;
-  float top = viewCenter.y - viewSize.y / 2.f;
-  float bottom = viewCenter.y + viewSize.y / 2.f;
-
-  // Adaptive Grid Logic (User Request)
-  float inverseZoom = viewSize.y / static_cast<float>(Constants::WINDOW_HEIGHT);
-  float currentZoom = 1.0f;
-  if (inverseZoom > 0.0001f) currentZoom = 1.0f / inverseZoom;
-  
-  float baseStep = Constants::GRID_SIZE; 
-  if (currentZoom > 0) {
-      while ((baseStep * currentZoom) > 100.0f) baseStep /= 2.0f;
-      while ((baseStep * currentZoom) < 25.0f)  baseStep *= 2.0f;
-  }
-  float dynamicGridSize = baseStep;
 
   // Vertical lines
-  float startX = std::floor(left / dynamicGridSize) * dynamicGridSize;
-  for (float x = startX; x <= right; x += dynamicGridSize) {
+  for (float x = startX; x <= right; x += step) {
+    if (std::abs(x) < step * 0.001f) continue; // Skip near-zero (axis handled separately usually, or simpler to draw)
+    
     sf::VertexArray line(sf::Lines, 2);
-    line[0].position = sf::Vector2f(x, top - viewSize.y); // Extend beyond view
-    line[1].position = sf::Vector2f(x, bottom + viewSize.y);
-    bool isAxis =
-        (std::abs(x) < dynamicGridSize * 0.1f); // Check if it's the Y-axis
-    line[0].color = isAxis ? Constants::GRID_AXIS_COLOR : Constants::GRID_COLOR;
-    line[1].color = isAxis ? Constants::GRID_AXIS_COLOR : Constants::GRID_COLOR;
+    line[0].position = sf::Vector2f(x, minY);
+    line[1].position = sf::Vector2f(x, maxY);
+    line[0].color = Constants::GRID_COLOR;
+    line[1].color = Constants::GRID_COLOR;
     m_gridLines.push_back(line);
   }
 
   // Horizontal lines
-  float startY = std::floor(top / dynamicGridSize) * dynamicGridSize;
-  for (float y = startY; y <= bottom; y += dynamicGridSize) {
+  for (float y = startY; y <= maxY; y += step) {
+     if (std::abs(y) < step * 0.001f) continue;
+
     sf::VertexArray line(sf::Lines, 2);
-    line[0].position = sf::Vector2f(left - viewSize.x, y); // Extend beyond view
-    line[1].position = sf::Vector2f(right + viewSize.x, y);
-    bool isAxis =
-        (std::abs(y) < dynamicGridSize * 0.1f); // Check if it's the X-axis
-    line[0].color = isAxis ? Constants::GRID_AXIS_COLOR : Constants::GRID_COLOR;
-    line[1].color = isAxis ? Constants::GRID_AXIS_COLOR : Constants::GRID_COLOR;
+    line[0].position = sf::Vector2f(left, y);
+    line[1].position = sf::Vector2f(right, y);
+    line[0].color = Constants::GRID_COLOR;
+    line[1].color = Constants::GRID_COLOR;
     m_gridLines.push_back(line);
   }
+}
+
+void Grid::setupGridLines(const sf::View &currentView, const sf::Vector2u &windowSize) {
+  update(currentView, windowSize);
 }
 bool Grid::isAxisLine(const sf::Vector2f& worldPos_sfml, float tolerance, bool checkXAxis) const {
     if (checkXAxis) {
@@ -190,22 +148,16 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
               << std::endl;
   }
 
-  // Get current zoom level
-  float zoomLevel =
-      drawingView.getSize().y / static_cast<float>(Constants::WINDOW_HEIGHT);
+  // Check if view has changed since last update (e.g. panning)
+  // We use a small epsilon or direct comparison. Center and Size check is usually enough.
+  if (drawingView.getCenter() != m_lastView.getCenter() || 
+      drawingView.getSize() != m_lastView.getSize()) {
+      // Auto-update to handle panning/zooming not caught by explicit calls
+      // Cast away constness to call update (which updates mutable members)
+      const_cast<Grid*>(this)->update(drawingView, window.getSize());
+  }
 
-  // Skip grid rendering at extreme zoom levels to prevent performance issues
-  // or visual artifacts that might cause the red screen
-  // const float MIN_GRID_RENDER_ZOOM = 0.01f;
-  // const float MAX_GRID_RENDER_ZOOM = 50.0f;
-
-  // if (zoomLevel < MIN_GRID_RENDER_ZOOM || zoomLevel > MAX_GRID_RENDER_ZOOM) {
-  //   // At extreme zoom levels, just render a simple background
-  //   // This prevents potential rendering artifacts
-  //   return;
-  // }
-
-  // Draw grid lines using drawingView
+  // Draw grid lines using drawingView (pre-calculated in update)
   window.setView(drawingView);
   for (const auto &line : m_gridLines) {
     window.draw(line);
@@ -215,41 +167,27 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
   if (m_fontLoaded) {
     sf::Vector2f viewCenter = drawingView.getCenter();
     sf::Vector2f viewSize = drawingView.getSize();
-    float left = viewCenter.x - viewSize.x / 2.f;
-    float right = viewCenter.x + viewSize.x / 2.f;
-    float top = viewCenter.y - viewSize.y / 2.f;
-    float bottom = viewCenter.y + viewSize.y / 2.f;
-
-    // Determine a dynamic grid spacing for labels (consistent with
-    // setupGridLines)
-    float inverseZoom = viewSize.y / static_cast<float>(Constants::WINDOW_HEIGHT);
-    float currentZoom = 1.0f;
-    if (inverseZoom > 0.0001f) currentZoom = 1.0f / inverseZoom;
     
-    float baseStep = Constants::GRID_SIZE; 
-    if (currentZoom > 0) {
-        while ((baseStep * currentZoom) > 100.0f) baseStep /= 2.0f;
-        while ((baseStep * currentZoom) < 25.0f)  baseStep *= 2.0f;
-    }
-    float dynamicGridSize = baseStep;
+    // Bounds for labels (same logic as update to prevent popping)
+    float step = m_currentGridSpacing;
+    float extraPad = step * 2.0f;
 
-    m_axisText.setCharacterSize(
-        Constants::GRID_LABEL_FONT_SIZE); // Fixed pixel size
+    float left = viewCenter.x - viewSize.x / 2.0f - extraPad;
+    float right = viewCenter.x + viewSize.x / 2.0f + extraPad;
+    float top = viewCenter.y - viewSize.y / 2.0f - extraPad;
+    float bottom = viewCenter.y + viewSize.y / 2.0f + extraPad;
+
+    float dynamicGridSize = m_currentGridSpacing; // Use the pre-calculated spacing
+
+    m_axisText.setCharacterSize(Constants::GRID_LABEL_FONT_SIZE);
     m_axisText.setFont(m_font);
     m_axisText.setFillColor(Constants::AXIS_LABEL_COLOR);
-
-    // Add a check to prevent rendering too many labels at extreme zoom levels
-    if (dynamicGridSize < 0.0001f) {
-      // At extreme zoom levels, limit label rendering
-      return;
-    }
 
     // X-axis labels
     float startX = std::floor(left / dynamicGridSize) * dynamicGridSize;
     for (float x = startX; x <= right; x += dynamicGridSize) {
-      if (std::abs(x) < dynamicGridSize * 0.01f &&
-          std::abs(0.0f) < dynamicGridSize * 0.01f)
-        continue; // Skip origin label if too close to Y-axis labels
+      if (std::abs(x) < dynamicGridSize * 0.01f)
+        continue; // Skip origin label
 
       sf::Vector2f worldLabelPos(x, 0.f); // Position on X-axis
       sf::Vector2i pixelLabelPos =
@@ -257,7 +195,6 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
 
       // Convert float to string with controlled precision
       std::ostringstream oss;
-      // Use scientific notation for large numbers (above 999,999)
       if (std::abs(x) >= 1000000.0f) {
         oss << std::scientific << std::setprecision(3) << x;
       } else if (dynamicGridSize < 1.0f) {
@@ -280,12 +217,15 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
       window.setView(drawingView); // Switch back
     }
 
-    // Y-axis labels (similar modification needed here)
-    float startY = std::floor(top / dynamicGridSize) * dynamicGridSize;
-    for (float y = startY; y <= bottom; y += dynamicGridSize) {
-      if (std::abs(y) < dynamicGridSize * 0.01f &&
-          std::abs(0.0f) < dynamicGridSize * 0.01f)
-        continue; // Skip origin label if too close to X-axis labels
+    // Y-axis labels
+    // Handle inverted Y or negative sizing for labels too
+    float minY = std::min(top, bottom);
+    float maxY = std::max(top, bottom);
+    float startY = std::floor(minY / dynamicGridSize) * dynamicGridSize;
+    
+    for (float y = startY; y <= maxY; y += dynamicGridSize) {
+       if (std::abs(y) < dynamicGridSize * 0.01f)
+        continue; // Skip origin label
 
       sf::Vector2f worldLabelPos(0.f, y); // Position on Y-axis
       sf::Vector2i pixelLabelPos =
@@ -293,7 +233,6 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
 
       // Convert float to string with controlled precision
       std::ostringstream oss;
-      // Use scientific notation for large numbers (above 999,999)
       if (std::abs(y) >= 1000000.0f) {
         oss << std::scientific << std::setprecision(3) << y;
       } else if (dynamicGridSize < 1.0f) {

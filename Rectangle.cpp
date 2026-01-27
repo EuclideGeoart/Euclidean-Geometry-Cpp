@@ -539,13 +539,28 @@ void Rectangle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
     handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
+  }
+}
 
-    if (m_isRotatable) {
-      const char* labels[] = {"A", "B", "C", "D"};
-      if (i < 4) {
-        VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), labels[i]);
-      }
-    }
+void Rectangle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
+  if (!m_isRotatable || !m_visible) return;
+
+  auto verts = getVerticesSFML();
+  const char* labels[] = {"A", "B", "C", "D"};
+
+  // Switch to Screen Space is handled by caller (GeometryEditor::render) or strictly here?
+  // GeometryEditor::render sets DefaultView BEFORE calling this. 
+  // But we need to map World Coords -> Screen Coords.
+  
+  // Note: window should be in DefaultView when this is called, 
+  // BUT we need worldView to project the points.
+  
+  for (size_t i = 0; i < verts.size() && i < 4; ++i) {
+      sf::Vector2f worldPos = verts[i];
+      sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, worldView);
+      sf::Vector2f drawPos = window.mapPixelToCoords(screenPos, window.getDefaultView()); // Should match if view is default
+      
+      VertexLabelManager::instance().drawLabel(window, drawPos, labels[i]);
   }
 }
 

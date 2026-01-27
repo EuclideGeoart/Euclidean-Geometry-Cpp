@@ -240,9 +240,22 @@ void Triangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
         handle.setOutlineThickness(1.0f * scale);
         handle.setOutlineColor(sf::Color::Black);
         window.draw(handle);
+    }
+}
+
+void Triangle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
+    if ((!m_visible) || !isValid()) return;
+
+    auto verts = getVerticesSFML();
+    const char* labels[] = {"A", "B", "C"};
+    
+    // Pass 2: Screen Space Label Drawing
+    for (size_t i = 0; i < verts.size() && i < 3; ++i) {
+        sf::Vector2f worldPos = verts[i];
+        sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, worldView);
+        sf::Vector2f drawPos = window.mapPixelToCoords(screenPos, window.getDefaultView());
         
-        // Draw vertex label
-        VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), labels[i]);
+        VertexLabelManager::instance().drawLabel(window, drawPos, labels[i]);
     }
 }
 

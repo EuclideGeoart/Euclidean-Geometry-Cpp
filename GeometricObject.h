@@ -11,6 +11,7 @@
 
 #include "ForwardDeclarations.h"  // For ObjectType enum
 #include "ObjectType.h"
+#include "Constants.h"
 #include "Types.h"  // For Point_2 and other CGAL types
 #include <SFML/Graphics.hpp>
 #include <vector>
@@ -66,6 +67,22 @@ class GeometricObject {
   virtual void setVisible(bool visible) { m_visible = visible; }
   virtual bool isVisible() const { return m_visible; }
 
+  // Label controls
+  virtual void setShowLabel(bool show) { m_showLabel = show; }
+  virtual bool getShowLabel() const { return m_showLabel; }
+  virtual sf::FloatRect getLabelBounds(const sf::View &view) const {
+    (void)view;
+    return sf::FloatRect();
+  }
+
+  // Thickness (used by UI slider for line rendering)
+  virtual void setThickness(float thickness) { m_thickness = thickness; }
+  virtual float getThickness() const { return m_thickness; }
+
+  // Locking
+  void setLocked(bool locked);
+  bool isLocked() const;
+
   // Added validation method that can be overridden by derived classes
   virtual bool isValid() const {
     return m_isValid;
@@ -92,6 +109,10 @@ class GeometricObject {
   bool m_hovered = false;
   bool m_isValid = true;  // Assume valid on construction unless proven otherwise
   bool m_visible = true;
+  bool m_locked = false;
+  bool m_showLabel = true;
+  sf::Vector2f m_labelOffset = {0.f, 0.f};
+  float m_thickness = Constants::LINE_THICKNESS_DEFAULT;
 };
 
 #endif  // GEOMETRIC_OBJECT_H

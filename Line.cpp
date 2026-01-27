@@ -1231,6 +1231,14 @@ void Line::setVisible(bool visible) {
   updateSFMLShape();
 }
 
+void Line::setLocked(bool locked) {
+  GeometricObject::setLocked(locked);
+}
+
+bool Line::isLocked() const {
+  return GeometricObject::isLocked();
+}
+
 bool Line::isVisible() const { return m_visible; }
 
 void Line::toggleVisibility() {
@@ -2248,8 +2256,9 @@ void Line::updateSFMLShape() {
     if (len > 1e-6f) {
       dir /= len;
       const float EXT = 10000.f;
-      m_sfmlShape[0].position = p1 - dir * EXT;
-      m_sfmlShape[1].position = p1 + dir * EXT;
+      sf::Vector2f mid = (p1 + p2) * 0.5f;
+      m_sfmlShape[0].position = mid - dir * EXT;
+      m_sfmlShape[1].position = mid + dir * EXT;
     } else {
       return;
     }

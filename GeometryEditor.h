@@ -105,6 +105,8 @@ class GeometryEditor {
 
   sf::Color getCurrentColor() const { return m_currentDrawingColor; }
   void changeSelectedObjectColor(sf::Color newColor);
+
+  float currentThickness = Constants::LINE_THICKNESS_DEFAULT;
   
   GUI& getGUI() { return gui; }
 
@@ -135,6 +137,12 @@ class GeometryEditor {
   GeometricObject *hoveredObject = nullptr;  // Object currently under mouse for hover feedback
     int hoveredVertexIndex = -1;
     GeometricObject *hoveredVertexShape = nullptr;
+
+  // Label UI state
+  bool showGlobalLabels = true;
+  bool isDraggingLabel = false;
+  GeometricObject *labelDragObject = nullptr;
+  sf::Vector2f labelDragGrabOffset = sf::Vector2f(0.f, 0.f);
     
   // Edge hover tracking for universal snapping
   std::optional<EdgeHitResult> m_hoveredEdge;  // Currently hovered edge (if any)
@@ -353,6 +361,7 @@ class GeometryEditor {
   // View manipulation
   void zoomView(float factor, const sf::Vector2i &mousePixelPos);
   void panView(const sf::Vector2f &delta_view);
+  void resetView();
 
   // Corrected public block for setCurrentTool and other methods
  public:
@@ -491,6 +500,16 @@ class GeometryEditor {
  private:
   ColorPicker m_colorPicker;
   sf::Color m_currentDrawingColor = sf::Color::Blue;
+
+  // Axes handling
+  std::shared_ptr<Line> xAxis;
+  std::shared_ptr<Line> yAxis;
+
+ public:
+  void toggleAxes();
+  bool areAxesVisible() const;
+ private:
+
   // Methods that should remain private
   // The following are examples of members that were explicitly removed
   // or replaced, kept here as comments for historical context if useful
