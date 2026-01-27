@@ -120,12 +120,28 @@ void Rectangle::syncRotatableFromAnchors() {
   m_rotationAngle = std::atan2(dy, dx);
   m_height = std::sqrt(dx * dx + dy * dy);
 
-  double cos_a = std::cos(m_rotationAngle);
-  double sin_a = std::sin(m_rotationAngle);
-  double localX = m_width * 0.5;
-  double localY = m_height * 0.5;
-  double cx = CGAL::to_double(corner.x()) + localX * cos_a - localY * sin_a;
-  double cy = CGAL::to_double(corner.y()) + localX * sin_a + localY * cos_a;
+  const double minExtent = 1e-3;
+  if (m_width < minExtent) {
+    m_width = minExtent;
+  }
+  if (m_height < minExtent) {
+    return;
+  }
+
+  double nx = -dy / m_height;
+  double ny = dx / m_height;
+
+  double midX = CGAL::to_double(corner.x()) + dx * 0.5;
+  double midY = CGAL::to_double(corner.y()) + dy * 0.5;
+
+  double toCenterX = CGAL::to_double(m_center.x()) - midX;
+  double toCenterY = CGAL::to_double(m_center.y()) - midY;
+  double sideSign = (toCenterX * nx + toCenterY * ny);
+  if (sideSign == 0.0) sideSign = 1.0;
+  sideSign = (sideSign >= 0.0) ? 1.0 : -1.0;
+
+  double cx = midX + nx * (m_width * 0.5) * sideSign;
+  double cy = midY + ny * (m_width * 0.5) * sideSign;
   m_center = Point_2(FT(cx), FT(cy));
 }
 
@@ -149,7 +165,11 @@ void Rectangle::updateSFMLShape() {
   } else {
     updateDimensionsFromCorners();
   }
-  m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(m_height)));
+  if (m_isRotatable) {
+    m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_height), static_cast<float>(m_width)));
+  } else {
+    m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(m_height)));
+  }
   m_sfmlShape.setFillColor(m_color);
   m_sfmlShape.setOutlineThickness(1.5f);
   m_sfmlShape.setOutlineColor(sf::Color::Black);
@@ -157,7 +177,7 @@ void Rectangle::updateSFMLShape() {
   if (m_isRotatable) {
     double cx = CGAL::to_double(m_center.x());
     double cy = CGAL::to_double(m_center.y());
-    m_sfmlShape.setOrigin(static_cast<float>(m_width * 0.5), static_cast<float>(m_height * 0.5));
+    m_sfmlShape.setOrigin(static_cast<float>(m_height * 0.5), static_cast<float>(m_width * 0.5));
     m_sfmlShape.setPosition(static_cast<float>(cx), static_cast<float>(cy));
     m_sfmlShape.setRotation(static_cast<float>(m_rotationAngle * 180.0 / 3.14159265359));
   } else {
@@ -178,6 +198,54 @@ void Rectangle::updateSFMLShape() {
     m_sfmlShape.setPosition(sf::Vector2f(static_cast<float>(minX), static_cast<float>(minY)));
     m_sfmlShape.setRotation(0.0f);
   }
+
+  syncDependentCorners();
+}
+
+void Rectangle::setDependentCornerPoints(const std::shared_ptr<Point> &b,
+                                         const std::shared_ptr<Point> &d) {
+  m_cornerB = b;
+  m_cornerD = d;
+  syncDependentCorners();
+}
+
+void Rectangle::syncDependentCorners() {
+  if (!m_cornerB && !m_cornerD) return;
+
+  if (!m_isRotatable) {
+    Point_2 c1 = getCorner1Position();
+    Point_2 c2 = getCorner2Position();
+    double x1 = CGAL::to_double(c1.x());
+    double y1 = CGAL::to_double(c1.y());
+    double x2 = CGAL::to_double(c2.x());
+    double y2 = CGAL::to_double(c2.y());
+
+    if (m_cornerB) {
+      m_cornerB->setCGALPosition(Point_2(FT(x2), FT(y1)));
+    }
+    if (m_cornerD) {
+      m_cornerD->setCGALPosition(Point_2(FT(x1), FT(y2)));
+    }
+    return;
+  }
+
+  Point_2 a = getCorner1Position();
+  Point_2 b = getCorner2Position();
+  double dx = CGAL::to_double(b.x()) - CGAL::to_double(a.x());
+  double dy = CGAL::to_double(b.y()) - CGAL::to_double(a.y());
+  double height = std::sqrt(dx * dx + dy * dy);
+  if (height < 1e-9) return;
+
+  double ux = -dy / height;
+  double uy = dx / height;
+
+  double width = m_width;
+
+  Point_2 c(FT(CGAL::to_double(b.x()) + ux * width), FT(CGAL::to_double(b.y()) + uy * width));
+  Point_2 d(FT(CGAL::to_double(a.x()) + ux * width), FT(CGAL::to_double(a.y()) + uy * width));
+
+  if (m_cornerB) m_cornerB->setCGALPosition(c);
+  if (m_cornerD) m_cornerD->setCGALPosition(d);
 }
 
 void Rectangle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
@@ -338,53 +406,43 @@ void Rectangle::setVertexPosition(size_t index, const Point_2 &value) {
   if (index >= 4) return;
 
   if (m_isRotatable) {
-    auto verts = getVertices();
-    if (verts.size() != 4) return;
+    Point_2 a = getCorner1Position();
+    Point_2 b = getCorner2Position();
 
-    Point_2 center = getCenter();
-    double cos_a = std::cos(m_rotationAngle);
-    double sin_a = std::sin(m_rotationAngle);
+    if (index == 0) {
+      setCorner1Position(value);
+      updateSFMLShape();
+      updateHostedPoints();
+      return;
+    }
+    if (index == 1) {
+      setCorner2Position(value);
+      updateSFMLShape();
+      updateHostedPoints();
+      return;
+    }
 
-    auto projectU = [&](const Vector_2 &v) {
-      return CGAL::to_double(v.x()) * cos_a + CGAL::to_double(v.y()) * sin_a;
-    };
-    auto projectV = [&](const Vector_2 &v) {
-      return CGAL::to_double(v.x()) * -sin_a + CGAL::to_double(v.y()) * cos_a;
-    };
-
-    Vector_2 toNew = value - center;
-    double projU = projectU(toNew);
-    double projV = projectV(toNew);
-
-    Vector_2 currentVec = verts[index] - center;
-    double signU = projectU(currentVec) >= 0.0 ? 1.0 : -1.0;
-    double signV = projectV(currentVec) >= 0.0 ? 1.0 : -1.0;
-
+    double dx = CGAL::to_double(b.x()) - CGAL::to_double(a.x());
+    double dy = CGAL::to_double(b.y()) - CGAL::to_double(a.y());
+    double length = std::sqrt(dx * dx + dy * dy);
     const double minExtent = 1e-3;
-    double halfWidth = std::max(minExtent, std::abs(projU));
-    double halfHeight = std::max(minExtent, std::abs(projV));
+    if (length < minExtent) return;
 
-    m_width = halfWidth * 2.0;
-    m_height = halfHeight * 2.0;
+    double nx = -dy / length;
+    double ny = dx / length;
 
-    double cx = CGAL::to_double(center.x());
-    double cy = CGAL::to_double(center.y());
+    double vx = CGAL::to_double(value.x()) - CGAL::to_double(b.x());
+    double vy = CGAL::to_double(value.y()) - CGAL::to_double(b.y());
+    double signedDist = vx * nx + vy * ny;
+    if (std::abs(signedDist) < minExtent) {
+      signedDist = (signedDist >= 0.0 ? 1.0 : -1.0) * minExtent;
+    }
 
-    double localX = -m_width * 0.5;
-    double localY = -m_height * 0.5;
-    double rotatedX = localX * cos_a - localY * sin_a;
-    double rotatedY = localX * sin_a + localY * cos_a;
-    setCorner1Position(Point_2(FT(cx + rotatedX), FT(cy + rotatedY)));
-    setCorner2Position(Point_2(FT(cx - rotatedX), FT(cy - rotatedY)));
-    m_center = center;
+    m_width = std::abs(signedDist);
 
-    // Align active vertex to the dragged quadrant
-    double offsetX = signU * halfWidth;
-    double offsetY = signV * halfHeight;
-    double targetX = cx + offsetX * cos_a - offsetY * sin_a;
-    double targetY = cy + offsetX * sin_a + offsetY * cos_a;
-    (void)targetX;
-    (void)targetY;
+    double midX = CGAL::to_double(a.x()) + dx * 0.5;
+    double midY = CGAL::to_double(a.y()) + dy * 0.5;
+    m_center = Point_2(FT(midX + nx * signedDist * 0.5), FT(midY + ny * signedDist * 0.5));
 
     updateSFMLShape();
     updateHostedPoints();
@@ -463,7 +521,6 @@ void Rectangle::setPosition(const sf::Vector2f &newSfmlPos) {
 void Rectangle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
   const float handleRadius = 4.0f * scale;
   auto verts = getVertices();
-  const char* labels[] = {"A", "B", "C", "D"};
   
   for (size_t i = 0; i < verts.size(); ++i) {
     sf::CircleShape handle(handleRadius);
@@ -482,9 +539,13 @@ void Rectangle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
     handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
-    
-    // Draw vertex label
-    VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), labels[i]);
+
+    if (m_isRotatable) {
+      const char* labels[] = {"A", "B", "C", "D"};
+      if (i < 4) {
+        VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), labels[i]);
+      }
+    }
   }
 }
 

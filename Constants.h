@@ -159,9 +159,9 @@ const sf::Color BUTTON_DEFAULT_COLOR = sf::Color(200, 200, 200);
 const sf::Color BUTTON_ACTIVE_COLOR = sf::Color(100, 100, 255, 200);    // Blueish, active tool
 const sf::Color BUTTON_INACTIVE_COLOR = sf::Color(180, 180, 180, 200);  // Greyish, inactive
 const sf::Color BUTTON_HOVER_COLOR = sf::Color(150, 150, 220, 220);     // Lighter blueish for hover
-inline unsigned int BUTTON_TEXT_SIZE = 14;              // Helper for adjustable
+inline unsigned int BUTTON_TEXT_SIZE = 24;              // Helper for adjustable
 const sf::Color BUTTON_TEXT_COLOR = sf::Color::Black;  // Example value
-inline unsigned int GUI_MESSAGE_TEXT_SIZE = 30;         // Helper for adjustable
+inline unsigned int GUI_MESSAGE_TEXT_SIZE = 18;         // Helper for adjustable
 const float GUI_MESSAGE_DURATION = 3.0f;               // Seconds, example value
 
 // --- General Interaction & Snapping ---

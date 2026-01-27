@@ -165,6 +165,8 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   bool m_isInitialized;
   bool m_deferConstraintUpdates;
   bool m_visible = true;
+  bool m_isDependent = false;
+  bool m_createdWithShape = false;
   std::vector<std::weak_ptr<Line>> m_connectedLines;  // Lines connected to this point
 
   // --- Labeling ---
@@ -182,6 +184,10 @@ public:
     bool getShowLabel() const { return m_showLabel; }
     void setLabelOffset(const sf::Vector2f& offset) { m_labelOffset = offset; }
     sf::Vector2f getLabelOffset() const { return m_labelOffset; }
+    void setDependent(bool dependent) { m_isDependent = dependent; }
+    bool isDependent() const { return m_isDependent; }
+    void setCreatedWithShape(bool created) { m_createdWithShape = created; }
+    bool isCreatedWithShape() const { return m_createdWithShape; }
 };
 
 #endif  // POINT_H

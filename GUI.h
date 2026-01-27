@@ -1,6 +1,6 @@
+
 #ifndef GUI_H
 #define GUI_H
-#include "CharTraitsFix.h"  // Ensure this is very early
 #include <SFML/Graphics.hpp>
 #include <algorithm>  // For std::clamp
 #include <cmath>      // For std::sqrt, std::pow in distance
@@ -8,9 +8,10 @@
 #include <stdexcept>  // For std::runtime_error
 #include <string>     // Ensure standard string is included very early
 
-
-#include "Constants.h"  // For button colors, sizes, font path. Constants.h now handles string/SFML order.
+#include "CharTraitsFix.h"  // Ensure this is very early
+#include "Constants.h"      // For button colors, sizes, font path. Constants.h now handles string/SFML order.
 #include "ContextMenu.h"
+
 
 class Circle;          // Forward declaration for previewCircle
 class GeometryEditor;  // Forward declaration for handleEvent
@@ -24,28 +25,25 @@ class ColorPicker {
   bool m_isOpen = false;
   bool m_isInApplicationMode = false;  // True when picker is open and waiting for object clicks
   sf::Vector2f m_position;
-    sf::RectangleShape m_alphaTrack;
-    sf::RectangleShape m_alphaKnob;
-    bool m_draggingAlpha = false;
+  sf::RectangleShape m_alphaTrack;
+  sf::RectangleShape m_alphaKnob;
+  bool m_draggingAlpha = false;
 
  public:
-  ColorPicker(sf::Vector2f position) : m_currentColor(sf::Color::Blue), m_position(position) {
-    setupPalette();
-  }
+  ColorPicker(sf::Vector2f position) : m_currentColor(sf::Color::Blue), m_position(position) { setupPalette(); }
 
   void setupPalette() {
     // Pre-defined colors
     sf::Color colors[] = {
-        sf::Color::Red,           sf::Color::Green,   sf::Color::Blue,
-        sf::Color::Yellow,        sf::Color::Magenta, sf::Color::Cyan,
-        sf::Color::Black,         sf::Color::White,   sf::Color(255, 165, 0),  // Orange
-        sf::Color(128, 0, 128),                                                // Purple
-        sf::Color(165, 42, 42),                                                // Brown
-        sf::Color(255, 192, 203),                                              // Pink
-        sf::Color(128, 128, 128),                                              // Gray
-        sf::Color(0, 128, 0),                                                  // Dark Green
-        sf::Color(0, 0, 139),                                                  // Dark Blue
-        sf::Color(139, 0, 0)                                                   // Dark Red
+        sf::Color::Red,           sf::Color::Green, sf::Color::Blue,  sf::Color::Yellow,      sf::Color::Magenta,
+        sf::Color::Cyan,          sf::Color::Black, sf::Color::White, sf::Color(255, 165, 0),  // Orange
+        sf::Color(128, 0, 128),                                                                // Purple
+        sf::Color(165, 42, 42),                                                                // Brown
+        sf::Color(255, 192, 203),                                                              // Pink
+        sf::Color(128, 128, 128),                                                              // Gray
+        sf::Color(0, 128, 0),                                                                  // Dark Green
+        sf::Color(0, 0, 139),                                                                  // Dark Blue
+        sf::Color(139, 0, 0)                                                                   // Dark Red
     };
 
     for (int i = 0; i < 16; i++) {
@@ -76,22 +74,25 @@ class ColorPicker {
     m_alphaKnob.setOutlineColor(sf::Color::Black);
     setAlpha(m_alpha);
   }
+  void setPosition(const sf::Vector2f& pos) {
+    m_position = pos;
+    setupPalette();
+  }
+  bool handleEvent(const sf::Event& event, const sf::Vector2f& mousePos);
+  bool handleMouseMove(const sf::Event& event, const sf::Vector2f& mousePos);
+  bool isMouseOver(const sf::Vector2f& mousePos) const;
 
-  bool handleEvent(const sf::Event &event, const sf::Vector2f &mousePos);
-  bool handleMouseMove(const sf::Event &event, const sf::Vector2f &mousePos);
-  bool isMouseOver(const sf::Vector2f &mousePos) const;
-
-  void draw(sf::RenderWindow &window, const sf::Font &font) {
+  void draw(sf::RenderWindow& window, const sf::Font& font) {
     if (m_isOpen) {
       // Draw Header
       if (true /* Assume font loaded if passed */) {
-          sf::Text headerText;
-          headerText.setFont(font);
-          headerText.setString("Selected Object Color:");
-          headerText.setCharacterSize(14);
-          headerText.setFillColor(sf::Color::White);
-          headerText.setPosition(m_position.x, m_position.y - 20.f);
-          window.draw(headerText);
+        sf::Text headerText;
+        headerText.setFont(font);
+        headerText.setString("Selected Object Color:");
+        headerText.setCharacterSize(14);
+        headerText.setFillColor(sf::Color::White);
+        headerText.setPosition(m_position.x, m_position.y - 20.f);
+        window.draw(headerText);
       }
 
       for (int i = 0; i < 16; i++) {
@@ -109,7 +110,7 @@ class ColorPicker {
     c.a = static_cast<sf::Uint8>(std::clamp(m_alpha, 0.0f, 255.0f));
     return c;
   }
-  void setOpen(bool open) { 
+  void setOpen(bool open) {
     m_isOpen = open;
     if (!open) {
       m_isInApplicationMode = false;  // Exit application mode when picker closes
@@ -118,7 +119,7 @@ class ColorPicker {
   }
   bool isOpen() const { return m_isOpen; }
   bool isInApplicationMode() const { return m_isInApplicationMode; }
-  
+
   // Get color palette for checking bounds in application mode
   const sf::RectangleShape* getColorPalette() const { return m_colorPalette; }
   void setAlpha(float alpha);
@@ -131,41 +132,35 @@ class ColorPicker {
 
 class Button {
  public:
-  Button(sf::Vector2f position, sf::Vector2f size, std::string label, sf::Color defaultColor,
-         sf::Color activeColor, sf::Color hoverColor);
+  Button(sf::Vector2f position, sf::Vector2f size, std::string label, sf::Color defaultColor, sf::Color activeColor, sf::Color hoverColor);
 
   static void loadFont() {
     if (!fontLoaded) {
-      std::cout << "Button::loadFont() attempting to load font from: "
-                << Constants::DEFAULT_FONT_PATH << std::endl;
+      std::cout << "Button::loadFont() attempting to load font from: " << Constants::DEFAULT_FONT_PATH << std::endl;
       if (!font.loadFromFile(Constants::DEFAULT_FONT_PATH)) {
-        std::cerr << "Button::loadFont() FAILED to load font from: " << Constants::DEFAULT_FONT_PATH
-                  << std::endl;
+        std::cerr << "Button::loadFont() FAILED to load font from: " << Constants::DEFAULT_FONT_PATH << std::endl;
         fontLoaded = false;
       } else {
-        std::cout << "Button::loadFont() SUCCESSFULLY loaded font from: "
-                  << Constants::DEFAULT_FONT_PATH << std::endl;
+        std::cout << "Button::loadFont() SUCCESSFULLY loaded font from: " << Constants::DEFAULT_FONT_PATH << std::endl;
         fontLoaded = true;
       }
     } else {
       std::cout << "Button::loadFont() - Font already loaded." << std::endl;
     }
   }
-  static const sf::Font &getFont() { return font; }   // Static getter for the font
+  static const sf::Font& getFont() { return font; }   // Static getter for the font
   static bool getFontLoaded() { return fontLoaded; }  // Static getter for font loaded status
 
-  void draw(sf::RenderWindow &window) const;
-  bool isMouseOver(const sf::RenderWindow &window,
-                   const sf::View &view) const;  // Uses provided view
+  void draw(sf::RenderWindow& window) const;
+  bool isMouseOver(const sf::RenderWindow& window,
+                   const sf::View& view) const;  // Uses provided view
 
-  void setLabel(const std::string &label);
+  void setLabel(const std::string& label);
   std::string getLabel() const;
   void updateVisualState();  // Updates color based on active/hover
   bool isActive() const;
   void setActive(bool active);
-  sf::FloatRect getGlobalBounds() const {
-    return shape.getGlobalBounds();
-  }  // Might need adjustment if view changes
+  sf::FloatRect getGlobalBounds() const { return shape.getGlobalBounds(); }  // Might need adjustment if view changes
   bool isHovered() const;
   void setHovered(bool hover);  // Added missing declaration
 
@@ -194,19 +189,19 @@ class GUI {
   GUI();
   // Draw GUI elements. drawingView is needed if GUI draws preview objects in
   // world space.
-  void draw(sf::RenderWindow &window, const sf::View &drawingView, GeometryEditor &editor) const;
-  void toggleButton(const std::string &buttonName, bool state);
-  bool isButtonActive(const std::string &label) const;
+  void draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEditor& editor) const;
+  void toggleButton(const std::string& buttonName, bool state);
+  bool isButtonActive(const std::string& label) const;
   // handleEvent now takes GeometryEditor to interact with the main application
   // logic
-  bool handleEvent(sf::RenderWindow &window, const sf::Event &event, GeometryEditor &editor);
-  void updateView(const sf::View &newGuiView);            // Updates the GUI's own view
-  void setView(const sf::View &view) { guiView = view; }  // Sets the GUI's view
+  bool handleEvent(sf::RenderWindow& window, const sf::Event& event, GeometryEditor& editor);
+  void updateView(const sf::View& newGuiView);            // Updates the GUI's own view
+  void setView(const sf::View& view) { guiView = view; }  // Sets the GUI's view
   void updateLayout(float windowWidth);                   // Updates button positions based on width
   float getToolbarHeight() const { return m_toolbarHeight; }
-  void update(sf::Time deltaTime);                        // Add declaration for update method
+  void update(sf::Time deltaTime);  // Add declaration for update method
 
-  void updateFontSizes();                                 // Refresh all UI text sizes
+  void updateFontSizes();  // Refresh all UI text sizes
   bool isGridActive() const;
   bool isPointActive() const;
   bool isObjPointActive() const;
@@ -219,18 +214,18 @@ class GUI {
   bool isIntersectionActive() const;
   bool isCircleActive() const;
   bool isInitialized() const;
-  void displayMessage(const std::string &message);
+  void displayMessage(const std::string& message);
   void clearMessage();
   void deactivateAllTools();
-  void setMessage(const std::string &message);
+  void setMessage(const std::string& message);
   // COLOR METHODS:
   sf::Color getCurrentColor() const { return m_currentColor; }
   void setCurrentColor(sf::Color color) { m_currentColor = color; }
   void toggleColorPicker();
-  std::unique_ptr<ColorPicker> &getColorPicker() { return m_colorPicker; }
-  bool isMouseOverPalette(const sf::Vector2f &guiPos) const;
+  std::unique_ptr<ColorPicker>& getColorPicker() { return m_colorPicker; }
+  bool isMouseOverPalette(const sf::Vector2f& guiPos) const;
   ContextMenu& getContextMenu() { return m_contextMenu; }
-  
+
  private:
   std::vector<Button> buttons;
   sf::View guiView;  // View for positioning and drawing GUI elements like buttons
@@ -251,8 +246,6 @@ class GUI {
   sf::Text m_angleReflexLabel;
 
   // Utility function
-  float distance(const sf::Vector2f &a, const sf::Vector2f &b) {
-    return std::sqrt(std::pow(a.x - b.x, 2) + std::pow(a.y - b.y, 2));
-  }
+  float distance(const sf::Vector2f& a, const sf::Vector2f& b) { return std::sqrt(std::pow(a.x - b.x, 2) + std::pow(a.y - b.y, 2)); }
 };
 #endif  // GUI_H

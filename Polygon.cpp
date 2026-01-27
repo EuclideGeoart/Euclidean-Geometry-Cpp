@@ -203,10 +203,6 @@ void Polygon::drawVertexHandles(sf::RenderWindow &window, float scale) const {
     handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
-    
-    // Draw vertex label (P1, P2, P3, ...)
-    std::string label = "P" + std::to_string(i + 1);
-    VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), label);
   }
 }
 

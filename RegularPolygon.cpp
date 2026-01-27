@@ -236,7 +236,6 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
     handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
-    VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), "C");
   }
   
   // Draw first vertex
@@ -257,7 +256,6 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
     handle.setOutlineThickness(1.0f * scale);
     handle.setOutlineColor(sf::Color::Black);
     window.draw(handle);
-    VertexLabelManager::instance().drawLabel(window, sf::Vector2f(x, y), "V₁");
   }
   
   // Draw other vertices

@@ -1746,6 +1746,96 @@ void handleObjectPointCreation(GeometryEditor& editor, const sf::Event::MouseBut
   }
 }
 
+static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared_ptr<Rectangle>& rect) {
+  if (!rect) return;
+  auto c1 = rect->getCorner1Point();
+  auto c2 = rect->getCorner2Point();
+
+  auto isSamePoint = [](const Point_2& a, const Point_2& b) {
+    return CGAL::to_double(CGAL::squared_distance(a, b)) < 1e-8;
+  };
+
+  if (rect->isRotatable()) {
+    if (c1) {
+      c1->setShowLabel(false);
+    }
+    if (c2) {
+      c2->setShowLabel(false);
+    }
+    rect->setDependentCornerPoints(nullptr, nullptr);
+    return;
+  }
+
+  if (!rect->isRotatable()) {
+    auto verts = rect->getVertices();
+    if (verts.size() != 4) return;
+
+    if (c1) {
+      c1->setLabel("A");
+      c1->setShowLabel(true);
+    }
+    if (c2) {
+      c2->setLabel("C");
+      c2->setShowLabel(true);
+    }
+
+    auto bPoint = editor.createPoint(verts[1]);
+    auto dPoint = editor.createPoint(verts[3]);
+    if (bPoint) {
+      bPoint->setLabel("B");
+      bPoint->setShowLabel(true);
+      bPoint->setDependent(true);
+      bPoint->setCreatedWithShape(true);
+    }
+    if (dPoint) {
+      dPoint->setLabel("D");
+      dPoint->setShowLabel(true);
+      dPoint->setDependent(true);
+      dPoint->setCreatedWithShape(true);
+    }
+    rect->setDependentCornerPoints(bPoint, dPoint);
+    return;
+  }
+
+  if (c1) {
+    c1->setLabel("A");
+    c1->setShowLabel(true);
+  }
+  if (c2) {
+    c2->setLabel("B");
+    c2->setShowLabel(true);
+  }
+
+  Point_2 a = rect->getCorner1();
+  Point_2 b = rect->getCorner2();
+  double dx = CGAL::to_double(b.x()) - CGAL::to_double(a.x());
+  double dy = CGAL::to_double(b.y()) - CGAL::to_double(a.y());
+  double height = std::sqrt(dx * dx + dy * dy);
+  if (height < 1e-9) return;
+  double ux = -dy / height;
+  double uy = dx / height;
+
+  double width = rect->getWidth();
+
+  Point_2 c(FT(CGAL::to_double(b.x()) + ux * width), FT(CGAL::to_double(b.y()) + uy * width));
+  Point_2 d(FT(CGAL::to_double(a.x()) + ux * width), FT(CGAL::to_double(a.y()) + uy * width));
+
+  auto cPoint = editor.createPoint(c);
+  auto dPoint = editor.createPoint(d);
+  if (cPoint) {
+    cPoint->setLabel("C");
+    cPoint->setShowLabel(true);
+    cPoint->setCreatedWithShape(true);
+  }
+  if (dPoint) {
+    dPoint->setLabel("D");
+    dPoint->setShowLabel(true);
+    dPoint->setDependent(true);
+    dPoint->setCreatedWithShape(true);
+  }
+  rect->setDependentCornerPoints(cPoint, dPoint);
+}
+
 // 1. handleRectangleCreation
 void handleRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
   if (mouseEvent.button != sf::Mouse::Left) return;
@@ -1773,10 +1863,17 @@ void handleRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButto
       editor.rectangleCorner2 = cgalWorldPos;
       editor.rectangleCorner2Point = smartPoint;
       if (editor.rectangleCorner1 != editor.rectangleCorner2) {
+        auto corner1 = editor.rectangleCorner1Point ? editor.rectangleCorner1Point : editor.createPoint(editor.rectangleCorner1);
+        auto corner2 = editor.rectangleCorner2Point ? editor.rectangleCorner2Point : editor.createPoint(editor.rectangleCorner2);
+        if (corner1 && !editor.rectangleCorner1Point) {
+          corner1->setCreatedWithShape(true);
+        }
+        if (corner2 && !editor.rectangleCorner2Point) {
+          corner2->setCreatedWithShape(true);
+        }
         auto newRectangle =
-            std::make_shared<Rectangle>(editor.rectangleCorner1Point ? editor.rectangleCorner1Point : editor.createPoint(editor.rectangleCorner1),
-                                        editor.rectangleCorner2Point ? editor.rectangleCorner2Point : editor.createPoint(editor.rectangleCorner2),
-                                        false, editor.getCurrentColor(), editor.objectIdCounter++);
+            std::make_shared<Rectangle>(corner1, corner2, false, editor.getCurrentColor(), editor.objectIdCounter++);
+        applyRectangleVertexLabels(editor, newRectangle);
         editor.rectangles.push_back(newRectangle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
         editor.setGUIMessage("Rectangle created");
@@ -1826,10 +1923,17 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
       double sideLength = std::sqrt(dx * dx + dy * dy);
 
       if (sideLength > Constants::MIN_CIRCLE_RADIUS) {
+        auto corner1 = editor.rectangleCorner1Point ? editor.rectangleCorner1Point : editor.createPoint(editor.rectangleCorner1);
+        auto corner2 = editor.rectangleCorner2Point ? editor.rectangleCorner2Point : editor.createPoint(editor.rectangleCorner2);
+        if (corner1 && !editor.rectangleCorner1Point) {
+          corner1->setCreatedWithShape(true);
+        }
+        if (corner2 && !editor.rectangleCorner2Point) {
+          corner2->setCreatedWithShape(true);
+        }
         auto newRectangle =
-            std::make_shared<Rectangle>(editor.rectangleCorner1Point ? editor.rectangleCorner1Point : editor.createPoint(editor.rectangleCorner1),
-                                        editor.rectangleCorner2Point ? editor.rectangleCorner2Point : editor.createPoint(editor.rectangleCorner2),
-                                        sideLength, editor.getCurrentColor(), editor.objectIdCounter++);
+            std::make_shared<Rectangle>(corner1, corner2, sideLength, editor.getCurrentColor(), editor.objectIdCounter++);
+        applyRectangleVertexLabels(editor, newRectangle);
         editor.rectangles.push_back(newRectangle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
         editor.setGUIMessage("Rotatable rectangle created");
@@ -1876,6 +1980,11 @@ void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
             finalPoints.push_back(editor.createPoint(editor.polygonVertices[i]));
         }
 
+        for (size_t i = 0; i < finalPoints.size(); ++i) {
+          if (finalPoints[i]) {
+            finalPoints[i]->setLabel("P" + std::to_string(i + 1));
+          }
+        }
         auto newPoly = std::make_shared<Polygon>(finalPoints, editor.getCurrentColor(), editor.objectIdCounter++);
         editor.polygons.push_back(newPoly);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
@@ -3203,11 +3312,26 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
   } else if (keyEvent.code == sf::Keyboard::Enter) {
     if (editor.isCreatingPolygon) {
       if (editor.polygonVertices.size() >= 3) {
-        auto newPoly = std::make_shared<Polygon>(editor.polygonVertices, editor.getCurrentColor(), editor.objectIdCounter++);
+        std::vector<std::shared_ptr<Point>> finalPoints;
+        finalPoints.reserve(editor.polygonVertexPoints.size());
+        for (size_t i = 0; i < editor.polygonVertexPoints.size(); ++i) {
+          if (editor.polygonVertexPoints[i]) {
+            finalPoints.push_back(editor.polygonVertexPoints[i]);
+          } else {
+            finalPoints.push_back(editor.createPoint(editor.polygonVertices[i]));
+          }
+        }
+        for (size_t i = 0; i < finalPoints.size(); ++i) {
+          if (finalPoints[i]) {
+            finalPoints[i]->setLabel("P" + std::to_string(i + 1));
+          }
+        }
+        auto newPoly = std::make_shared<Polygon>(finalPoints, editor.getCurrentColor(), editor.objectIdCounter++);
         editor.polygons.push_back(newPoly);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
         editor.isCreatingPolygon = false;
         editor.polygonVertices.clear();
+        editor.polygonVertexPoints.clear();
         editor.previewPolygon.reset();
         editor.setGUIMessage("Polygon created via Enter key.");
         std::cout << "Polygon created via Enter key." << std::endl;
@@ -3237,6 +3361,13 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     collectSelected(editor.triangles);
     collectSelected(editor.angles);
 
+    auto addToDelete = [&](const std::shared_ptr<GeometricObject>& obj) {
+      if (!obj) return;
+      if (std::find(objectsToDelete.begin(), objectsToDelete.end(), obj) == objectsToDelete.end()) {
+        objectsToDelete.push_back(obj);
+      }
+    };
+
     // Collect dependent ObjectPoints (e.g., from deleted Rectangles)
     // Shapes own their ObjectPoints, so we must delete them too if the shape is deleted
     std::vector<std::shared_ptr<ObjectPoint>> dependents;
@@ -3248,6 +3379,18 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
             dependents.push_back(op);
           }
         }
+      }
+      auto rect = std::dynamic_pointer_cast<Rectangle>(obj);
+      if (rect) {
+        auto a = rect->getCorner1Point();
+        auto c = rect->getCorner2Point();
+        auto b = rect->getCornerBPoint();
+        auto d = rect->getCornerDPoint();
+
+        if (b && b->isDependent()) addToDelete(std::static_pointer_cast<GeometricObject>(b));
+        if (d && d->isDependent()) addToDelete(std::static_pointer_cast<GeometricObject>(d));
+        if (a && a->isCreatedWithShape()) addToDelete(std::static_pointer_cast<GeometricObject>(a));
+        if (c && c->isCreatedWithShape()) addToDelete(std::static_pointer_cast<GeometricObject>(c));
       }
     }
     // Append dependents
@@ -3960,6 +4103,59 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
           Point* selectedPoint = static_cast<Point*>(editor.selectedObject);
           if (selectedPoint->isIntersectionPoint()) {
+            return;
+          }
+          // Route rectangle corner points through rectangle constraint logic
+          for (auto& rectPtr : editor.rectangles) {
+            if (!rectPtr || !rectPtr->isValid()) continue;
+            if (rectPtr->isRotatable()) continue;
+            auto a = rectPtr->getCorner1Point();
+            auto b = rectPtr->getCorner2Point();
+            auto c = rectPtr->getCornerBPoint();
+            auto d = rectPtr->getCornerDPoint();
+
+            if (a && a.get() == selectedPoint) {
+              if (rectPtr->isRotatable()) {
+                rectPtr->setCorner1Position(targetPos);
+                rectPtr->update();
+              } else {
+                rectPtr->setVertexPosition(0, targetPos);
+              }
+              return;
+            }
+            if (b && b.get() == selectedPoint) {
+              if (rectPtr->isRotatable()) {
+                rectPtr->setCorner2Position(targetPos);
+                rectPtr->update();
+              } else {
+                rectPtr->setVertexPosition(2, targetPos);
+              }
+              return;
+            }
+            if (c && c.get() == selectedPoint) {
+              if (rectPtr->isRotatable()) {
+                c->setCGALPosition(targetPos);
+                rectPtr->update();
+              } else {
+                rectPtr->setVertexPosition(1, targetPos);
+              }
+              return;
+            }
+            if (d && d.get() == selectedPoint) {
+              if (rectPtr->isRotatable()) {
+                Point_2 aPos = rectPtr->getCorner1Position();
+                Point_2 bPos = rectPtr->getCorner2Position();
+                Vector_2 heightVec = targetPos - aPos;
+                Point_2 newC = bPos + heightVec;
+                if (c) c->setCGALPosition(newC);
+                rectPtr->update();
+              } else {
+                rectPtr->setVertexPosition(3, targetPos);
+              }
+              return;
+            }
+          }
+          if (selectedPoint->isDependent()) {
             return;
           }
           selectedPoint->setCGALPosition(targetPos);

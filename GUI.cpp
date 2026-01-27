@@ -427,10 +427,12 @@ void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
   (void)drawingView;          // Mark as unused
   window.setView(window.getDefaultView());  // Use Default View (Screen Space)
 
-  // Fixed left sidebar layout: 80px width, vertical stacking
-  const float sidebarWidth = 80.f;
-  const float padding = 8.f;
-  const float buttonHeight = Constants::BUTTON_SIZE.y;
+  // Dynamic left sidebar layout: scale button dimensions with font size
+  const float scaleBase = static_cast<float>(Constants::BUTTON_TEXT_SIZE);
+  const float buttonHeight = std::round(scaleBase * 1.8f);
+  const float buttonWidth = std::round(std::max(80.0f, scaleBase * 2.5f));
+  const float padding = std::round(std::max(4.0f, scaleBase * 0.4f));
+  const float sidebarWidth = std::round(buttonWidth + padding * 2.0f);
   float currentY = padding;
   for (auto &button : const_cast<std::vector<Button>&>(buttons)) {
     // Snap button dimensions/position to integers
@@ -438,13 +440,22 @@ void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
     button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
     currentY += buttonHeight + padding;
   }
+  // After laying out buttons, determine where to place the color picker
+  float colorPickerX = padding;
+  float colorPickerY = currentY + padding * 2.0f; // Add extra space below last button
+  if (m_colorPicker) {
+    m_colorPicker->setPosition(sf::Vector2f(colorPickerX, colorPickerY));
+  }
 
   for (const auto &button : buttons) {
     button.draw(window);
     if (button.getLabel() == "Color") {
+      const float iconSize = std::round(std::max(20.0f, scaleBase * 1.2f));
       sf::RectangleShape colorPreview;
-      colorPreview.setSize(sf::Vector2f(20, 20));
-      colorPreview.setPosition(button.getGlobalBounds().left + 5, button.getGlobalBounds().top + 5);
+      colorPreview.setSize(sf::Vector2f(iconSize, iconSize));
+      float iconX = button.getGlobalBounds().left + std::round(padding * 0.5f);
+      float iconY = button.getGlobalBounds().top + std::round((buttonHeight - iconSize) * 0.5f);
+      colorPreview.setPosition(iconX, iconY);
       colorPreview.setFillColor(m_currentColor);
       colorPreview.setOutlineThickness(1);
       colorPreview.setOutlineColor(sf::Color::Black);
@@ -460,7 +471,8 @@ void GUI::draw(sf::RenderWindow &window, const sf::View &drawingView,
       paletteLabel.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
       paletteLabel.setFillColor(sf::Color::White);
       paletteLabel.setString("Selected Object Color");
-      paletteLabel.setPosition(10.f, 175.f);
+      // Place label just above the color picker
+      paletteLabel.setPosition(colorPickerX, colorPickerY - Constants::BUTTON_TEXT_SIZE - 4.0f);
       window.draw(paletteLabel);
     }
   }
@@ -556,14 +568,21 @@ bool GUI::handleEvent(sf::RenderWindow &window, const sf::Event &event, Geometry
 
   // Ensure sidebar layout matches draw() before hit-tests
   {
-    const float sidebarWidth = 80.f;
-    const float padding = 8.f;
-    const float buttonHeight = Constants::BUTTON_SIZE.y;
+    const float scaleBase = static_cast<float>(Constants::BUTTON_TEXT_SIZE);
+    const float buttonHeight = std::round(scaleBase * 1.8f);
+    const float buttonWidth = std::round(std::max(80.0f, scaleBase * 2.5f));
+    const float padding = std::round(std::max(4.0f, scaleBase * 0.4f));
+    const float sidebarWidth = std::round(buttonWidth + padding * 2.0f);
     float currentY = padding;
     for (auto &button : buttons) {
-      button.setSize(sf::Vector2f(sidebarWidth - 2 * padding, buttonHeight));
-      button.setPosition(sf::Vector2f(padding, currentY));
+      button.setSize(sf::Vector2f(std::round(sidebarWidth - 2 * padding), std::round(buttonHeight)));
+      button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
       currentY += buttonHeight + padding;
+    }
+    if (m_colorPicker) {
+      float colorPickerX = padding;
+      float colorPickerY = currentY + padding * 2.0f;
+      m_colorPicker->setPosition(sf::Vector2f(colorPickerX, colorPickerY));
     }
   }
 

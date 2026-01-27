@@ -74,6 +74,13 @@ class Rectangle : public GeometricObject {
   // Rectangle-specific getters
   std::shared_ptr<Point> getCorner1Point() const { return m_corner1; }
   std::shared_ptr<Point> getCorner2Point() const { return m_corner2; }
+  std::shared_ptr<Point> getCornerBPoint() const { return m_cornerB; }
+  std::shared_ptr<Point> getCornerDPoint() const { return m_cornerD; }
+  void setDependentCornerPoints(const std::shared_ptr<Point>& b, const std::shared_ptr<Point>& d);
+  Point_2 getCorner1Position() const;
+  Point_2 getCorner2Position() const;
+  void setCorner1Position(const Point_2 &pos);
+  void setCorner2Position(const Point_2 &pos);
   Point_2 getCorner1() const;
   Point_2 getCorner2() const;
   bool isRotatable() const { return m_isRotatable; }
@@ -95,6 +102,8 @@ class Rectangle : public GeometricObject {
  private:
   std::shared_ptr<Point> m_corner1;  // First corner point
   std::shared_ptr<Point> m_corner2;  // Second corner point
+  std::shared_ptr<Point> m_cornerB;  // Dependent corner (B)
+  std::shared_ptr<Point> m_cornerD;  // Dependent corner (D)
   bool m_isRotatable;       // True if rectangle can be rotated
   double m_width;           // Width of the rectangle
   double m_height;          // Height of the rectangle
@@ -110,9 +119,6 @@ class Rectangle : public GeometricObject {
   void updateDimensionsFromCorners();
   void updateCornerPositions();
   void drawVertexHandles(sf::RenderWindow &window, float scale) const;
-  Point_2 getCorner1Position() const;
-  Point_2 getCorner2Position() const;
-  void setCorner1Position(const Point_2 &pos);
-  void setCorner2Position(const Point_2 &pos);
+  void syncDependentCorners();
   void syncRotatableFromAnchors();
 };
