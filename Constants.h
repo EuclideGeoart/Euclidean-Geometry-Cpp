@@ -99,14 +99,37 @@ const sf::Color HOVER_COLOR = sf::Color(0, 255, 0, 100);  // Semi-transparent Gr
 const float GUI_MESSAGE_POSITION = 10.0f;                 // Example position for GUI messages
 const unsigned int GUI_MESSAGE_FONT_SIZE = 16;            // Message font size
 const sf::Color GUI_MESSAGE_COLOR = sf::Color::Black;
-// Point specific visual constants
-const float POINT_INTERACTION_RADIUS = 10.0f;  // Larger interaction radius for easier selection
-const float POINT_SIZE = 5.0f;                 // Used for scaled drawing
+
+// ============================================================================
+// SCREEN-PIXEL INTERACTION CONSTANTS
+// ============================================================================
+// These define how many SCREEN PIXELS are used for various user interactions.
+// They should be converted to WORLD UNITS at runtime using:
+//   worldTolerance = SCREEN_PIXELS * (viewWidth / windowWidth)
+//
+// Use getDynamicSelectionTolerance() or getDynamicSnapTolerance() in
+// HandleEvents.cpp to get properly scaled world-unit tolerances.
+// ============================================================================
+
+constexpr float SELECTION_SCREEN_PIXELS = 7.0f;      // Click/selection precision
+constexpr float SNAP_SCREEN_PIXELS = 12.0f;          // Snapping "magnetism" radius
+constexpr float HOVER_SCREEN_PIXELS = 10.0f;         // Hover detection radius
+constexpr float DRAG_THRESHOLD_PIXELS = 5.0f;        // Drag initiation threshold
+
+// ============================================================================
+// DEPRECATED: Old world-unit constants (for backwards compatibility)
+// Prefer using getDynamicSelectionTolerance() instead of these constants
+// ============================================================================
+
+// [DEPRECATED] Use getDynamicSelectionTolerance() instead
+const float POINT_INTERACTION_RADIUS = 10.0f;  // Legacy: was used for point selection
+const float POINT_SIZE = 5.0f;                 // Used for scaled drawing (still valid)
 
 // Line specific visual constants
-const float LINE_THICKNESS = 2.0f;
+const float LINE_THICKNESS = 1.0f;
 const float CONSTRUCTION_LINE_THICKNESS = 1.0f;  // Thinner for construction lines
-const float LINE_INTERACTION_RADIUS = 5.0f;      // Tolerance for clicking on lines
+// [DEPRECATED] Use getDynamicSelectionTolerance() instead  
+const float LINE_INTERACTION_RADIUS = 5.0f;      // Legacy: was for clicking on lines
 const float GRID_SNAP_INTERVAL = 2.0f;           // Snapping interval for grid alignment
 const float LINE_ARROWHEAD_SIZE = 10.0f;         // Size of arrowheads on lines
 const float LINE_DASH_LENGTH = 5.0f;             // Length of dashes in dashed lines

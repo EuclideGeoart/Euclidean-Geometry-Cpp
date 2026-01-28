@@ -508,6 +508,8 @@ class GeometryEditor {
  public:
   void toggleAxes();
   bool areAxesVisible() const;
+  std::shared_ptr<Line> getXAxis() const { return xAxis; }
+  std::shared_ptr<Line> getYAxis() const { return yAxis; }
  private:
 
   // Methods that should remain private

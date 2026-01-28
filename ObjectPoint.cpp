@@ -75,7 +75,7 @@ ObjectPoint::ObjectPoint(std::shared_ptr<Circle> hostCircle, double angleRad,
       m_hostType(ObjectType::Circle),
       m_hostLine(),
       m_hostCircle(hostCircle),
-      m_relativePositionOnLine(0.0),
+      m_relativePositionOnLine(safe_zero_ft()),
       m_angleOnCircleRad(angleRad),
       m_isBeingDragged(false) {
   std::cout << "  ObjectPoint constructor (Circle*, double) BODY entered. Host: "
@@ -456,7 +456,7 @@ void ObjectPoint::calculateAttachmentParameters() {
               << std::endl;
     // Set safe defaults without referencing undefined variables
     if (m_hostType == ObjectType::Line || m_hostType == ObjectType::LineSegment) {
-      m_relativePositionOnLine = 0.5;  // Use correct member variable name
+      m_relativePositionOnLine = Kernel::FT(0.5);  // Use correct member variable name
     } else if (m_hostType == ObjectType::Circle) {
       m_angleOnCircleRad = 0.0;
     }
@@ -473,7 +473,7 @@ void ObjectPoint::calculateAttachmentParameters() {
         std::cerr << "ObjectPoint::calculateAttachmentParameters (Line): "
                      "Exception getting host endpoints: "
                   << e.what() << std::endl;
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
@@ -481,12 +481,12 @@ void ObjectPoint::calculateAttachmentParameters() {
         std::cerr << "ObjectPoint::calculateAttachmentParameters: Host line "
                      "endpoints are not finite."
                   << std::endl;
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
       if (hostStartPos == hostEndPos) {
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
@@ -495,7 +495,7 @@ void ObjectPoint::calculateAttachmentParameters() {
         std::cerr << "ObjectPoint::calculateAttachmentParameters: lineVector "
                      "components are not finite."
                   << std::endl;
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
@@ -504,14 +504,14 @@ void ObjectPoint::calculateAttachmentParameters() {
         std::cerr << "ObjectPoint::calculateAttachmentParameters: pointVector "
                      "components are not finite."
                   << std::endl;
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
       // NOW define these variables in the correct scope
       Kernel::FT lineSqLength_ft = lineVector.squared_length();
       if (!is_cgal_ft_finite_local(lineSqLength_ft) || CGAL::is_zero(lineSqLength_ft)) {
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
@@ -520,16 +520,22 @@ void ObjectPoint::calculateAttachmentParameters() {
         std::cerr << "ObjectPoint::calculateAttachmentParameters: dotProduct "
                      "is not finite."
                   << std::endl;
-        m_relativePositionOnLine = 0.5;
+        m_relativePositionOnLine = Kernel::FT(0.5);
         return;
       }
 
       // Calculate relative position using defined variables
-      m_relativePositionOnLine = CGAL::to_double(dotProduct_ft / lineSqLength_ft);
+      m_relativePositionOnLine = dotProduct_ft / lineSqLength_ft;
 
       // Clamp for segments
       if (hostLine->isSegment()) {
-        m_relativePositionOnLine = std::max(0.0, std::min(1.0, m_relativePositionOnLine));
+        const Kernel::FT zero = safe_zero_ft();
+        const Kernel::FT one = safe_one_ft();
+        if (m_relativePositionOnLine < zero) {
+          m_relativePositionOnLine = zero;
+        } else if (m_relativePositionOnLine > one) {
+          m_relativePositionOnLine = one;
+        }
       }
     }
   } else if (m_hostType == ObjectType::Circle) {
@@ -652,12 +658,11 @@ Point_2 ObjectPoint::calculatePositionOnHost() const {
         return p1;  // Degenerate case, return the point
       }
       // Linear interpolation between p1 and p2
-      double t = m_relativePositionOnLine;
+      Kernel::FT t_ft = m_relativePositionOnLine;
       Kernel::FT p1x = p1.x();
       Kernel::FT p1y = p1.y();
       Kernel::FT p2x = p2.x();
       Kernel::FT p2y = p2.y();
-      Kernel::FT t_ft(t);  // Convert double 't' to Kernel::FT if not already
 
       Point_2 resultPos(p1x + t_ft * (p2x - p1x), p1y + t_ft * (p2y - p1y));
       return resultPos;
@@ -913,13 +918,16 @@ sf::FloatRect ObjectPoint::getGlobalBounds() const {
 }
 
 bool ObjectPoint::contains(const sf::Vector2f &worldPos_sfml, float tolerance) const {
-  // Effective radius for interaction, potentially larger than visual radius
+  // Use the larger of: visual interaction radius OR the dynamic tolerance
+  // This ensures we don't snap from too far away when zoomed in (dynamic tolerance shrinks)
   float interactionRadius = Constants::OBJECT_POINT_RADIUS +
-                            Constants::OBJECT_POINT_INTERACTION_PADDING;  // Use new constants
+                            Constants::OBJECT_POINT_INTERACTION_PADDING;
+  // Use the provided tolerance - it already accounts for screen-space scaling
+  float effectiveRadius = std::max(interactionRadius, tolerance);
   sf::Vector2f shapePos_sfml = m_sfmlShape.getPosition();
   sf::Vector2f diff = worldPos_sfml - shapePos_sfml;
   float distSq = diff.x * diff.x + diff.y * diff.y;
-  return distSq <= (interactionRadius + tolerance) * (interactionRadius + tolerance);
+  return distSq <= effectiveRadius * effectiveRadius;
 }
 
 void ObjectPoint::setSelected(bool sel) {
@@ -927,7 +935,9 @@ void ObjectPoint::setSelected(bool sel) {
   // updateSFMLShape(); // Point::setSelected already calls updateSFMLShape
 }
 
-double ObjectPoint::getRelativePositionOnLine() const { return m_relativePositionOnLine; }
+double ObjectPoint::getRelativePositionOnLine() const {
+  return CGAL::to_double(m_relativePositionOnLine);
+}
 
 double ObjectPoint::getAngleOnCircle() const { return m_angleOnCircleRad; }
 
@@ -1034,18 +1044,24 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
 
       Kernel::FT lineLength = lineVector.squared_length();
       if (!CGAL::is_zero(lineLength)) {
-        m_relativePositionOnLine = CGAL::to_double((pointVector * lineVector) / lineLength);
+        m_relativePositionOnLine = (pointVector * lineVector) / lineLength;
 
         // Clamp between 0 and 1 for line segments
         if (line->isSegment()) {
-          m_relativePositionOnLine = std::max(0.0, std::min(1.0, m_relativePositionOnLine));
+          const Kernel::FT zero = safe_zero_ft();
+          const Kernel::FT one = safe_one_ft();
+          if (m_relativePositionOnLine < zero) {
+            m_relativePositionOnLine = zero;
+          } else if (m_relativePositionOnLine > one) {
+            m_relativePositionOnLine = one;
+          }
         }
 
         // Update the object position
         updatePositionFromParameters();
         updateSFMLShape();
-        std::cout << "ObjectPoint updated on line, relative position: " << m_relativePositionOnLine
-                  << std::endl;
+        std::cout << "ObjectPoint updated on line, relative position: "
+            << CGAL::to_double(m_relativePositionOnLine) << std::endl;
       }
     } catch (const std::exception &e) {
       std::cerr << "Error updating ObjectPoint on line: " << e.what() << std::endl;

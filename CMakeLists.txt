@@ -45,7 +45,7 @@ if(WIN32)
     find_package(SFML COMPONENTS graphics window system REQUIRED PATHS ${SFML_ROOT} NO_DEFAULT_PATH)
 else()
     # Lowered requirement to 2.5 for better compatibility with WSL/Ubuntu Repos
-    find_package(SFML 2.5 COMPONENTS graphics window system audio network REQUIRED)
+    find_package(SFML 2.5 COMPONENTS graphics window system REQUIRED)
 endif()
 
 # CGAL
@@ -113,16 +113,44 @@ endif()
 # Main Executable
 add_executable(FluxGeo ${SOURCES})
 
-# Linking
+# Linking (platform-specific handled below)
+# Linking: make platform-specific links explicit and robust
+# Find common system libraries used by SFML on Linux
+if(NOT WIN32)
+    find_package(X11 QUIET)
+    find_package(Freetype QUIET)
+    find_library(STB_LIB stb QUIET)
+    find_library(UDEV_LIB udev QUIET)
+    find_library(XRANDR_LIB Xrandr QUIET)
+    find_library(XCURSOR_LIB Xcursor QUIET)
+    find_library(XRENDER_LIB Xrender QUIET)
+    find_library(XFIXES_LIB Xfixes QUIET)
+    find_library(XEXT_LIB Xext QUIET)
+    # Transitive libs required by X11/Freetype/udev
+    find_library(XCB_LIB xcb QUIET)
+    find_library(PNG_LIB png16 QUIET)
+    find_library(ZLIB_LIB z QUIET)
+    find_library(BZ2_LIB bz2 QUIET)
+    find_library(BROTLI_DEC_LIB brotlidec QUIET)
+    find_library(CAP_LIB cap QUIET)
+    find_library(XAU_LIB Xau QUIET)
+    find_library(XDMCP_LIB Xdmcp QUIET)
+    find_library(BROTLICOMMON_LIB brotlicommon QUIET)
+endif()
+
+# Link libraries per-platform
 if(WIN32)
-    target_link_libraries(FluxGeo PRIVATE 
+    target_link_libraries(FluxGeo PRIVATE
         sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32
     )
     target_link_options(FluxGeo PRIVATE "-mwindows")
 else()
-    target_link_libraries(FluxGeo PRIVATE 
-        sfml-graphics sfml-window sfml-system CGAL::CGAL 
-        ${GMP_LIBRARIES} ${MPFR_LIBRARIES}
+    target_link_libraries(FluxGeo PRIVATE
+        sfml-graphics sfml-window sfml-system CGAL::CGAL
+        ${GMP_LIBRARIES} ${MPFR_LIBRARIES} ${X11_LIBRARIES}
+        ${FREETYPE_LIBRARIES}
+        ${STB_LIB} ${UDEV_LIB} ${XRANDR_LIB} ${XCURSOR_LIB} ${XRENDER_LIB} ${XFIXES_LIB} ${XEXT_LIB}
+        ${XCB_LIB} ${XAU_LIB} ${XDMCP_LIB} ${PNG_LIB} ${ZLIB_LIB} ${BZ2_LIB} ${BROTLI_DEC_LIB} ${BROTLICOMMON_LIB} ${CAP_LIB}
     )
 endif()
 
@@ -144,9 +172,9 @@ else()
     add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/fonts
         # Try to copy local arial.ttf first if it exists, otherwise try system
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/arial.ttf
-            ${CMAKE_BINARY_DIR}/arial.ttf
+        # COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        #     ${CMAKE_SOURCE_DIR}/arial.ttf
+        #     ${CMAKE_BINARY_DIR}/arial.ttf
     )
 endif()
 
@@ -175,4 +203,9 @@ if(BUILD_TESTS)
         endif()
         add_test(NAME LineDebuggingTest_CTest COMMAND LineDebuggingTest)
     endif()
+endif()
+
+if(NOT WIN32)
+    # Ensure the linker can resolve transitive shared library dependencies
+    target_link_options(FluxGeo PRIVATE "-Wl,-rpath-link,/lib/x86_64-linux-gnu" "-Wl,-rpath-link,/usr/lib/x86_64-linux-gnu")
 endif()

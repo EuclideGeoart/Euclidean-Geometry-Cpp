@@ -696,41 +696,52 @@ void Line::draw(sf::RenderWindow &window, float scale, bool forceVisible) const 
     // Determine thickness
     float basePixelThickness = Constants::LINE_THICKNESS_DEFAULT; // e.g. 2.0 or 3.0
     if (m_selected) basePixelThickness = 4.0f; // Thicker when selected
-    else if (m_hovered) basePixelThickness = 3.0f; 
+    else if (m_hovered) basePixelThickness = 3.0f;
 
     // Convert screen pixel thickness to world units
     float worldThickness = basePixelThickness * scale;
 
-    // Get endpoints from the shape (updated by updateSFMLShape)
-    if (m_sfmlShape.getVertexCount() < 2) return;
+    sf::Vector2f p1;
+    sf::Vector2f p2;
 
-    sf::Vector2f p1 = m_sfmlShape[0].position;
-    sf::Vector2f p2 = m_sfmlShape[1].position;
-    
-    // If infinite, extend
-    if (!m_isSegment) {
-       sf::View currentView = window.getView();
-       sf::Vector2f viewSize = currentView.getSize();
-       float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
-       
-       sf::Vector2f dir = p2 - p1;
-       float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-       if (len > 1e-9f) {
-           dir /= len; // Normalize
-           float extension = viewDiagonal * 2.0f;
-           // Extend both ways from the center or just extend the segment? 
-           // m_sfmlShape typically stores a robust segment for the infinite line. 
-           // Let's just extend p1 and p2 deeply.
-           p1 = p1 - dir * extension;
-           p2 = p2 + dir * extension;
-       }
+    if (m_isSegment) {
+      // Get endpoints from the shape (updated by updateSFMLShape)
+      if (m_sfmlShape.getVertexCount() < 2) return;
+      p1 = m_sfmlShape[0].position;
+      p2 = m_sfmlShape[1].position;
+    } else {
+      if (!m_startPoint || !m_endPoint) return;
+      const Point_2 startCgal = m_startPoint->getCGALPosition();
+      const Point_2 endCgal = m_endPoint->getCGALPosition();
+      p1 = sf::Vector2f(static_cast<float>(CGAL::to_double(startCgal.x())),
+                        static_cast<float>(CGAL::to_double(startCgal.y())));
+      p2 = sf::Vector2f(static_cast<float>(CGAL::to_double(endCgal.x())),
+                        static_cast<float>(CGAL::to_double(endCgal.y())));
+
+      sf::View currentView = window.getView();
+      sf::Vector2f viewSize = currentView.getSize();
+      float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
+
+      sf::Vector2f dir = p2 - p1;
+      float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+      if (len > 1e-9f) {
+        dir /= len;  // Normalize
+        float extension = viewDiagonal * 2.0f;
+        // Re-center around the view to keep coordinates stable at high zoom
+        sf::Vector2f viewCenter = currentView.getCenter();
+        sf::Vector2f toCenter = viewCenter - p1;
+        float proj = toCenter.x * dir.x + toCenter.y * dir.y;
+        sf::Vector2f mid = p1 + dir * proj;
+        p1 = mid - dir * extension;
+        p2 = mid + dir * extension;
+      }
     }
 
     // Draw as a thick line (Quad)
     sf::Vector2f dir = p2 - p1;
     float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
     
-    if (length < 1e-5f) return; // Degenerate
+    if (length < 1e-9f) return; // Degenerate (ultra-small threshold for extreme zoom)
 
     sf::Vector2f normal(-dir.y / length, dir.x / length);
     sf::Vector2f offset = normal * (worldThickness * 0.5f);

@@ -688,6 +688,8 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
     GeometryEditor &editor,
     const sf::Vector2f &worldPos_sfml,
     float tolerance) {
+  // Limit object snapping in world units to avoid aggressive snapping when zoomed out
+  const float objectSnapTolerance = std::min(tolerance, 0.35f);
   // 1. INSTANCE CHECK (Topological Glue)
   // Check if the click is on an EXISTING physical Point entity
   for (const auto& pt : editor.points) {
@@ -754,7 +756,7 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
 
   // 2b) Existing ObjectPoints (after intersections)
   for (const auto &op : editor.ObjectPoints) {
-    if (op && op->isValid() && op->isVisible() && op->contains(worldPos_sfml, tolerance)) {
+    if (op && op->isValid() && op->isVisible() && op->contains(worldPos_sfml, objectSnapTolerance)) {
       return std::static_pointer_cast<Point>(op);
     }
   }
@@ -800,7 +802,7 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
   // 3a) Shape vertex
   GeometricObject *shape = nullptr;
   size_t vertexIndex = 0;
-  if (findShapeVertex(editor, worldPos_sfml, tolerance, shape, vertexIndex)) {
+  if (findShapeVertex(editor, worldPos_sfml, objectSnapTolerance, shape, vertexIndex)) {
     auto hostPtr = editor.findSharedPtr(shape);
     if (hostPtr) {
       auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, vertexIndex, 0.0);
@@ -813,7 +815,7 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
   }
 
   // 3b) Shape edge
-  if (auto edgeHit = findNearestEdge(editor, worldPos_sfml, tolerance)) {
+  if (auto edgeHit = findNearestEdge(editor, worldPos_sfml, objectSnapTolerance)) {
     if (edgeHit->host) {
       if (auto circle = dynamic_cast<Circle *>(edgeHit->host)) {
         auto circlePtr = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(circle));
@@ -843,12 +845,12 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
 
   // 3c) Line object
   Point_2 cursor = editor.toCGALPoint(worldPos_sfml);
-  double bestDist = static_cast<double>(tolerance);
+  double bestDist = static_cast<double>(objectSnapTolerance);
   std::shared_ptr<Line> bestLine = nullptr;
   double bestRel = 0.0;
   for (auto &linePtr : editor.lines) {
     if (!linePtr || !linePtr->isValid()) continue;
-    if (!linePtr->contains(worldPos_sfml, tolerance)) continue;
+    if (!linePtr->contains(worldPos_sfml, objectSnapTolerance)) continue;
     try {
       Point_2 startP = linePtr->getStartPoint();
       Point_2 endP = linePtr->getEndPoint();

@@ -97,14 +97,40 @@ bool is_cgal_point_finite(const Point_2& point) {
   }
 }
 
-// Helper for dynamic tolerance scaling (Fix for selection precision at high zoom)
-static float getDynamicSelectionTolerance(const GeometryEditor& editor) {
+// ============================================================================
+// TOLERANCE CONVENTION
+// ============================================================================
+// For USER INTERACTION (clicking, hovering, selection):
+//   Use getDynamicSelectionTolerance(), getDynamicSnapTolerance(), or getDynamicHoverTolerance()
+//   These convert screen pixels -> world units based on current zoom
+//
+// For GEOMETRIC CALCULATIONS (intersections, precision):
+//   Use Constants::EPSILON or similar fixed world-unit values
+//   These are view-independent mathematical tolerances
+// ============================================================================
+
+// Helper: Convert screen pixels to world units based on current zoom
+static float screenPixelsToWorldUnits(const GeometryEditor& editor, float screenPixels) {
     if (editor.window.getSize().x > 0) {
-      double scale = editor.drawingView.getSize().x / static_cast<double>(editor.window.getSize().x);
-      double pixelTolerance = 10.0;
-      return static_cast<float>(pixelTolerance * scale);
+        float scale = editor.drawingView.getSize().x / static_cast<float>(editor.window.getSize().x);
+        return screenPixels * scale;
     }
     return 0.1f;
+}
+
+// Dynamic tolerance for selection/clicking (7 screen pixels)
+static float getDynamicSelectionTolerance(const GeometryEditor& editor) {
+    return screenPixelsToWorldUnits(editor, Constants::SELECTION_SCREEN_PIXELS);
+}
+
+// Dynamic tolerance for snapping (12 screen pixels)
+static float getDynamicSnapTolerance(const GeometryEditor& editor) {
+    return screenPixelsToWorldUnits(editor, Constants::SNAP_SCREEN_PIXELS);
+}
+
+// Dynamic tolerance for hover detection (10 screen pixels)
+static float getDynamicHoverTolerance(const GeometryEditor& editor) {
+    return screenPixelsToWorldUnits(editor, Constants::HOVER_SCREEN_PIXELS);
 }
 
 bool is_cgal_ft_finite(const Kernel::FT& value) {
@@ -442,7 +468,7 @@ std::shared_ptr<Point> trySnapToNearbyObject(GeometryEditor& editor,
     Point_2 center = circlePtr->getCenterPoint();
     float distToCenter = std::sqrt(CGAL::to_double(CGAL::squared_distance(cgalWorldPos, center)));
 
-    if (distToCenter < snapTolerance * 4.0f) {
+    if (distToCenter < snapTolerance) {
       // Check if ObjectPoint already exists at circle center
       for (auto& objPt : editor.ObjectPoints) {
         if (objPt && objPt->isValid() && objPt->getHostType() == ObjectType::Circle) {
@@ -469,7 +495,7 @@ std::shared_ptr<Point> trySnapToNearbyObject(GeometryEditor& editor,
   for (auto& circlePtr : editor.circles) {
     if (!circlePtr || !circlePtr->isValid()) continue;
 
-    float circumferenceTolerance = snapTolerance * 3.0f;
+    float circumferenceTolerance = snapTolerance;
     if (circlePtr->isCircumferenceHovered(worldPos_sfml, circumferenceTolerance)) {
       Point_2 projectedPoint = circlePtr->projectOntoCircumference(cgalWorldPos);
 
@@ -507,7 +533,7 @@ std::shared_ptr<Point> trySnapToNearbyObject(GeometryEditor& editor,
     if (!linePtr || !linePtr->isValid()) continue;
 
     // Check if mouse is near the line
-    if (linePtr->contains(worldPos_sfml, snapTolerance * 3.0f)) {
+    if (linePtr->contains(worldPos_sfml, snapTolerance)) {
       // Project point onto line to get CGAL position
       Point_2 projPos = cgalWorldPos;
 
@@ -564,8 +590,171 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
-  float tolerance = getDynamicSelectionTolerance(editor);
-  auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+  
+  // Check if ALT is pressed (for merging mode)
+  bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || 
+                      sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
+  
+  // --- ALT MODE: Snap/Merge to existing point ---
+  // --- SELECTION (Raw mouse position, nearest neighbor) ---
+  // Use centralized screen-pixel selection tolerance
+  float selectionTolerance = getDynamicSelectionTolerance(editor);
+  float bestDist = selectionTolerance;
+  std::shared_ptr<Point> bestPoint = nullptr;
+
+  // ObjectPoints first
+  for (const auto& op : editor.ObjectPoints) {
+    if (!op || !op->isValid() || !op->isVisible() || op->isLocked()) continue;
+    sf::Vector2f pos = op->getSFMLPosition();
+    float dx = pos.x - worldPos_sfml.x;
+    float dy = pos.y - worldPos_sfml.y;
+    float dist = std::sqrt(dx * dx + dy * dy);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      bestPoint = std::static_pointer_cast<Point>(op);
+    }
+  }
+
+  // Free points
+  for (const auto& pt : editor.points) {
+    if (!pt || !pt->isValid() || !pt->isVisible() || pt->isLocked()) continue;
+    sf::Vector2f pos = pt->getSFMLPosition();
+    float dx = pos.x - worldPos_sfml.x;
+    float dy = pos.y - worldPos_sfml.y;
+    float dist = std::sqrt(dx * dx + dy * dy);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      bestPoint = pt;
+    }
+  }
+
+  if (bestPoint) {
+    bestPoint->setSelected(true);
+    std::cout << "Selected nearest point within hitbox." << std::endl;
+    return; // Do not create a new point
+  }
+
+  // --- ALT MODE: Snap/Merge to existing point ---
+  if (isAltPressed) {
+    // Use larger tolerance (10px) for ALT merge mode
+    float selectionToleranceAlt = screenPixelsToWorldUnits(editor, 10.0f);
+    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, selectionToleranceAlt);
+    
+    // Check if smartPoint is an EXISTING point (already in our lists)
+    bool isExistingPoint = false;
+    auto itPoints = std::find(editor.points.begin(), editor.points.end(), smartPoint);
+    if (itPoints != editor.points.end()) {
+      isExistingPoint = true;
+    }
+    for (const auto& op : editor.ObjectPoints) {
+      if (op == smartPoint) {
+        isExistingPoint = true;
+        break;
+      }
+    }
+    
+    if (isExistingPoint && smartPoint) {
+      // Merge: Just select the existing point, don't create a new one
+      smartPoint->setSelected(true);
+      std::cout << "ALT+Click: Merged/selected existing point: " << smartPoint->getLabel() << std::endl;
+      return; // EXIT EARLY: No new point created
+    }
+  }
+  
+  // --- STANDARD MODE (No Alt, or Alt didn't find existing point) ---
+  
+  // Create smart point - this may snap to lines/circles for ObjectPoint creation
+  size_t prePointsCount = editor.points.size();
+  size_t preObjPointsCount = editor.ObjectPoints.size();
+  auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, selectionTolerance);
+  bool createdNew = (editor.points.size() > prePointsCount) || (editor.ObjectPoints.size() > preObjPointsCount);
+  bool isExistingPoint = false;
+  auto itExisting = std::find(editor.points.begin(), editor.points.end(), smartPoint);
+  if (itExisting != editor.points.end()) {
+    isExistingPoint = true;
+  }
+  for (const auto& op : editor.ObjectPoints) {
+    if (op == smartPoint) {
+      isExistingPoint = true;
+      break;
+    }
+  }
+
+  // If we snapped to an existing point without ALT, create a new point instead
+  if (!isAltPressed && smartPoint && isExistingPoint && !createdNew) {
+    // Try to create an ObjectPoint on nearest edge/line
+    if (auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, selectionTolerance)) {
+      if (edgeHit->host) {
+        if (auto circle = dynamic_cast<Circle*>(edgeHit->host)) {
+          auto circlePtr = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(circle));
+          if (circlePtr) {
+            auto objPoint = ObjectPoint::create(circlePtr, edgeHit->relativePosition * 2.0 * M_PI, Constants::OBJECT_POINT_DEFAULT_COLOR);
+            if (objPoint && objPoint->isValid()) {
+              editor.ObjectPoints.push_back(objPoint);
+              smartPoint = objPoint;
+            }
+          }
+        } else {
+          auto hostPtr = editor.findSharedPtr(edgeHit->host);
+          if (hostPtr) {
+            auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
+            if (objPoint && objPoint->isValid()) {
+              objPoint->setIsVertexAnchor(false);
+              editor.ObjectPoints.push_back(objPoint);
+              smartPoint = objPoint;
+            }
+          }
+        }
+      }
+    }
+
+    if (smartPoint && isExistingPoint && smartPoint == *itExisting) {
+      // Try line object snapping (as ObjectPoint)
+      Point_2 cursor = editor.toCGALPoint(worldPos_sfml);
+      double bestDist = static_cast<double>(selectionTolerance);
+      std::shared_ptr<Line> bestLine = nullptr;
+      double bestRel = 0.0;
+      for (auto &linePtr : editor.lines) {
+        if (!linePtr || !linePtr->isValid()) continue;
+        if (!linePtr->contains(worldPos_sfml, selectionTolerance)) continue;
+        try {
+          Point_2 startP = linePtr->getStartPoint();
+          Point_2 endP = linePtr->getEndPoint();
+          Line_2 hostLine = linePtr->getCGALLine();
+          Point_2 proj = hostLine.projection(cursor);
+          double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(proj, cursor)));
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestLine = linePtr;
+            Vector_2 lineVec = endP - startP;
+            double lineLenSq = CGAL::to_double(lineVec.squared_length());
+            double t = 0.5;
+            if (lineLenSq > 0.0) {
+              Vector_2 toProj = proj - startP;
+              t = CGAL::to_double(toProj * lineVec) / lineLenSq;
+              if (linePtr->isSegment()) {
+                t = std::max(0.0, std::min(1.0, t));
+              }
+            }
+            bestRel = t;
+          }
+        } catch (...) {
+        }
+      }
+      if (bestLine) {
+        auto objPoint = ObjectPoint::create(bestLine, bestRel, Constants::OBJECT_POINT_DEFAULT_COLOR);
+        if (objPoint && objPoint->isValid()) {
+          editor.ObjectPoints.push_back(objPoint);
+          smartPoint = objPoint;
+        }
+      }
+    }
+
+    // Fallback: create a free point at raw mouse position
+    if (smartPoint && isExistingPoint && smartPoint == *itExisting) {
+      smartPoint = editor.createPoint(editor.toCGALPoint(worldPos_sfml));
+    }
+  }
   if (smartPoint && smartPoint->isValid()) {
     bool addedPoint = false;
     // Check if this shared_ptr is already in our points list
@@ -586,9 +775,13 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
       addedPoint = true;
     }
 
-    // --- Auto-Labeling ---
+    // --- Auto-Labeling (Fixed: include both points AND ObjectPoints in pool) ---
     if (addedPoint || smartPoint->getLabel().empty()) {
-      std::string label = LabelManager::getNextLabel(editor.points);
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      std::string label = LabelManager::getNextLabel(labelPool);
       smartPoint->setLabel(label);
       smartPoint->setShowLabel(true);
     }
@@ -645,7 +838,7 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
       return;
     }
 
-    float tolerance = getDynamicSelectionTolerance(editor);
+    float tolerance = getDynamicSnapTolerance(editor); // Use 12px snap tolerance
 
     std::cout << "Line creation: Click at (" << CGAL::to_double(cgalWorldPos.x()) << ", " << CGAL::to_double(cgalWorldPos.y()) << ")" << std::endl;
 
@@ -2947,26 +3140,82 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     // Tolerance is unchanged for these "precision" targets
 
     // 1. ObjectPoints (Snap points) - Highest Priority
-    for (auto& objPointPtr : editor.ObjectPoints) {
-      if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && !objPointPtr->isLocked() && objPointPtr->contains(worldPos_sfml, tolerance)) {
-        std::cout << "Found ObjectPoint (Priority 1)" << std::endl;
-        potentialSelection = objPointPtr.get();
-        potentialDragMode = DragMode::DragObjectPoint;
-        goto objectFoundLabel;
-      }
-    }
+    // for (auto& objPointPtr : editor.ObjectPoints) {
+    //   if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && !objPointPtr->isLocked() && objPointPtr->contains(worldPos_sfml, tolerance)) {
+    //     std::cout << "Found ObjectPoint (Priority 1)" << std::endl;
+    //     potentialSelection = objPointPtr.get();
+    //     potentialDragMode = DragMode::DragObjectPoint;
+    //     goto objectFoundLabel;
+    //   }
+    // }
 
-    // 2. Free Points (Entities) - Includes Line Endpoints if they are Points
-    // This fixes the "Free Point Mobility" and "Line Endpoint" conflict by treating all Points as first-class draggables.
-    for (auto& pointPtr : editor.points) {
-      if (pointPtr && pointPtr->isValid() && pointPtr->isVisible() && !pointPtr->isLocked() && pointPtr->contains(worldPos_sfml, tolerance)) {
-        std::cout << "Found Point (Priority 2)" << std::endl;
-        potentialSelection = pointPtr.get();
-        potentialDragMode = DragMode::MoveFreePoint;
-        goto objectFoundLabel;
-      }
-    }
+    // // 2. Free Points (Entities) - Includes Line Endpoints if they are Points
+    // // This fixes the "Free Point Mobility" and "Line Endpoint" conflict by treating all Points as first-class draggables.
+    // for (auto& pointPtr : editor.points) {
+    //   if (pointPtr && pointPtr->isValid() && pointPtr->isVisible() && !pointPtr->isLocked() && pointPtr->contains(worldPos_sfml, tolerance)) {
+    //     std::cout << "Found Point (Priority 2)" << std::endl;
+    //     potentialSelection = pointPtr.get();
+    //     potentialDragMode = DragMode::MoveFreePoint;
+    //     goto objectFoundLabel;
+    //   }
+    // }
+// --- PASS 1: HIGHEST PRIORITY - POINTS & VERTICES (UNIFIED NEAREST NEIGHBOR) ---
+    // Instead of checking ObjectPoints then FreePoints sequentially, we check BOTH
+    // and pick the one with the absolute smallest distance to the cursor.
+    {
+        GeometricObject* bestPointCandidate = nullptr;
+        // Use squared distance to avoid expensive sqrt() during search
+        double minDistanceSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
+        
+        // Helper to check a candidate point
+        auto checkPointCandidate = [&](GeometricObject* obj) {
+            if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return;
+            
+            // Calculate exact distance
+            sf::Vector2f objPos;
+            if (auto pt = dynamic_cast<Point*>(obj)) {
+                objPos = pt->getSFMLPosition();
+            } else {
+                 return; 
+            }
 
+            double dx = worldPos_sfml.x - objPos.x;
+            double dy = worldPos_sfml.y - objPos.y;
+            double distSq = dx*dx + dy*dy;
+
+            // Strictly closer?
+            if (distSq < minDistanceSq) {
+                minDistanceSq = distSq;
+                bestPointCandidate = obj;
+            }
+        };
+
+        // 1. Check ALL ObjectPoints
+        for (auto& objPointPtr : editor.ObjectPoints) {
+            checkPointCandidate(objPointPtr.get());
+        }
+
+        // 2. Check ALL Free Points
+        for (auto& pointPtr : editor.points) {
+            checkPointCandidate(pointPtr.get());
+        }
+
+        // If we found a winner (the true closest point), select it
+        if (bestPointCandidate) {
+            potentialSelection = bestPointCandidate;
+            
+            // Set the correct Drag Mode based on what we actually found
+            if (potentialSelection->getType() == ObjectType::ObjectPoint) {
+                std::cout << "Found Closest ObjectPoint" << std::endl;
+                potentialDragMode = DragMode::DragObjectPoint;
+            } else {
+                std::cout << "Found Closest Free Point" << std::endl;
+                potentialDragMode = DragMode::MoveFreePoint;
+            }
+            
+            goto objectFoundLabel;
+        }
+    }
     // 3. Shape Vertices (Proxies)
     {
       auto checkVertexHit = [&](auto& container) -> bool {
@@ -3046,7 +3295,22 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       if (linePtr && linePtr->isValid() && linePtr->isVisible() && !linePtr->isLocked() && linePtr->contains(worldPos_sfml, tolerance)) {
         std::cout << "Found Line Body (Priority 3)" << std::endl;
         potentialSelection = linePtr.get();
-        potentialDragMode = DragMode::TranslateLine;
+        
+        // Check if endpoints are ObjectPoints or otherwise constrained
+        // If so, the line should NOT be translatable - only its endpoints can be moved
+        Point* startPt = linePtr->getStartPointObject();
+        Point* endPt = linePtr->getEndPointObject();
+        bool startConstrained = (dynamic_cast<ObjectPoint*>(startPt) != nullptr) || (startPt && startPt->isLocked());
+        bool endConstrained = (dynamic_cast<ObjectPoint*>(endPt) != nullptr) || (endPt && endPt->isLocked());
+        
+        if (startConstrained || endConstrained) {
+          // Line has constrained endpoints - don't allow translation
+          potentialDragMode = DragMode::None;
+          std::cout << "  Line has constrained endpoint(s) - translation disabled" << std::endl;
+        } else {
+          // Free line - allow translation
+          potentialDragMode = DragMode::TranslateLine;
+        }
         editor.dragStart_sfml = worldPos_sfml;
         goto objectFoundLabel;
       }
@@ -3880,7 +4144,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
     // Check if the mouse has moved significantly from the initial press to
     // start selection box
-    const float minDragDistance = 3.0f;  // Minimum pixels moved to initiate drag-select
+    // Use centralized constant for drag threshold
+    float minDragDistance = screenPixelsToWorldUnits(editor, Constants::DRAG_THRESHOLD_PIXELS);
     sf::Vector2f moveDelta = worldPos - editor.potentialSelectionBoxStart_sfml;
 
     if (std::abs(moveDelta.x) > minDragDistance || std::abs(moveDelta.y) > minDragDistance) {
@@ -4620,24 +4885,32 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       auto considerCandidate = [&](GeometricObject* obj, double dist, int priority) {
         if (!obj) return;
         if (dist > tolerance) return;
+        
+        // First candidate becomes best by default
         if (!bestObj) {
           bestObj = obj;
           bestDist = dist;
           bestPriority = priority;
           return;
         }
-        bool near = std::abs(dist - bestDist) < (tolerance * 0.1f);
-        if (near) {
-          if (priority > bestPriority) {
-            bestObj = obj;
-            bestDist = dist;
-            bestPriority = priority;
-          }
-        } else if (dist < bestDist) {
+        
+        // NEAREST NEIGHBOR: Higher priority always wins
+        if (priority > bestPriority) {
           bestObj = obj;
           bestDist = dist;
           bestPriority = priority;
+          return;
         }
+        
+        // Same priority: pick the closer one (true nearest neighbor)
+        if (priority == bestPriority && dist < bestDist) {
+          bestObj = obj;
+          bestDist = dist;
+          bestPriority = priority;
+          return;
+        }
+        
+        // Lower priority than current best: skip
       };
 
       auto distanceToSegment = [&](const sf::Vector2f& a, const sf::Vector2f& b, const sf::Vector2f& p, bool clamp) -> double {
@@ -4693,9 +4966,21 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       // Lines (priority 1, axes lower)
       for (auto& linePtr : editor.lines) {
         if (!linePtr || !linePtr->isValid() || !linePtr->isVisible() || isObjectBeingDeleted(linePtr.get())) continue;
-        sf::Vector2f p1 = editor.toSFMLVector(linePtr->getStartPoint());
-        sf::Vector2f p2 = editor.toSFMLVector(linePtr->getEndPoint());
-        double dist = distanceToSegment(p1, p2, worldPos, linePtr->isSegment());
+        
+        double dist;
+        // SPECIALIZED AXIS CHECK: Bypass floating-point precision issues at high zoom
+        if (linePtr == editor.getXAxis()) {
+          // X-axis is at Y=0, so distance is simply |mouseY|
+          dist = std::abs(static_cast<double>(worldPos.y));
+        } else if (linePtr == editor.getYAxis()) {
+          // Y-axis is at X=0, so distance is simply |mouseX|
+          dist = std::abs(static_cast<double>(worldPos.x));
+        } else {
+          sf::Vector2f p1 = editor.toSFMLVector(linePtr->getStartPoint());
+          sf::Vector2f p2 = editor.toSFMLVector(linePtr->getEndPoint());
+          dist = distanceToSegment(p1, p2, worldPos, linePtr->isSegment());
+        }
+        
         int priority = linePtr->isLocked() ? 0 : 1;
         considerCandidate(linePtr.get(), dist, priority);
       }

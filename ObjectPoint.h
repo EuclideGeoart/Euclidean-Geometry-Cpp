@@ -131,7 +131,7 @@ private:
   // Private default constructor for factory methods (like createOnShapeEdge)
   ObjectPoint() : Point(Point_2(0, 0), 1.0f, sf::Color::Yellow),
                   m_hostType(ObjectType::None),
-                  m_relativePositionOnLine(0.0),
+                  m_relativePositionOnLine(safe_zero_ft()),
                   m_angleOnCircleRad(0.0),
                   m_isCircleCenterAttachment(false),
                   m_edgeIndex(0),
@@ -149,7 +149,7 @@ private:
   double m_relativePos = 0.0; // For lines (0.0 to 1.0 for segments)
   // Attachment-specific data
   double m_relativePosition = 0.0;
-  double m_relativePositionOnLine = 0.0; // For lines (0.0 to 1.0 for segments)
+  Kernel::FT m_relativePositionOnLine = safe_zero_ft(); // For lines (0.0 to 1.0 for segments)
   double m_angleOnCircleRad = 0.0;       // For circles (radians)
   bool m_isCircleCenterAttachment = false; // If true, attach to circle center
   std::vector<Point_2> *m_childPoints = nullptr; // For hosted points
