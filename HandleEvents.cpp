@@ -592,6 +592,14 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
   
+  // === USE SNAP STATE POSITION IF AVAILABLE ===
+  // If the preview showed a snapped position (sticky to line/circle), use that position
+  if (editor.m_snapState.kind != PointUtils::SnapState::Kind::None) {
+    cgalWorldPos = editor.m_snapState.position;
+    worldPos_sfml = editor.toSFMLVector(cgalWorldPos);
+    std::cout << "[SNAP] Using snapped position for point creation" << std::endl;
+  }
+  
   // Check if ALT is pressed (for merging mode)
   bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || 
                       sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
@@ -3960,6 +3968,51 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   }
 
   editor.currentMousePos_sfml = worldPos;
+
+  // === FREE POINT TOOL STICKY PROJECTION ===
+  // When Free Point tool is active, project cursor onto nearby lines/circles for visual feedback
+  if (editor.m_currentToolType == ObjectType::Point) {
+    float snapTolerance = getDynamicSelectionTolerance(editor);
+    
+    // Look for lines or circles under cursor (ignore points for projection)
+    GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
+    
+    if (nearbyObj) {
+      Point_2 cgalPos = editor.toCGALPoint(worldPos);
+      Point_2 projectedPos = cgalPos; // Default to mouse position
+      
+      // Project onto the object
+      if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
+        auto* line = dynamic_cast<Line*>(nearbyObj);
+        if (line && line->isValid()) {
+          // Use ProjectionUtils to project onto line
+          projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
+        }
+      } else if (nearbyObj->getType() == ObjectType::Circle) {
+        auto* circle = dynamic_cast<Circle*>(nearbyObj);
+        if (circle && circle->isValid()) {
+          Point_2 center = circle->getCenterPoint();
+          double radius = circle->getRadius();
+          
+          // Project onto circle circumference
+          projectedPos = projectPointOntoCircle(cgalPos, center, radius);
+        }
+      }
+      
+      // Update snap state for visual feedback (cyan preview point)
+      editor.m_snapState = PointUtils::SnapState{};
+      editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
+      editor.m_snapState.position = projectedPos;
+      
+      // Highlight the object being snapped to
+      nearbyObj->setHovered(true);
+    } else {
+      // No nearby object - clear snap state
+      editor.m_snapState = PointUtils::SnapState{};
+    }
+  } else {
+    editor.m_snapState = PointUtils::SnapState{};
+  }
 
   // === LINE TOOL VERTEX/EDGE SNAP PREVIEW ===
   // When Line Tool is active, highlight nearby vertices/edges to give visual feedback
