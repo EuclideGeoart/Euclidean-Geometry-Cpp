@@ -217,6 +217,11 @@ bool handleCompassCreation(GeometryEditor& editor,
                            const sf::Vector2f& worldPos_sfml,
                            float tolerance);
 
+bool handleTransformationCreation(GeometryEditor& editor,
+                                  std::vector<GeometricObject*>& tempSelectedObjects,
+                                  const sf::Vector2f& worldPos_sfml,
+                                  float tolerance);
+
 static void handleCompassToolClick(GeometryEditor& editor,
                                    GeometricObject* clickedObj,
                                    const sf::Vector2f& worldPos_sfml,
@@ -2838,6 +2843,22 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       float tolerance = getDynamicSelectionTolerance(editor);
       GeometricObject* clickedObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::LineSegment, ObjectType::IntersectionPoint});
       handleCompassToolClick(editor, clickedObj, worldPos_sfml, tolerance);
+      return;
+    }
+  }
+
+  // Transformation Tools
+  if (editor.m_currentToolType == ObjectType::ReflectAboutLine ||
+      editor.m_currentToolType == ObjectType::ReflectAboutPoint ||
+      editor.m_currentToolType == ObjectType::ReflectAboutCircle ||
+      editor.m_currentToolType == ObjectType::RotateAroundPoint ||
+      editor.m_currentToolType == ObjectType::TranslateByVector ||
+      editor.m_currentToolType == ObjectType::DilateFromPoint) {
+    if (mouseEvent.button == sf::Mouse::Left) {
+      sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+      sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
+      handleTransformationCreation(editor, tempSelectedObjects, worldPos_sfml, tolerance);
       return;
     }
   }

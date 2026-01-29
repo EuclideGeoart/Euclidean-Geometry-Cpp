@@ -29,7 +29,13 @@ enum class ObjectType {
   AngleBisector,           // Tool for constructing angle bisectors
   TangentLine,             // Tool for constructing tangents to a circle
   Midpoint,                // Tool for creating midpoints
-  Compass                  // Tool for creating circles with specific radius
+  Compass,                 // Tool for creating circles with specific radius
+  ReflectAboutLine,        // Transform: reflect point about line
+  ReflectAboutPoint,       // Transform: reflect point about point
+  ReflectAboutCircle,      // Transform: inversion about circle
+  RotateAroundPoint,       // Transform: rotate around point
+  TranslateByVector,       // Transform: translate by vector
+  DilateFromPoint          // Transform: dilate from point
                            // Add more object types as needed
 };
 
