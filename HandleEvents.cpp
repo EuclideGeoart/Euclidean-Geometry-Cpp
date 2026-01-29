@@ -45,6 +45,7 @@
 #include "CGALSafeUtils.h"
 
 // Then your project headers
+#include "ConstructionObjects.h"
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/number_utils.h>
 #include <math.h>
@@ -151,6 +152,115 @@ bool is_cgal_ft_finite(const Kernel::FT& value) {
 }
 // Helper function to remove an object from a vector of unique_ptrs
 // Returns true if an object was found and removed, false otherwise.
+// (Keeping existing code)
+
+// --- Helper: Midpoint & Compass State ---
+// Using static variable as requested to modify HandleEvents.cpp only
+static std::vector<GeometricObject*> tempSelectedObjects;
+
+// --- Helper: Midpoint Tool Logic ---
+static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* clickedObj) {
+    // 1. Instant Midpoint (Line/Segment)
+    if (clickedObj && (clickedObj->getType() == ObjectType::Line || clickedObj->getType() == ObjectType::LineSegment)) {
+        auto lineShared = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(clickedObj));
+        if (lineShared && lineShared->isValid()) {
+            auto midpoint = std::make_shared<Midpoint>(lineShared, Constants::POINT_DEFAULT_COLOR);
+            editor.points.push_back(midpoint);
+            midpoint->setSelected(true);
+            editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpoint)));
+            
+            std::cout << "Created Dynamic Midpoint on Segment" << std::endl;
+            editor.setGUIMessage("Midpoint constructed on segment.");
+        }
+        return;
+    }
+
+    // 2. Point-to-Point Midpoint
+    if (clickedObj && (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint || clickedObj->getType() == ObjectType::IntersectionPoint)) {
+        // Check if already selected
+        bool alreadySelected = false;
+        for (auto* obj : tempSelectedObjects) {
+            if (obj == clickedObj) alreadySelected = true;
+        }
+        if (alreadySelected) return;
+
+        clickedObj->setSelected(true);
+        tempSelectedObjects.push_back(clickedObj);
+
+        // If we have 2 points, execute
+        if (tempSelectedObjects.size() == 2) {
+             auto p1 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[0]));
+             auto p2 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[1]));
+             
+             if (p1 && p2) {
+                 auto midpoint = std::make_shared<Midpoint>(p1, p2, Constants::POINT_DEFAULT_COLOR);
+                 editor.points.push_back(midpoint);
+                 midpoint->setSelected(true);
+                 editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpoint)));
+                 
+                 std::cout << "Created Dynamic Midpoint between points" << std::endl;
+                 editor.setGUIMessage("Midpoint constructed.");
+             }
+             
+             // Cleanup selection
+             for (auto* obj : tempSelectedObjects) obj->setSelected(false);
+             tempSelectedObjects.clear();
+        } else {
+            editor.setGUIMessage("Midpoint: Select second point.");
+        }
+    }
+}
+
+// --- Helper: Compass Tool Logic ---
+bool handleCompassCreation(GeometryEditor& editor,
+                           std::vector<GeometricObject*>& tempSelectedObjects,
+                           const sf::Vector2f& worldPos_sfml,
+                           float tolerance);
+
+static void handleCompassToolClick(GeometryEditor& editor,
+                                   GeometricObject* clickedObj,
+                                   const sf::Vector2f& worldPos_sfml,
+                                   float tolerance) {
+    // State 1: Define Radius
+    if (tempSelectedObjects.empty()) {
+        if (!clickedObj) return;
+
+        // Case A: Select LineSegment (Radius = Length)
+        if (clickedObj->getType() == ObjectType::LineSegment) {
+             // Radius defined immediately
+             clickedObj->setSelected(true);
+             tempSelectedObjects.push_back(clickedObj); // Store line as item 0
+             editor.setGUIMessage("Compass: Radius set from Line. Select Center Point.");
+             return;
+        }
+        
+        // Case B: Select Point 1 (Radius = Distance to Point 2)
+        if (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint) {
+            clickedObj->setSelected(true);
+            tempSelectedObjects.push_back(clickedObj);
+            editor.setGUIMessage("Compass: Radius Pt 1 selected. Select Radius Pt 2.");
+            return;
+        }
+    }
+    // State 1.5: Waiting for 2nd Point of Radius
+    else if (tempSelectedObjects.size() == 1 && (tempSelectedObjects[0]->getType() == ObjectType::Point || tempSelectedObjects[0]->getType() == ObjectType::ObjectPoint)) {
+         if (!clickedObj) return;
+         if (clickedObj == tempSelectedObjects[0]) return; // Clicked same point
+         
+         if (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint) {
+             clickedObj->setSelected(true);
+             tempSelectedObjects.push_back(clickedObj); // Now we have 2 points defining radius
+             editor.setGUIMessage("Compass: Radius defined. Select Center Point.");
+         }
+         return;
+    }
+    // State 2: Define Center and Create Circle
+    else if ((tempSelectedObjects.size() == 1 && tempSelectedObjects[0]->getType() == ObjectType::LineSegment) || 
+         (tempSelectedObjects.size() == 2 && tempSelectedObjects[0]->getType() == ObjectType::Point)) { 
+      handleCompassCreation(editor, tempSelectedObjects, worldPos_sfml, tolerance);
+    }
+}
+
 template <typename T>
 bool removeObjectFromVector(std::vector<std::unique_ptr<T>>& vec, GeometricObject* objToRemove) {
   if (!objToRemove) return false;
@@ -2707,6 +2817,31 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     }
   }
 
+  // Midpoint Tool
+  if (editor.m_currentToolType == ObjectType::Midpoint) {
+    if (mouseEvent.button == sf::Mouse::Left) {
+      sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+      sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
+      // Include IntersectionPoint explicitly? Point covers it usually if inherited.
+      GeometricObject* clickedObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::LineSegment, ObjectType::IntersectionPoint});
+      handleMidpointToolClick(editor, clickedObj);
+      return;
+    }
+  }
+
+  // Compass Tool
+  if (editor.m_currentToolType == ObjectType::Compass) {
+    if (mouseEvent.button == sf::Mouse::Left) {
+      sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+      sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+      float tolerance = getDynamicSelectionTolerance(editor);
+      GeometricObject* clickedObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::LineSegment, ObjectType::IntersectionPoint});
+      handleCompassToolClick(editor, clickedObj, worldPos_sfml, tolerance);
+      return;
+    }
+  }
+
   // Angle tool handling
   if (editor.m_currentToolType == ObjectType::Angle) {
     if (mouseEvent.button == sf::Mouse::Left) {
@@ -2760,6 +2895,11 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
         if (editor.anglePointA && editor.angleVertex && editor.anglePointB) {
           auto angle = std::make_shared<Angle>(editor.anglePointA, editor.angleVertex, editor.anglePointB, false, editor.getCurrentColor());
+          sf::Vector2u winSize = editor.window.getSize();
+          sf::Vector2f viewSize = editor.drawingView.getSize();
+          float zoomScale = (winSize.x > 0) ? (viewSize.x / static_cast<float>(winSize.x)) : 1.0f;
+          float idealRadius = 50.0f * zoomScale;
+          angle->setRadius(idealRadius);
           angle->setVisible(true);
           angle->update();
           editor.angles.push_back(angle);
@@ -2902,6 +3042,11 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
                 // 3. Create Angle (No dot product check filters here, we accept all angles)
                 if (p1 && vertex && p2) {
                   auto angle = std::make_shared<Angle>(p1, vertex, p2, false, editor.getCurrentColor());
+                  sf::Vector2u winSize = editor.window.getSize();
+                  sf::Vector2f viewSize = editor.drawingView.getSize();
+                  float zoomScale = (winSize.x > 0) ? (viewSize.x / static_cast<float>(winSize.x)) : 1.0f;
+                  float idealRadius = 50.0f * zoomScale;
+                  angle->setRadius(idealRadius);
                   angle->setVisible(true);
                   angle->update();
                   editor.angles.push_back(angle);
@@ -3843,8 +3988,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       double dy = worldPos.y - CGAL::to_double(vertexPos.y());
       double newRadius = std::sqrt(dx * dx + dy * dy);
 
-      // Clamp radius to reasonable values
-      newRadius = std::max(10.0, std::min(newRadius, 2000.0));
+      // Keep tiny radii valid; avoid hard clamp that snaps size
+      newRadius = std::max(1e-9, newRadius);
 
       angle->setRadius(newRadius);
     }
@@ -3973,42 +4118,68 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   // When Free Point tool is active, project cursor onto nearby lines/circles for visual feedback
   if (editor.m_currentToolType == ObjectType::Point) {
     float snapTolerance = getDynamicSelectionTolerance(editor);
+    bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
     
-    // Look for lines or circles under cursor (ignore points for projection)
-    GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
-    
-    if (nearbyObj) {
-      Point_2 cgalPos = editor.toCGALPoint(worldPos);
-      Point_2 projectedPos = cgalPos; // Default to mouse position
-      
-      // Project onto the object
-      if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
-        auto* line = dynamic_cast<Line*>(nearbyObj);
-        if (line && line->isValid()) {
-          // Use ProjectionUtils to project onto line
-          projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
+    // Check for existing points ONLY if ALT is pressed (merge mode)
+    bool snappedToPoint = false;
+    if (isAltPressed) {
+      // Look for nearby points to snap to
+      GeometricObject* nearbyPoint = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Point, ObjectType::ObjectPoint});
+      if (nearbyPoint) {
+        Point_2 pointPos;
+        if (auto* pt = dynamic_cast<Point*>(nearbyPoint)) {
+          pointPos = pt->getCGALPosition();
+        } else if (auto* objPt = dynamic_cast<ObjectPoint*>(nearbyPoint)) {
+          pointPos = objPt->getCGALPosition();
         }
-      } else if (nearbyObj->getType() == ObjectType::Circle) {
-        auto* circle = dynamic_cast<Circle*>(nearbyObj);
-        if (circle && circle->isValid()) {
-          Point_2 center = circle->getCenterPoint();
-          double radius = circle->getRadius();
-          
-          // Project onto circle circumference
-          projectedPos = projectPointOntoCircle(cgalPos, center, radius);
-        }
+        
+        // Snap to existing point
+        editor.m_snapState = PointUtils::SnapState{};
+        editor.m_snapState.kind = PointUtils::SnapState::Kind::ExistingPoint;
+        editor.m_snapState.position = pointPos;
+        nearbyPoint->setHovered(true);
+        snappedToPoint = true;
       }
+    }
+    
+    // If not snapped to a point, try snapping to lines/circles
+    if (!snappedToPoint) {
+      // Look for lines or circles under cursor (ignore points for projection)
+      GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
       
-      // Update snap state for visual feedback (cyan preview point)
-      editor.m_snapState = PointUtils::SnapState{};
-      editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
-      editor.m_snapState.position = projectedPos;
-      
-      // Highlight the object being snapped to
-      nearbyObj->setHovered(true);
-    } else {
-      // No nearby object - clear snap state
-      editor.m_snapState = PointUtils::SnapState{};
+      if (nearbyObj) {
+        Point_2 cgalPos = editor.toCGALPoint(worldPos);
+        Point_2 projectedPos = cgalPos; // Default to mouse position
+        
+        // Project onto the object
+        if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
+          auto* line = dynamic_cast<Line*>(nearbyObj);
+          if (line && line->isValid()) {
+            // Use ProjectionUtils to project onto line
+            projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
+          }
+        } else if (nearbyObj->getType() == ObjectType::Circle) {
+          auto* circle = dynamic_cast<Circle*>(nearbyObj);
+          if (circle && circle->isValid()) {
+            Point_2 center = circle->getCenterPoint();
+            double radius = circle->getRadius();
+            
+            // Project onto circle circumference
+            projectedPos = projectPointOntoCircle(cgalPos, center, radius);
+          }
+        }
+        
+        // Update snap state for visual feedback (cyan preview point)
+        editor.m_snapState = PointUtils::SnapState{};
+        editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
+        editor.m_snapState.position = projectedPos;
+        
+        // Highlight the object being snapped to
+        nearbyObj->setHovered(true);
+      } else {
+        // No nearby object - clear snap state
+        editor.m_snapState = PointUtils::SnapState{};
+      }
     }
   } else {
     editor.m_snapState = PointUtils::SnapState{};

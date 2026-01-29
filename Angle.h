@@ -55,6 +55,7 @@ class Angle : public GeometricObject {
 
   Point_2 m_vertexPoint = Point_2(0, 0);
   double m_arcRadius = 20.0;
+  double m_visualRadius = 40.0;
   double m_startAngle = 0.0;
   double m_sweepAngle = 0.0;
   

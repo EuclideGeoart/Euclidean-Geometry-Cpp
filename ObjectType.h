@@ -27,7 +27,9 @@ enum class ObjectType {
   PerpendicularLine,       // Tool for creating perpendicular lines
   PerpendicularBisector,   // Tool for constructing perpendicular bisectors
   AngleBisector,           // Tool for constructing angle bisectors
-  TangentLine              // Tool for constructing tangents to a circle
+  TangentLine,             // Tool for constructing tangents to a circle
+  Midpoint,                // Tool for creating midpoints
+  Compass                  // Tool for creating circles with specific radius
                            // Add more object types as needed
 };
 

@@ -299,6 +299,16 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
   currentX += buttonWidth + spacing;
 
+  // Midpoint tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Midpoint", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Compass tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Compass", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
   // Angle tool
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Angle", Constants::BUTTON_DEFAULT_COLOR,
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
@@ -550,11 +560,30 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
   }
 
   for (auto &button : const_cast<std::vector<Button>&>(buttons)) {
-    if (button.getLabel() == "Axes") {
+    // Sync button state with editor tools
+    const std::string& label = button.getLabel();
+    if (label == "Axes") {
       button.setActive(editor.areAxesVisible());
+    } else if (label == "Grid") {
+       button.setActive(editor.isGridVisible());
+    } else if (label == "Midpoint") {
+       button.setActive(editor.getCurrentTool() == ObjectType::Midpoint);
+    } else if (label == "Compass") {
+       button.setActive(editor.getCurrentTool() == ObjectType::Compass);
+    } else if (label == "Angle") {
+       button.setActive(editor.getCurrentTool() == ObjectType::Angle);
+    } else if (label == "Tangent") {
+       button.setActive(editor.getCurrentTool() == ObjectType::TangentLine);
+     } else if (label == "PerpBis") {
+       button.setActive(editor.getCurrentTool() == ObjectType::PerpendicularBisector);
+     } else if (label == "AngBis") {
+       button.setActive(editor.getCurrentTool() == ObjectType::AngleBisector);
+    } else if (label == "Intersect") {
+       button.setActive(editor.getCurrentTool() == ObjectType::Intersection);
     }
+
     button.draw(window);
-    if (button.getLabel() == "Color") {
+    if (label == "Color") {
       const float iconSize = std::round(std::max(20.0f, scaleBase * 1.2f));
       sf::RectangleShape colorPreview;
       colorPreview.setSize(sf::Vector2f(iconSize, iconSize));
@@ -894,6 +923,14 @@ bool GUI::handleEvent(sf::RenderWindow& window, const sf::Event& event, Geometry
             // Switch to intersection mode to allow targeted intersection creation
             editor.setCurrentTool(ObjectType::Intersection);
             editor.setToolHint("Click two objects to find their intersection.");
+            return true;
+          } else if (button.getLabel() == "Midpoint") {
+            editor.setCurrentTool(ObjectType::Midpoint);
+            editor.setToolHint("Select two points (or a line) to find the middle.");
+            return true;
+          } else if (button.getLabel() == "Compass") {
+            editor.setCurrentTool(ObjectType::Compass);
+            editor.setToolHint("Select segment/2 points for radius, then a center point.");
             return true;
           } else if (button.getLabel() == "Angle") {
             editor.setCurrentTool(ObjectType::Angle);

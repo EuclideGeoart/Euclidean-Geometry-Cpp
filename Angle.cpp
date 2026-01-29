@@ -30,6 +30,8 @@ Angle::Angle(const std::shared_ptr<Point> &a, const std::shared_ptr<Point> &vert
   }
   m_text.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
   m_text.setFillColor(sf::Color::Black);
+  m_visualRadius = 40.0;
+  m_arcRadius = m_visualRadius;
   updateSFMLShape();
 }
 
@@ -119,13 +121,6 @@ void Angle::updateSFMLShape() {
 
   double sweepAbs = std::abs(m_sweepAngle);
   m_currentDegrees = static_cast<float>(sweepAbs * 180.0 / kPi);
-
-  // Resize: Use custom radius if set, else auto-calculate
-  if (m_customRadius > 0) {
-      m_arcRadius = m_customRadius;
-  } else {
-      m_arcRadius = std::max(15.0, std::min(lenA, lenB) * 0.3);
-  }
 
   // --- VISUALIZATION SETUP ---
   bool hasFill = (m_color.a > 0); // Only generate fill geometry if alpha > 0
@@ -242,6 +237,7 @@ void Angle::updateSFMLShape() {
                        static_cast<float>(cy) + textRadius * std::sin(midAngle));
   m_text.setString(std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xC2\xB0");
   m_text.setPosition(textPos);
+  m_text.setScale(1.0f, -1.0f);
 
   // Update logic for interaction handles
   m_resizeHandle.setRadius(4.0f);
@@ -290,61 +286,139 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
       overrideColor.a = 50;
   }
 
-    // Draw Fill
-    if (m_fillFan.getVertexCount() > 0 && !isGhost) {
-       bool emphasize = isSelected() || isHovered();
-       if (emphasize) {
-         sf::VertexArray highlightFan = m_fillFan;
-         for (size_t i = 0; i < highlightFan.getVertexCount(); ++i) {
-           auto c = highlightFan[i].color;
-           c.a = std::max<sf::Uint8>(c.a, 100);
-           highlightFan[i].color = c;
-         }
-         window.draw(highlightFan);
-       } else {
-         window.draw(m_fillFan);
-       }
-    }
+  // --- ADAPTIVE RADIUS CALCULATION ---
+    float effectiveRadius = static_cast<float>(m_visualRadius);
 
-  // Draw Outline (Arc)
-  if (m_arc.getVertexCount() > 0) {
-      if (isGhost) {
-          sf::VertexArray ghostArc = m_arc;
-           for(size_t i=0; i<ghostArc.getVertexCount(); ++i) {
-               ghostArc[i].color = overrideColor;
-           }
-           window.draw(ghostArc);
-      } else {
-          window.draw(m_arc);
+  // --- REGENERATE GEOMETRY (Local for View-Dependent Rendering) ---
+  sf::VertexArray drawArc(sf::LineStrip);
+  sf::VertexArray drawFan(sf::TriangleFan);
+  bool hasFill = (m_color.a > 0);
+  
+  double cx = CGAL::to_double(m_vertexPoint.x());
+  double cy = CGAL::to_double(m_vertexPoint.y());
+  double startAngle = m_startAngle;
+  double sweepAngle = m_sweepAngle;
+
+  bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.1f;
+
+  if (isRightAngle) {
+      // Right Angle Square Symbol
+      double dirAx = std::cos(startAngle);
+      double dirAy = std::sin(startAngle);
+      double dirBx = std::cos(startAngle + sweepAngle);
+      double dirBy = std::sin(startAngle + sweepAngle);
+
+      double pxA = cx + dirAx * effectiveRadius;
+      double pyA = cy + dirAy * effectiveRadius;
+      double pxB = cx + dirBx * effectiveRadius;
+      double pyB = cy + dirBy * effectiveRadius;
+      double pxCorner = cx + (dirAx + dirBx) * effectiveRadius; 
+      double pyCorner = cy + (dirAy + dirBy) * effectiveRadius;
+
+      // Outline
+      drawArc.resize(3);
+      drawArc[0] = sf::Vertex(sf::Vector2f((float)pxA, (float)pyA), isGhost ? overrideColor : m_outlineColor);
+      drawArc[1] = sf::Vertex(sf::Vector2f((float)pxCorner, (float)pyCorner), isGhost ? overrideColor : m_outlineColor);
+      drawArc[2] = sf::Vertex(sf::Vector2f((float)pxB, (float)pyB), isGhost ? overrideColor : m_outlineColor);
+
+      // Fill
+      if (hasFill && !isGhost) {
+          drawFan.setPrimitiveType(sf::Quads);
+          drawFan.resize(4);
+          sf::Color c = m_fillColor; c.a = 50;
+          drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
+          drawFan[1] = sf::Vertex(sf::Vector2f((float)pxA, (float)pyA), c);
+          drawFan[2] = sf::Vertex(sf::Vector2f((float)pxCorner, (float)pyCorner), c);
+          drawFan[3] = sf::Vertex(sf::Vector2f((float)pxB, (float)pyB), c);
+      }
+  } else {
+      // Standard Arc
+      constexpr double kPi = 3.14159265358979323846;
+      double sweepAbs = std::abs(sweepAngle);
+      int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
+      
+      drawArc.resize(segments + 1);
+      if (hasFill && !isGhost) {
+          drawFan.resize(segments + 2);
+          sf::Color c = m_fillColor; c.a = 50;
+          drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
+      }
+
+      for (int i = 0; i <= segments; ++i) {
+        double t = (segments == 0) ? 0.0 : (static_cast<double>(i) / segments);
+        double ang = startAngle + sweepAngle * t;
+        float px = static_cast<float>(cx + effectiveRadius * std::cos(ang));
+        float py = static_cast<float>(cy + effectiveRadius * std::sin(ang));
+        
+        drawArc[i] = sf::Vertex(sf::Vector2f(px, py), isGhost ? overrideColor : m_outlineColor);
+        
+        if (hasFill && !isGhost) {
+             sf::Color c = m_fillColor; c.a = 50;
+             drawFan[i + 1] = sf::Vertex(sf::Vector2f(px, py), c);
+        }
       }
   }
 
-  // Draw Text (only if fully visible)
-  if (s_fontLoaded && !isGhost) {
-    window.draw(m_text);
+  // Draw Fill
+  if (drawFan.getVertexCount() > 0 && !isGhost) {
+      if (isSelected() || isHovered()) {
+           // Simple highlight logic
+           window.draw(drawFan); // Or use custom highlight color logic
+      } else {
+           window.draw(drawFan);
+      }
+  }
+  
+  // Draw Outline
+  if (drawArc.getVertexCount() > 0) {
+      window.draw(drawArc);
   }
 
-  // Selection/Hover highlight logic could be added here similar to other shapes
+  // Draw Text
+  if (s_fontLoaded && !isGhost) {
+      float midAngle = static_cast<float>(startAngle + sweepAngle * 0.5);
+      float textOffset = effectiveRadius + (12.0f * scale); // 12 pixels padding
+      sf::Vector2f textPos(static_cast<float>(cx) + textOffset * std::cos(midAngle),
+                           static_cast<float>(cy) + textOffset * std::sin(midAngle));
+
+      sf::Text tempText = m_text;
+      tempText.setString(std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xC2\xB0");
+      tempText.setCharacterSize(24); // High res for crisp rendering
+      tempText.setScale(scale, -scale); // Scale down to match view (flip Y)
+      
+      // Center origin? Usually text origin is top-left. 
+      // Ideally center it for better alignment.
+      sf::FloatRect bounds = tempText.getLocalBounds();
+      tempText.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+      
+      tempText.setPosition(textPos);
+      window.draw(tempText);
+  }
+
+  // Draw Vertex Handle (Resize handle) - only if selected/hovered
   if (isSelected() || isHovered()) {
-      drawVertexHandles(window, scale);
+      float midAngle = static_cast<float>(startAngle + sweepAngle * 0.5);
+      float hx = static_cast<float>(cx + effectiveRadius * std::cos(midAngle));
+      float hy = static_cast<float>(cy + effectiveRadius * std::sin(midAngle));
+      
+      sf::CircleShape handle(4.0f * scale);
+      handle.setOrigin(4.0f * scale, 4.0f * scale);
+      handle.setPosition(hx, hy);
+      handle.setFillColor(sf::Color(100, 100, 255, 200));
+      handle.setOutlineColor(sf::Color::Black);
+      handle.setOutlineThickness(1.0f * scale);
+      window.draw(handle);
   }
 }
 
 void Angle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
-    // scale handles
-    sf::CircleShape handle = m_resizeHandle;
-    float r = handle.getRadius() * scale;
-    handle.setRadius(r);
-    handle.setOrigin(r, r);
-    // Position is already set in updateSFMLShape but we might need to verify if position scaling is needed?
-    // Angles are world space, so position is correct.
-    handle.setOutlineThickness(1.0f * scale);
-    window.draw(handle);
+    // Deprecated / Merged into draw() above
 }
 
 void Angle::setRadius(double radius) {
-    m_customRadius = radius;
-    updateSFMLShape();
+  m_visualRadius = radius;
+  m_arcRadius = m_visualRadius;
+  updateSFMLShape();
 }
 
 bool Angle::contains(const sf::Vector2f &worldPos, float tolerance) const {

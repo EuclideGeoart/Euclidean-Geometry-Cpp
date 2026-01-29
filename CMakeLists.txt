@@ -89,6 +89,7 @@ set(SOURCES
     GUI.cpp
     Grid.cpp
     HandleEvents.cpp
+    HandleMousePress.cpp
     Transforms.cpp
     Intersection.cpp
     IntersectionSystem.cpp
