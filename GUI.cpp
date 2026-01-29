@@ -12,6 +12,16 @@
 #include "LineToolMode.h"    // Include this to access LineToolMode enum and globals
 #include "ObjectType.h"      // Include the definition for ObjectType enum
 
+float g_transformRotationDegrees = 45.0f;
+float g_transformDilationFactor = 2.0f;
+static bool s_showTransformTools = false;
+
+static bool isTransformButtonLabel(const std::string& label) {
+  return label == "RflLine" || label == "RflPt" || label == "Invert" ||
+         label == "Rotate" || label == "Translate" || label == "Dilate" ||
+         label == "Rot+" || label == "Rot-" || label == "Dil+" || label == "Dil-";
+}
+
 
 bool ColorPicker::handleEvent(const sf::Event& event, const sf::Vector2f& mousePos) {
   if (!m_isOpen) return false;
@@ -314,6 +324,50 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
   currentX += buttonWidth + spacing;
 
+  // Transformations header (toggle)
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Transform", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Transformations sub-tools
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "RflLine", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "RflPt", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Invert", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Rotate", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Translate", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Dilate", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Rotation/Dilation inputs
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Rot+", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Rot-", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Dil+", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Dil-", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
   // Hide tool
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Hide", Constants::BUTTON_DEFAULT_COLOR,
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
@@ -547,6 +601,13 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
   const float sidebarWidth = std::round(buttonWidth + padding * 2.0f);
   float currentY = padding;
   for (auto& button : const_cast<std::vector<Button>&>(buttons)) {
+    const std::string& label = button.getLabel();
+    if (isTransformButtonLabel(label) && !s_showTransformTools) {
+      button.setSize(sf::Vector2f(0.f, 0.f));
+      button.setPosition(sf::Vector2f(-10000.f, -10000.f));
+      continue;
+    }
+
     // Snap button dimensions/position to integers
     button.setSize(sf::Vector2f(std::round(sidebarWidth - 2 * padding), std::round(buttonHeight)));
     button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
@@ -570,8 +631,22 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
        button.setActive(editor.getCurrentTool() == ObjectType::Midpoint);
     } else if (label == "Compass") {
        button.setActive(editor.getCurrentTool() == ObjectType::Compass);
-    } else if (label == "Angle") {
+     } else if (label == "Angle") {
        button.setActive(editor.getCurrentTool() == ObjectType::Angle);
+     } else if (label == "Transform") {
+       button.setActive(s_showTransformTools);
+     } else if (label == "RflLine") {
+       button.setActive(editor.getCurrentTool() == ObjectType::ReflectAboutLine);
+     } else if (label == "RflPt") {
+       button.setActive(editor.getCurrentTool() == ObjectType::ReflectAboutPoint);
+     } else if (label == "Invert") {
+       button.setActive(editor.getCurrentTool() == ObjectType::ReflectAboutCircle);
+     } else if (label == "Rotate") {
+       button.setActive(editor.getCurrentTool() == ObjectType::RotateAroundPoint);
+     } else if (label == "Translate") {
+       button.setActive(editor.getCurrentTool() == ObjectType::TranslateByVector);
+     } else if (label == "Dilate") {
+       button.setActive(editor.getCurrentTool() == ObjectType::DilateFromPoint);
     } else if (label == "Tangent") {
        button.setActive(editor.getCurrentTool() == ObjectType::TangentLine);
      } else if (label == "PerpBis") {
@@ -594,6 +669,34 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       colorPreview.setOutlineThickness(1);
       colorPreview.setOutlineColor(sf::Color::Black);
       window.draw(colorPreview);
+    }
+  }
+
+  if (s_showTransformTools && m_fontLoaded) {
+    const Button* rotateBtn = nullptr;
+    const Button* dilateBtn = nullptr;
+    for (const auto& button : buttons) {
+      if (button.getLabel() == "Rotate") rotateBtn = &button;
+      if (button.getLabel() == "Dilate") dilateBtn = &button;
+    }
+
+    sf::Text valueText;
+    valueText.setFont(messageFont);
+    valueText.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
+    valueText.setFillColor(sf::Color::White);
+
+    if (rotateBtn) {
+      auto bounds = rotateBtn->getGlobalBounds();
+      valueText.setString("Angle: " + std::to_string(static_cast<int>(std::round(g_transformRotationDegrees))) + "\xC2\xB0");
+      valueText.setPosition(bounds.left + bounds.width + 6.0f, bounds.top);
+      window.draw(valueText);
+    }
+
+    if (dilateBtn) {
+      auto bounds = dilateBtn->getGlobalBounds();
+      valueText.setString("Factor: " + std::to_string(g_transformDilationFactor));
+      valueText.setPosition(bounds.left + bounds.width + 6.0f, bounds.top);
+      window.draw(valueText);
     }
   }
   if (m_colorPicker && m_colorPicker->isOpen()) {
@@ -718,6 +821,12 @@ bool GUI::handleEvent(sf::RenderWindow& window, const sf::Event& event, Geometry
     const float sidebarWidth = std::round(buttonWidth + padding * 2.0f);
     float currentY = padding;
     for (auto& button : buttons) {
+      const std::string& label = button.getLabel();
+      if (isTransformButtonLabel(label) && !s_showTransformTools) {
+        button.setSize(sf::Vector2f(0.f, 0.f));
+        button.setPosition(sf::Vector2f(-10000.f, -10000.f));
+        continue;
+      }
       button.setSize(sf::Vector2f(std::round(sidebarWidth - 2 * padding), std::round(buttonHeight)));
       button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
       currentY += buttonHeight + padding;
@@ -935,6 +1044,50 @@ bool GUI::handleEvent(sf::RenderWindow& window, const sf::Event& event, Geometry
           } else if (button.getLabel() == "Angle") {
             editor.setCurrentTool(ObjectType::Angle);
             editor.setToolHint("Click Point A, Vertex, then Point B.");
+            return true;
+          } else if (button.getLabel() == "Transform") {
+            s_showTransformTools = !s_showTransformTools;
+            editor.setGUIMessage(s_showTransformTools ? "Transform tools expanded" : "Transform tools collapsed");
+            return true;
+          } else if (button.getLabel() == "RflLine") {
+            editor.setCurrentTool(ObjectType::ReflectAboutLine);
+            editor.setToolHint("Select source point, then a line.");
+            return true;
+          } else if (button.getLabel() == "RflPt") {
+            editor.setCurrentTool(ObjectType::ReflectAboutPoint);
+            editor.setToolHint("Select source point, then a center point.");
+            return true;
+          } else if (button.getLabel() == "Invert") {
+            editor.setCurrentTool(ObjectType::ReflectAboutCircle);
+            editor.setToolHint("Select source point, then a circle.");
+            return true;
+          } else if (button.getLabel() == "Rotate") {
+            editor.setCurrentTool(ObjectType::RotateAroundPoint);
+            editor.setToolHint("Select source point, then pivot point.");
+            return true;
+          } else if (button.getLabel() == "Translate") {
+            editor.setCurrentTool(ObjectType::TranslateByVector);
+            editor.setToolHint("Select source point, then vector start and end points.");
+            return true;
+          } else if (button.getLabel() == "Dilate") {
+            editor.setCurrentTool(ObjectType::DilateFromPoint);
+            editor.setToolHint("Select source point, then dilation center.");
+            return true;
+          } else if (button.getLabel() == "Rot+") {
+            g_transformRotationDegrees = std::min(360.0f, g_transformRotationDegrees + 5.0f);
+            editor.setGUIMessage("Rotation angle: " + std::to_string(static_cast<int>(std::round(g_transformRotationDegrees))) + "\xC2\xB0");
+            return true;
+          } else if (button.getLabel() == "Rot-") {
+            g_transformRotationDegrees = std::max(0.0f, g_transformRotationDegrees - 5.0f);
+            editor.setGUIMessage("Rotation angle: " + std::to_string(static_cast<int>(std::round(g_transformRotationDegrees))) + "\xC2\xB0");
+            return true;
+          } else if (button.getLabel() == "Dil+") {
+            g_transformDilationFactor = std::min(10.0f, g_transformDilationFactor + 0.1f);
+            editor.setGUIMessage("Dilation factor: " + std::to_string(g_transformDilationFactor));
+            return true;
+          } else if (button.getLabel() == "Dil-") {
+            g_transformDilationFactor = std::max(0.1f, g_transformDilationFactor - 0.1f);
+            editor.setGUIMessage("Dilation factor: " + std::to_string(g_transformDilationFactor));
             return true;
           } else if (button.getLabel() == "Hide") {
             editor.setCurrentTool(ObjectType::Hide);
