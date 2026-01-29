@@ -44,6 +44,7 @@ const std::string DEFAULT_FONT_PATH =
 inline unsigned int WINDOW_WIDTH = sf::VideoMode::getDesktopMode().width;
 inline unsigned int WINDOW_HEIGHT = sf::VideoMode::getDesktopMode().height;
 const sf::Color BACKGROUND_COLOR = sf::Color(255, 255, 255);  // White background
+const sf::Color TOOL_HINT_COLOR = sf::Color(255, 255, 255, 255);
 inline constexpr float ZOOM_FACTOR = 1.1f;
 const float PAN_SPEED = 100.0f;        // Consider making this pixels per second or similar
 const float MIN_PAN_BOUND = -2000.0f;  // Example pan boundary

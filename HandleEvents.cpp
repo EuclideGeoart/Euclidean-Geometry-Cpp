@@ -75,6 +75,8 @@
 #include "Types.h"
 #include "VertexLabelManager.h"
 #include "VariantUtils.h"
+#include <imgui.h>
+#include <imgui-SFML.h>
 
 using namespace CGALSafeUtils;
 // Helper functions for checking if CGAL types contain finite values
@@ -706,18 +708,18 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
   Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
+
+  // Check if ALT is pressed (for merging/snapping mode)
+  bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) ||
+                      sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
   
   // === USE SNAP STATE POSITION IF AVAILABLE ===
   // If the preview showed a snapped position (sticky to line/circle), use that position
-  if (editor.m_snapState.kind != PointUtils::SnapState::Kind::None) {
+  if (isAltPressed && editor.m_snapState.kind != PointUtils::SnapState::Kind::None) {
     cgalWorldPos = editor.m_snapState.position;
     worldPos_sfml = editor.toSFMLVector(cgalWorldPos);
     std::cout << "[SNAP] Using snapped position for point creation" << std::endl;
   }
-  
-  // Check if ALT is pressed (for merging mode)
-  bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || 
-                      sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
   
   // --- ALT MODE: Snap/Merge to existing point ---
   // --- SELECTION (Raw mouse position, nearest neighbor) ---
@@ -726,36 +728,38 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   float bestDist = selectionTolerance;
   std::shared_ptr<Point> bestPoint = nullptr;
 
-  // ObjectPoints first
-  for (const auto& op : editor.ObjectPoints) {
-    if (!op || !op->isValid() || !op->isVisible() || op->isLocked()) continue;
-    sf::Vector2f pos = op->getSFMLPosition();
-    float dx = pos.x - worldPos_sfml.x;
-    float dy = pos.y - worldPos_sfml.y;
-    float dist = std::sqrt(dx * dx + dy * dy);
-    if (dist <= bestDist) {
-      bestDist = dist;
-      bestPoint = std::static_pointer_cast<Point>(op);
+  if (isAltPressed) {
+    // ObjectPoints first
+    for (const auto& op : editor.ObjectPoints) {
+      if (!op || !op->isValid() || !op->isVisible() || op->isLocked()) continue;
+      sf::Vector2f pos = op->getSFMLPosition();
+      float dx = pos.x - worldPos_sfml.x;
+      float dy = pos.y - worldPos_sfml.y;
+      float dist = std::sqrt(dx * dx + dy * dy);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        bestPoint = std::static_pointer_cast<Point>(op);
+      }
     }
-  }
 
-  // Free points
-  for (const auto& pt : editor.points) {
-    if (!pt || !pt->isValid() || !pt->isVisible() || pt->isLocked()) continue;
-    sf::Vector2f pos = pt->getSFMLPosition();
-    float dx = pos.x - worldPos_sfml.x;
-    float dy = pos.y - worldPos_sfml.y;
-    float dist = std::sqrt(dx * dx + dy * dy);
-    if (dist <= bestDist) {
-      bestDist = dist;
-      bestPoint = pt;
+    // Free points
+    for (const auto& pt : editor.points) {
+      if (!pt || !pt->isValid() || !pt->isVisible() || pt->isLocked()) continue;
+      sf::Vector2f pos = pt->getSFMLPosition();
+      float dx = pos.x - worldPos_sfml.x;
+      float dy = pos.y - worldPos_sfml.y;
+      float dist = std::sqrt(dx * dx + dy * dy);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        bestPoint = pt;
+      }
     }
-  }
 
-  if (bestPoint) {
-    bestPoint->setSelected(true);
-    std::cout << "Selected nearest point within hitbox." << std::endl;
-    return; // Do not create a new point
+    if (bestPoint) {
+      bestPoint->setSelected(true);
+      std::cout << "Selected nearest point within hitbox." << std::endl;
+      return; // Do not create a new point
+    }
   }
 
   // --- ALT MODE: Snap/Merge to existing point ---
@@ -4140,10 +4144,13 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   if (editor.m_currentToolType == ObjectType::Point) {
     float snapTolerance = getDynamicSelectionTolerance(editor);
     bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
-    
-    // Check for existing points ONLY if ALT is pressed (merge mode)
-    bool snappedToPoint = false;
-    if (isAltPressed) {
+
+    if (!isAltPressed) {
+      // No snapping/projection unless Alt is held
+      editor.m_snapState = PointUtils::SnapState{};
+    } else {
+      // Check for existing points ONLY if ALT is pressed (merge mode)
+      bool snappedToPoint = false;
       // Look for nearby points to snap to
       GeometricObject* nearbyPoint = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Point, ObjectType::ObjectPoint});
       if (nearbyPoint) {
@@ -4153,7 +4160,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         } else if (auto* objPt = dynamic_cast<ObjectPoint*>(nearbyPoint)) {
           pointPos = objPt->getCGALPosition();
         }
-        
+
         // Snap to existing point
         editor.m_snapState = PointUtils::SnapState{};
         editor.m_snapState.kind = PointUtils::SnapState::Kind::ExistingPoint;
@@ -4161,45 +4168,45 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         nearbyPoint->setHovered(true);
         snappedToPoint = true;
       }
-    }
-    
-    // If not snapped to a point, try snapping to lines/circles
-    if (!snappedToPoint) {
-      // Look for lines or circles under cursor (ignore points for projection)
-      GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
-      
-      if (nearbyObj) {
-        Point_2 cgalPos = editor.toCGALPoint(worldPos);
-        Point_2 projectedPos = cgalPos; // Default to mouse position
-        
-        // Project onto the object
-        if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
-          auto* line = dynamic_cast<Line*>(nearbyObj);
-          if (line && line->isValid()) {
-            // Use ProjectionUtils to project onto line
-            projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
+
+      // If not snapped to a point, try snapping to lines/circles
+      if (!snappedToPoint) {
+        // Look for lines or circles under cursor (ignore points for projection)
+        GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
+
+        if (nearbyObj) {
+          Point_2 cgalPos = editor.toCGALPoint(worldPos);
+          Point_2 projectedPos = cgalPos; // Default to mouse position
+
+          // Project onto the object
+          if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
+            auto* line = dynamic_cast<Line*>(nearbyObj);
+            if (line && line->isValid()) {
+              // Use ProjectionUtils to project onto line
+              projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
+            }
+          } else if (nearbyObj->getType() == ObjectType::Circle) {
+            auto* circle = dynamic_cast<Circle*>(nearbyObj);
+            if (circle && circle->isValid()) {
+              Point_2 center = circle->getCenterPoint();
+              double radius = circle->getRadius();
+
+              // Project onto circle circumference
+              projectedPos = projectPointOntoCircle(cgalPos, center, radius);
+            }
           }
-        } else if (nearbyObj->getType() == ObjectType::Circle) {
-          auto* circle = dynamic_cast<Circle*>(nearbyObj);
-          if (circle && circle->isValid()) {
-            Point_2 center = circle->getCenterPoint();
-            double radius = circle->getRadius();
-            
-            // Project onto circle circumference
-            projectedPos = projectPointOntoCircle(cgalPos, center, radius);
-          }
+
+          // Update snap state for visual feedback (cyan preview point)
+          editor.m_snapState = PointUtils::SnapState{};
+          editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
+          editor.m_snapState.position = projectedPos;
+
+          // Highlight the object being snapped to
+          nearbyObj->setHovered(true);
+        } else {
+          // No nearby object - clear snap state
+          editor.m_snapState = PointUtils::SnapState{};
         }
-        
-        // Update snap state for visual feedback (cyan preview point)
-        editor.m_snapState = PointUtils::SnapState{};
-        editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
-        editor.m_snapState.position = projectedPos;
-        
-        // Highlight the object being snapped to
-        nearbyObj->setHovered(true);
-      } else {
-        // No nearby object - clear snap state
-        editor.m_snapState = PointUtils::SnapState{};
       }
     }
   } else {
@@ -5982,6 +5989,14 @@ void handleEvents(GeometryEditor& editor) {
 
   sf::Event event;
   while (editor.window.pollEvent(event)) {
+    ImGui::SFML::ProcessEvent(editor.window, event);
+    if (ImGui::GetIO().WantCaptureMouse) {
+      if (event.type == sf::Event::MouseButtonPressed ||
+          event.type == sf::Event::MouseButtonReleased ||
+          event.type == sf::Event::MouseWheelScrolled) {
+        continue;
+      }
+    }
     bool guiHandledThisEvent = false;  // Flag to track if GUI handled the event
     // First, let the GUI have a chance to handle the event
     if (editor.gui.isInitialized()) {

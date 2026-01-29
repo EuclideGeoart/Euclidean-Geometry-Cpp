@@ -1,5 +1,6 @@
 #include "GUI.h"
 
+#include <SFML/Graphics/Color.hpp>
 #include <algorithm>  // For std::clamp
 #include <iostream>   // For std::cerr
 #include <string>     // Include very early for any string operations
@@ -11,6 +12,8 @@
 #include "GeometryEditor.h"  // Include the full definition of GeometryEditor
 #include "LineToolMode.h"    // Include this to access LineToolMode enum and globals
 #include "ObjectType.h"      // Include the definition for ObjectType enum
+#include <imgui.h>
+#include <imgui-SFML.h>
 
 float g_transformRotationDegrees = 45.0f;
 float g_transformDilationFactor = 2.0f;
@@ -20,6 +23,53 @@ static bool isTransformButtonLabel(const std::string& label) {
   return label == "RflLine" || label == "RflPt" || label == "Invert" ||
          label == "Rotate" || label == "Translate" || label == "Dilate" ||
          label == "Rot+" || label == "Rot-" || label == "Dil+" || label == "Dil-";
+}
+
+static ImVec4 toImVec4(const sf::Color& color) {
+  return ImVec4(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f);
+}
+
+static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, bool messageActive) {
+  ImGuiIO& io = ImGui::GetIO();
+  float padding = 15.0f;
+
+  // Top-right: static keybinds (use semi-opaque grey background so white text is visible)
+  ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - padding, padding + 20.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.18f, 0.18f, 0.18f, 0.85f));
+  ImGuiWindowFlags keyFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                              ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                              ImGuiWindowFlags_NoInputs;
+  if (ImGui::Begin("KeysOverlay", nullptr, keyFlags)) {
+    ImGui::TextColored(ImVec4(1,1,1,1), "Alt: Snap to Point");
+    ImGui::TextColored(ImVec4(1,1,1,1), "Shift: Snap to Grid");
+    ImGui::TextColored(ImVec4(1,1,1,1), "Ctrl: Multi-Select");
+    ImGui::TextColored(ImVec4(1,1,1,1), "F+/-: Scale UI");
+    ImGui::TextColored(ImVec4(1,1,1,1), "Del: Delete Object");
+    ImGui::TextColored(ImVec4(1,1,1,1), "H: Toggle Labels");
+  }
+  ImGui::End();
+  ImGui::PopStyleColor();
+
+  // Top-middle: dynamic tool hint
+  std::string msg;
+  if (messageActive) {
+    msg = guiMessage.getString().toAnsiString();
+  }
+  if (msg.empty()) {
+    msg = editor.getToolHint();
+  }
+  if (!msg.empty()) {
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, padding + 20.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.5f, 0.5f, 0.5f, 0.9f));
+    ImGuiWindowFlags hintFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                 ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                 ImGuiWindowFlags_NoInputs;
+    if (ImGui::Begin("HintOverlay", nullptr, hintFlags)) {
+      ImGui::TextColored(toImVec4(Constants::TOOL_HINT_COLOR), "%s", msg.c_str());
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+  }
 }
 
 
@@ -538,6 +588,148 @@ bool GUI::handleSliderInteraction(const sf::Vector2i& mousePos, GeometryEditor& 
   return false;
 }
 void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEditor& editor) const {
+  (void)drawingView;
+
+  if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("File")) {
+      if (ImGui::MenuItem("Save As...")) {
+        std::string path = FileDialogs::SaveFile("JSON Project (*.json)\0*.json\0", "json");
+        if (!path.empty()) {
+          editor.saveProject(path);
+          editor.setGUIMessage("Project Saved");
+        }
+      }
+      if (ImGui::MenuItem("Load...")) {
+        std::string path = FileDialogs::OpenFile("JSON Project (*.json)\0*.json\0");
+        if (!path.empty()) {
+          editor.loadProject(path);
+          editor.setGUIMessage("Project Loaded");
+        }
+      }
+      if (ImGui::MenuItem("Export SVG")) {
+        std::string path = FileDialogs::SaveFile("Scalable Vector Graphics (*.svg)\0*.svg\0", "svg");
+        if (!path.empty()) {
+          editor.exportSVG(path);
+          editor.setGUIMessage("Exported to SVG");
+        }
+      }
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("View")) {
+      if (ImGui::MenuItem("Reset View")) {
+        editor.resetView();
+      }
+      bool gridVisible = editor.isGridVisible();
+      if (ImGui::MenuItem("Toggle Grid", nullptr, &gridVisible)) {
+        editor.toggleGrid();
+      }
+      bool axesVisible = editor.areAxesVisible();
+      if (ImGui::MenuItem("Toggle Axes", nullptr, &axesVisible)) {
+        editor.toggleAxes();
+      }
+      ImGui::EndMenu();
+    }
+    ImGui::EndMainMenuBar();
+  }
+
+  const float imguiSidebarWidth = 270.0f;
+  const float windowHeight = static_cast<float>(editor.window.getSize().y);
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(ImVec2(imguiSidebarWidth, windowHeight));
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+
+  ImGui::Begin("Tools", nullptr, flags);
+  ImGui::Text("Mode: %s", editor.getCurrentToolName().c_str());
+  ImGui::Separator();
+
+  auto DrawToolButton = [&](const char* label, ObjectType toolType) {
+    bool isActive = (editor.getCurrentTool() == toolType);
+    if (isActive) {
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.8f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.3f, 0.9f, 1.0f));
+    }
+    if (ImGui::Button(label, ImVec2(-1, 0))) {
+      editor.setCurrentTool(toolType);
+      editor.clearSelection();
+    }
+    if (isActive) ImGui::PopStyleColor(2);
+  };
+
+  if (ImGui::CollapsingHeader("Construction", ImGuiTreeNodeFlags_DefaultOpen)) {
+    DrawToolButton("Move/Select", ObjectType::None);
+    DrawToolButton("Point", ObjectType::Point);
+    DrawToolButton("Line", ObjectType::Line);
+    DrawToolButton("Segment", ObjectType::LineSegment);
+    DrawToolButton("Circle", ObjectType::Circle);
+    DrawToolButton("ObjPoint", ObjectType::ObjectPoint);
+    DrawToolButton("Intersection", ObjectType::Intersection);
+    DrawToolButton("Midpoint", ObjectType::Midpoint);
+    DrawToolButton("Compass", ObjectType::Compass);
+    DrawToolButton("Parallel", ObjectType::ParallelLine);
+    DrawToolButton("Perpendicular", ObjectType::PerpendicularLine);
+    DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector);
+    DrawToolButton("Angle Bisector", ObjectType::AngleBisector);
+    DrawToolButton("Tangent", ObjectType::TangentLine);
+  }
+
+  if (ImGui::CollapsingHeader("Shapes")) {
+    DrawToolButton("Rectangle", ObjectType::Rectangle);
+    DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable);
+    DrawToolButton("Triangle", ObjectType::Triangle);
+    DrawToolButton("Polygon", ObjectType::Polygon);
+    DrawToolButton("Regular Polygon", ObjectType::RegularPolygon);
+  }
+
+  if (ImGui::CollapsingHeader("Measure")) {
+    DrawToolButton("Angle", ObjectType::Angle);
+  }
+
+  if (ImGui::CollapsingHeader("Transformations")) {
+    ImGui::InputFloat("Rotation (deg)", &g_transformRotationDegrees, 1.0f, 5.0f, "%.1f");
+    ImGui::InputFloat("Dilation factor", &g_transformDilationFactor, 0.1f, 0.5f, "%.2f");
+    DrawToolButton("Reflect about Line", ObjectType::ReflectAboutLine);
+    DrawToolButton("Reflect about Point", ObjectType::ReflectAboutPoint);
+    DrawToolButton("Invert (Circle)", ObjectType::ReflectAboutCircle);
+    DrawToolButton("Rotate around Point", ObjectType::RotateAroundPoint);
+    DrawToolButton("Translate by Vector", ObjectType::TranslateByVector);
+    DrawToolButton("Dilate from Point", ObjectType::DilateFromPoint);
+  }
+
+  if (ImGui::CollapsingHeader("Colors", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Text("Current Color");
+    ImVec4 currentColor = toImVec4(editor.getCurrentColor());
+    ImGui::ColorButton("##current_color", currentColor, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker |
+                                                   ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoInputs,
+                       ImVec2(48, 18));
+    ImGui::Separator();
+
+    const ImVec4 colors[] = {
+        ImVec4(1, 1, 1, 1), ImVec4(1, 0, 0, 1), ImVec4(0, 1, 0, 1), ImVec4(0, 0, 1, 1),
+        ImVec4(1, 1, 0, 1), ImVec4(0, 1, 1, 1), ImVec4(1, 0, 1, 1), ImVec4(0.5f, 0.5f, 0.5f, 1)};
+    for (int i = 0; i < 8; ++i) {
+      if (i > 0 && i % 4 != 0) ImGui::SameLine();
+      ImGui::PushID(i);
+      if (ImGui::ColorButton("##col", colors[i])) {
+        sf::Color selected(static_cast<sf::Uint8>(colors[i].x * 255),
+                           static_cast<sf::Uint8>(colors[i].y * 255),
+                           static_cast<sf::Uint8>(colors[i].z * 255),
+                           static_cast<sf::Uint8>(colors[i].w * 255));
+        editor.setCurrentColor(selected);
+        if (editor.selectedObject) {
+          editor.selectedObject->setColor(selected);
+        }
+        for (auto* obj : editor.selectedObjects) {
+          if (obj) obj->setColor(selected);
+        }
+      }
+      ImGui::PopID();
+    }
+  }
+
+  ImGui::End();
+  drawOverlays(editor, guiMessage, messageActive);
+
   (void)drawingView;                        // Mark as unused
   window.setView(window.getDefaultView());  // Use Default View (Screen Space)
   // Thickness slider (top-center)
@@ -548,6 +740,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     window.draw(m_thicknessLabel);
   }
 
+  /*
   // Help & instructions box (top-right)
   if (m_fontLoaded || Button::getFontLoaded()) {
     const sf::Font& helpFont = m_fontLoaded ? messageFont : Button::getFont();
@@ -592,6 +785,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       textY += t.getLocalBounds().height + 4.0f;
     }
   }
+  */
 
   // Dynamic left sidebar layout: scale button dimensions with font size
   const float scaleBase = static_cast<float>(Constants::BUTTON_TEXT_SIZE);
@@ -740,6 +934,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     window.draw(guiMessage);
   }
 
+  /*
   // Render Tool Hint
   if (m_fontLoaded) {
     sf::Text hintText;
@@ -757,8 +952,12 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     hintText.setPosition(std::round(winSize.x / 2.f - bounds.width / 2.f), std::round(yPos));
     window.draw(hintText);
   }
+  */
   //   // let editor manage views
   // }
+
+  // Render ImGui on top of SFML-drawn GUI elements
+  ImGui::SFML::Render(window);
 }
 
 void GUI::updateFontSizes() {

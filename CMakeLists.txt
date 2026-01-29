@@ -71,6 +71,8 @@ set(BASE_COMPILE_DEFINITIONS CGAL_USE_GMPXX=1 SFML_USE_CHAR32_STRING CGAL_HAS_TH
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui-sfml)
 
 # Define Sources list dynamically to handle platform differences
 set(SOURCES
@@ -100,6 +102,20 @@ set(SOURCES
     VertexLabelManager.cpp
     PointUtils.cpp
     ProjectSerializer.cpp
+    libs/imgui/imgui.cpp
+    libs/imgui/imgui_draw.cpp
+    libs/imgui/imgui_tables.cpp
+    libs/imgui/imgui_widgets.cpp
+    libs/imgui/imgui_demo.cpp
+    libs/imgui-sfml/imgui-SFML.cpp
+)
+
+# ImGui-SFML compatibility shim for ImGui 1.92 API changes
+set(IMGUI_SFML_COMPAT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/imgui_sfml_compat.h")
+file(WRITE "${IMGUI_SFML_COMPAT_HEADER}" "#pragma once\n\n#include <imgui.h>\n\n#ifndef ImGuiKey_ModCtrl\n#define ImGuiKey_ModCtrl ImGuiMod_Ctrl\n#endif\n#ifndef ImGuiKey_ModShift\n#define ImGuiKey_ModShift ImGuiMod_Shift\n#endif\n#ifndef ImGuiKey_ModAlt\n#define ImGuiKey_ModAlt ImGuiMod_Alt\n#endif\n#ifndef ImGuiKey_ModSuper\n#define ImGuiKey_ModSuper ImGuiMod_Super\n#endif\n\n#ifndef ImGuiNavInput_Activate\nenum ImGuiNavInput_ {\n    ImGuiNavInput_Activate = 0,\n    ImGuiNavInput_Cancel = 1,\n    ImGuiNavInput_Input = 2,\n    ImGuiNavInput_Menu = 3,\n    ImGuiNavInput_FocusPrev = 4,\n    ImGuiNavInput_FocusNext = 5,\n    ImGuiNavInput_TweakSlow = 6,\n    ImGuiNavInput_TweakFast = 7\n};\n#endif\n\n#ifndef TextureId\n#define TextureId GetTexID()\n#endif\n\n#ifndef TexID\n#define TexID TexID.GetTexID()\n#endif\n\nnamespace ImGui {\ninline void Image(ImTextureID tex_id, const ImVec2& image_size, const ImVec2& uv0, const ImVec2& uv1, const ImVec4& tint_col, const ImVec4& border_col) {\n    ImGui::ImageWithBg(ImTextureRef(tex_id), image_size, uv0, uv1, border_col, tint_col);\n}\n\ninline bool ImageButton(ImTextureID tex_id, const ImVec2& image_size, const ImVec2& uv0, const ImVec2& uv1, int frame_padding, const ImVec4& bg_col, const ImVec4& tint_col) {\n    return ImGui::ImageButton(\"##imgui-sfml\", ImTextureRef(tex_id), image_size, uv0, uv1, bg_col, tint_col);\n}\n} // namespace ImGui\n")
+
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui-sfml/imgui-SFML.cpp
+    PROPERTIES COMPILE_OPTIONS "-include;${IMGUI_SFML_COMPAT_HEADER}"
 )
 
 # Only add FileDialogs if on Windows, or if you have implemented Linux support in it
@@ -117,13 +133,13 @@ add_executable(FluxGeo ${SOURCES})
 # Linking
 if(WIN32)
     target_link_libraries(FluxGeo PRIVATE 
-        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32
+        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32
     )
     target_link_options(FluxGeo PRIVATE "-mwindows")
 else()
     target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL 
-        ${GMP_LIBRARIES} ${MPFR_LIBRARIES}
+        ${GMP_LIBRARIES} ${MPFR_LIBRARIES} GL
     )
 endif()
 
