@@ -39,6 +39,9 @@
 #include "CharTraitsFix.h"
 #include "GMP_exception_handler.h"
 #include "GeometryEditor.h"
+#include "HandleEvents.h"
+#include <imgui.h>
+#include <imgui-SFML.h>
 #include "cgal_error_handler.h"
 #include <exception>
 #include <iostream>
@@ -47,6 +50,16 @@
 
 void run_exception_tests(); // Declaration for the function in
                             // test_exceptions.cpp
+
+static void setupImGuiStyle() {
+  ImGuiStyle &style = ImGui::GetStyle();
+  ImGui::StyleColorsDark();
+  style.WindowRounding = 0.0f;
+  style.FrameRounding = 0.0f;
+  style.GrabRounding = 0.0f;
+  style.PopupRounding = 0.0f;
+  style.ScrollbarRounding = 0.0f;
+}
 
 int main() {
   // Install our custom CGAL error handlers that throw exceptions instead of
@@ -74,9 +87,88 @@ int main() {
     std::cout << "Creating GeometryEditor..." << std::endl;
     GeometryEditor editor;
 
-    // Run the main application
     std::cout << "Starting application..." << std::endl;
-    editor.run();
+
+    ImGui::SFML::Init(editor.window);
+    setupImGuiStyle();
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    ImFont* font = nullptr;
+
+#if defined(_WIN32) || defined(_WIN64)
+    font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 24.0f);
+    if (!font) {
+      font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 24.0f);
+    }
+#elif defined(__linux__)
+    // Common Linux font locations and fallbacks
+    font = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24.0f);
+    if (!font) {
+      font = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/msttcorefonts/Arial.ttf", 24.0f);
+    }
+    if (!font) {
+      font = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 24.0f);
+    }
+#else
+    // Unknown platform: try common Windows paths as a last resort
+    font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 24.0f);
+    if (!font) {
+      font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 24.0f);
+    }
+#endif
+
+    // Ensure we always have at least a default font to avoid an empty UI
+    if (!font) {
+      font = io.Fonts->AddFontDefault();
+    }
+
+    ImGui::SFML::UpdateFontTexture();
+    io.FontGlobalScale = 1.0f;
+
+    sf::Clock deltaClock;
+    while (editor.window.isOpen()) {
+      float dt = deltaClock.restart().asSeconds();
+
+      // Process events
+      try {
+        handleEvents(editor);
+      } catch (const CGAL::Uncertain_conversion_exception &e) {
+        std::cerr << "main: Caught Uncertain_conversion_exception during event handling: "
+                  << e.what() << std::endl;
+      } catch (const std::exception &e) {
+        std::cerr << "main: Caught exception during event handling: " << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "main: Caught unknown exception during event handling" << std::endl;
+      }
+
+      ImGui::SFML::Update(editor.window, sf::seconds(dt));
+
+      // Update
+      try {
+        editor.update(sf::seconds(dt));
+      } catch (const CGAL::Uncertain_conversion_exception &e) {
+        std::cerr << "main: Caught Uncertain_conversion_exception during update: "
+                  << e.what() << std::endl;
+      } catch (const std::exception &e) {
+        std::cerr << "main: Caught exception during update: " << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "main: Caught unknown exception during update" << std::endl;
+      }
+
+      // Render
+      try {
+        editor.render();
+      } catch (const CGAL::Uncertain_conversion_exception &e) {
+        std::cerr << "main: Caught Uncertain_conversion_exception during rendering: "
+                  << e.what() << std::endl;
+      } catch (const std::exception &e) {
+        std::cerr << "main: Caught exception during rendering: " << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "main: Caught unknown exception during rendering" << std::endl;
+      }
+    }
+
+    ImGui::SFML::Shutdown();
 
     // Explicit cleanup before exit
     std::cout << "Cleaning up CGAL resources..." << std::endl;
