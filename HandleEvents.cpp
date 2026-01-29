@@ -115,7 +115,8 @@ static float screenPixelsToWorldUnits(const GeometryEditor& editor, float screen
         float scale = editor.drawingView.getSize().x / static_cast<float>(editor.window.getSize().x);
         return screenPixels * scale;
     }
-    return 0.1f;
+    // Fallback: microscopic value (only triggers if window size is 0)
+    return 1e-12f;
 }
 
 // Dynamic tolerance for selection/clicking (7 screen pixels)
@@ -4134,8 +4135,13 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // Update selection box if we're drawing one
   if (editor.isDrawingSelectionBox) {
-    sf::Vector2f size = worldPos - editor.selectionBoxStart_sfml;
-    editor.selectionBoxShape.setSize(size);
+    // NORMALIZED SIZE AND POSITION: handle drag in any direction
+    float left = std::min(editor.selectionBoxStart_sfml.x, worldPos.x);
+    float top = std::min(editor.selectionBoxStart_sfml.y, worldPos.y);
+    float width = std::abs(worldPos.x - editor.selectionBoxStart_sfml.x);
+    float height = std::abs(worldPos.y - editor.selectionBoxStart_sfml.y);
+    editor.selectionBoxShape.setPosition(sf::Vector2f(left, top));
+    editor.selectionBoxShape.setSize(sf::Vector2f(width, height));
     return;
   } else if (sf::Mouse::isButtonPressed(sf::Mouse::Left) && !editor.isDragging &&  // Not dragging an existing object
              editor.m_currentToolType == ObjectType::None &&                       // No tool active
@@ -4152,15 +4158,18 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       editor.isDrawingSelectionBox = true;
       editor.selectionBoxStart_sfml = editor.potentialSelectionBoxStart_sfml;  // Use the stored press
       // position
-      editor.selectionBoxShape.setPosition(editor.selectionBoxStart_sfml);
       editor.selectionBoxShape.setFillColor(Constants::SELECTION_BOX_FILL_COLOR);
       editor.selectionBoxShape.setOutlineColor(Constants::SELECTION_BOX_OUTLINE_COLOR);
       editor.selectionBoxShape.setOutlineThickness(Constants::SELECTION_BOX_OUTLINE_THICKNESS);
       std::cout << "Selection box drag started." << std::endl;
 
-      // Update size immediately based on current mouse position
-      sf::Vector2f currentSize = worldPos - editor.selectionBoxStart_sfml;
-      editor.selectionBoxShape.setSize(currentSize);
+      // Update size immediately based on current mouse position (NORMALIZED)
+      float left = std::min(editor.selectionBoxStart_sfml.x, worldPos.x);
+      float top = std::min(editor.selectionBoxStart_sfml.y, worldPos.y);
+      float width = std::abs(worldPos.x - editor.selectionBoxStart_sfml.x);
+      float height = std::abs(worldPos.y - editor.selectionBoxStart_sfml.y);
+      editor.selectionBoxShape.setPosition(sf::Vector2f(left, top));
+      editor.selectionBoxShape.setSize(sf::Vector2f(width, height));
     }
   }
 
@@ -5318,10 +5327,24 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
     try {
       std::vector<GeometricObject*> newlySelectedObjects;
 
-      // Points: Keep standard intersection (AABB is fine for small points)
+      // Points: Check if point position is inside selection box
+      // (Don't use getGlobalBounds() - it has fixed world-unit size that's huge at high zoom)
       for (auto& pointPtr : editor.points) {
-        if (pointPtr && pointPtr->isValid() && pointPtr->isVisible() && selectionBox.intersects(pointPtr->getGlobalBounds())) {
-          newlySelectedObjects.push_back(pointPtr.get());
+        if (pointPtr && pointPtr->isValid() && pointPtr->isVisible()) {
+          sf::Vector2f pos = pointPtr->getSFMLPosition();
+          if (selectionBox.contains(pos)) {
+            newlySelectedObjects.push_back(pointPtr.get());
+          }
+        }
+      }
+      
+      // ObjectPoints: Same position-based check
+      for (auto& objPointPtr : editor.ObjectPoints) {
+        if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible()) {
+          sf::Vector2f pos = objPointPtr->getSFMLPosition();
+          if (selectionBox.contains(pos)) {
+            newlySelectedObjects.push_back(objPointPtr.get());
+          }
         }
       }
       
