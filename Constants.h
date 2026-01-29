@@ -51,7 +51,7 @@ const float MAX_PAN_BOUND = 2000.0f;   // Example pan boundary
 const float MIN_VISIBLE_SIZE = 0.5f;   // Minimum visible size in world units for culling/LOD
 
 // --- Grid & Axes ---
-constexpr float GRID_SIZE = 1.0f;                           // Base size for grid cells
+constexpr float GRID_SIZE = 30.0f;                           // Base size for grid cells
 const sf::Color GRID_COLOR = sf::Color(200, 200, 200, 150);  // Light grey, semi-transparent
 const sf::Color GRID_AXIS_COLOR = sf::Color(0, 0, 0, 200);   // Darker grey for axes
 constexpr unsigned int GRID_LABEL_FONT_SIZE = 18;
