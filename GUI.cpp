@@ -46,6 +46,7 @@ static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, boo
     ImGui::TextColored(ImVec4(1,1,1,1), "F+/-: Scale UI");
     ImGui::TextColored(ImVec4(1,1,1,1), "Del: Delete Object");
     ImGui::TextColored(ImVec4(1,1,1,1), "H: Toggle Labels");
+    ImGui::TextColored(ImVec4(1,1,1,1), "Select point and click R to change its label");
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -590,6 +591,7 @@ bool GUI::handleSliderInteraction(const sf::Vector2i& mousePos, GeometryEditor& 
 void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEditor& editor) const {
   (void)drawingView;
 
+  // Main Menu Bar
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::MenuItem("Save As...")) {
@@ -632,18 +634,24 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     ImGui::EndMainMenuBar();
   }
 
-  const float imguiSidebarWidth = 270.0f;
+  // Sidebar Tool Panel
   const float windowHeight = static_cast<float>(editor.window.getSize().y);
-  ImGui::SetNextWindowPos(ImVec2(0, 0));
-  ImGui::SetNextWindowSize(ImVec2(imguiSidebarWidth, windowHeight));
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
+  
+  // Set position always, but allow size to be changed by user
+  ImGui::SetNextWindowPos(ImVec2(0, 18), ImGuiCond_Always); 
+  ImGui::SetNextWindowSizeConstraints(ImVec2(150, windowHeight - 18), ImVec2(800, windowHeight - 18));
+  ImGui::SetNextWindowSize(ImVec2(m_sidebarWidth, windowHeight - 18), ImGuiCond_FirstUseEver);
 
-  ImGui::Begin("Tools", nullptr, flags);
-  ImGui::Text("Mode: %s", editor.getCurrentToolName().c_str());
-  ImGui::Separator();
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
 
-  auto DrawToolButton = [&](const char* label, ObjectType toolType) {
+  if (ImGui::Begin("Tools", nullptr, flags)) {
+    m_sidebarWidth = ImGui::GetWindowWidth(); // Update tracked width
+    
+    ImGui::Text("Mode: %s", editor.getCurrentToolName().c_str());
+    ImGui::Separator();
+
+  // Tool Button Helper
+  auto DrawToolButton = [&](const char* label, ObjectType toolType, const char* hint, std::function<void()> onActivate = nullptr) {
     bool isActive = (editor.getCurrentTool() == toolType);
     if (isActive) {
       ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.8f, 1.0f));
@@ -652,311 +660,179 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     if (ImGui::Button(label, ImVec2(-1, 0))) {
       editor.setCurrentTool(toolType);
       editor.clearSelection();
+      if (hint && *hint) editor.setToolHint(hint);
+      if (onActivate) onActivate();
     }
     if (isActive) ImGui::PopStyleColor(2);
   };
 
+  // --- RESTORED VIEW & PROJECT SECTION ---
+  if (ImGui::CollapsingHeader("View & Project", ImGuiTreeNodeFlags_DefaultOpen)) {
+    bool grid = editor.isGridVisible();
+    if (ImGui::Checkbox("Show Grid", &grid)) editor.toggleGrid();
+    ImGui::SameLine();
+    bool axes = editor.areAxesVisible();
+    if (ImGui::Checkbox("Show Axes", &axes)) editor.toggleAxes();
+
+    if (ImGui::Button("Reset View", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
+        editor.resetView();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Export SVG", ImVec2(-1, 0))) {
+        std::string path = FileDialogs::SaveFile("Scalable Vector Graphics (*.svg)\0*.svg\0", "svg");
+        if (!path.empty()) {
+            editor.exportSVG(path);
+            editor.setGUIMessage("Exported to SVG");
+        }
+    }
+    
+    if (ImGui::Button("Save As...", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
+        std::string path = FileDialogs::SaveFile("JSON Project (*.json)\0*.json\0", "json");
+        if (!path.empty()) editor.saveProject(path);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load Project", ImVec2(-1, 0))) {
+        std::string path = FileDialogs::OpenFile("JSON Project (*.json)\0*.json\0");
+        if (!path.empty()) editor.loadProject(path);
+    }
+  }
+
+  // --- ANGLE PROPERTIES (ONLY IF ANGLE SELECTED) ---
+  if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
+    if (ImGui::CollapsingHeader("Angle Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto angle = std::dynamic_pointer_cast<Angle>(editor.findSharedPtr(editor.selectedObject));
+        if (angle) {
+            bool reflex = angle->isReflex();
+            if (ImGui::Checkbox("Show Reflex Angle (0-360\xC2\xB0)", &reflex)) {
+                angle->setReflex(reflex);
+            }
+        }
+    }
+  }
+
   if (ImGui::CollapsingHeader("Construction", ImGuiTreeNodeFlags_DefaultOpen)) {
-    DrawToolButton("Move/Select", ObjectType::None);
-    DrawToolButton("Point", ObjectType::Point);
-    DrawToolButton("Line", ObjectType::Line);
-    DrawToolButton("Segment", ObjectType::LineSegment);
-    DrawToolButton("Circle", ObjectType::Circle);
-    DrawToolButton("ObjPoint", ObjectType::ObjectPoint);
-    DrawToolButton("Intersection", ObjectType::Intersection);
-    DrawToolButton("Midpoint", ObjectType::Midpoint);
-    DrawToolButton("Compass", ObjectType::Compass);
-    DrawToolButton("Parallel", ObjectType::ParallelLine);
-    DrawToolButton("Perpendicular", ObjectType::PerpendicularLine);
-    DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector);
-    DrawToolButton("Angle Bisector", ObjectType::AngleBisector);
-    DrawToolButton("Tangent", ObjectType::TangentLine);
+    DrawToolButton("Move/Select", ObjectType::None, "Click to select. Drag to move. Ctrl+Drag to snap.");
+    DrawToolButton("Point", ObjectType::Point, "Click to create a point.");
+    DrawToolButton("Line", ObjectType::Line, "Click start point, then click end point (Ctrl to snap).");
+    DrawToolButton("Segment", ObjectType::LineSegment, "Click start point, then click end point (Ctrl to snap).");
+    DrawToolButton("Circle", ObjectType::Circle, "Click center, then drag radius.");
+    DrawToolButton("ObjPoint", ObjectType::ObjectPoint, "Click on a line or circle to attach a point.");
+    DrawToolButton("Intersection", ObjectType::Intersection, "Click two objects to find their intersection.");
+    DrawToolButton("Midpoint", ObjectType::Midpoint, "Select two points (or a line) to find the middle.");
+    DrawToolButton("Compass", ObjectType::Compass, "Select segment/2 points for radius, then a center point.");
+    DrawToolButton("Parallel", ObjectType::ParallelLine, "Click a reference line, then place the parallel line.", [](){ resetParallelLineState(); });
+    DrawToolButton("Perpendicular", ObjectType::PerpendicularLine, "Click a reference line, then place the perpendicular line.", [](){ resetPerpLineState(); });
+    DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector, "Pick two points or one segment.", [&](){
+        editor.isCreatingPerpendicularBisector = false;
+        editor.perpBisectorP1 = nullptr;
+        editor.perpBisectorP2 = nullptr;
+        editor.perpBisectorLineRef = nullptr;
+    });
+    DrawToolButton("Angle Bisector", ObjectType::AngleBisector, "Select A, vertex B, C or two lines.", [&](){
+        editor.isCreatingAngleBisector = false;
+        editor.angleBisectorPoints.clear();
+        editor.angleBisectorLine1 = nullptr;
+        editor.angleBisectorLine2 = nullptr;
+    });
+    DrawToolButton("Tangent", ObjectType::TangentLine, "Select a point then a circle.", [&](){
+        editor.isCreatingTangent = false;
+        editor.tangentAnchorPoint = nullptr;
+        editor.tangentCircle = nullptr;
+    });
+    DrawToolButton("Detach", ObjectType::Detach, "Click a shared line endpoint to detach it.");
+    DrawToolButton("Hide/Show", ObjectType::Hide, "Click objects to hide them. Click ghosts (force visible) to unhide.");
   }
 
-  if (ImGui::CollapsingHeader("Shapes")) {
-    DrawToolButton("Rectangle", ObjectType::Rectangle);
-    DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable);
-    DrawToolButton("Triangle", ObjectType::Triangle);
-    DrawToolButton("Polygon", ObjectType::Polygon);
-    DrawToolButton("Regular Polygon", ObjectType::RegularPolygon);
+
+  if (ImGui::CollapsingHeader("Shapes", ImGuiTreeNodeFlags_DefaultOpen)) {
+    DrawToolButton("Rectangle", ObjectType::Rectangle, "Click corner, then drag to opposite corner.");
+    DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable, "Click first corner, drag side, then drag width.");
+    DrawToolButton("Triangle", ObjectType::Triangle, "Click 3 points to create a triangle.");
+    DrawToolButton("Polygon", ObjectType::Polygon, "Click vertices. Press Enter to finish.");
+    DrawToolButton("Regular Polygon", ObjectType::RegularPolygon, "Click center, then drag for size/rotation.");
   }
 
-  if (ImGui::CollapsingHeader("Measure")) {
-    DrawToolButton("Angle", ObjectType::Angle);
+  if (ImGui::CollapsingHeader("Measure", ImGuiTreeNodeFlags_DefaultOpen)) {
+    DrawToolButton("Angle", ObjectType::Angle, "Click Point A, Vertex, then Point B.");
   }
 
-  if (ImGui::CollapsingHeader("Transformations")) {
+  if (ImGui::CollapsingHeader("Transformations", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::InputFloat("Rotation (deg)", &g_transformRotationDegrees, 1.0f, 5.0f, "%.1f");
     ImGui::InputFloat("Dilation factor", &g_transformDilationFactor, 0.1f, 0.5f, "%.2f");
-    DrawToolButton("Reflect about Line", ObjectType::ReflectAboutLine);
-    DrawToolButton("Reflect about Point", ObjectType::ReflectAboutPoint);
-    DrawToolButton("Invert (Circle)", ObjectType::ReflectAboutCircle);
-    DrawToolButton("Rotate around Point", ObjectType::RotateAroundPoint);
-    DrawToolButton("Translate by Vector", ObjectType::TranslateByVector);
-    DrawToolButton("Dilate from Point", ObjectType::DilateFromPoint);
+    
+    DrawToolButton("Reflect about Line", ObjectType::ReflectAboutLine, "Select source point, then a line.");
+    DrawToolButton("Reflect about Point", ObjectType::ReflectAboutPoint, "Select source point, then a center point.");
+    DrawToolButton("Invert (Circle)", ObjectType::ReflectAboutCircle, "Select source point, then a circle.");
+    DrawToolButton("Rotate around Point", ObjectType::RotateAroundPoint, "Select source point, then pivot point.");
+    DrawToolButton("Translate by Vector", ObjectType::TranslateByVector, "Select source point, then vector start and end points.");
+    DrawToolButton("Dilate from Point", ObjectType::DilateFromPoint, "Select source point, then dilation center.");
   }
 
-  if (ImGui::CollapsingHeader("Colors", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Text("Current Color");
+  if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+    // Colors
+    ImGui::Text("Color");
     ImVec4 currentColor = toImVec4(editor.getCurrentColor());
-    ImGui::ColorButton("##current_color", currentColor, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker |
-                                                   ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoInputs,
-                       ImVec2(48, 18));
-    ImGui::Separator();
-
-    const ImVec4 colors[] = {
-        ImVec4(1, 1, 1, 1), ImVec4(1, 0, 0, 1), ImVec4(0, 1, 0, 1), ImVec4(0, 0, 1, 1),
-        ImVec4(1, 1, 0, 1), ImVec4(0, 1, 1, 1), ImVec4(1, 0, 1, 1), ImVec4(0.5f, 0.5f, 0.5f, 1)};
-    for (int i = 0; i < 8; ++i) {
-      if (i > 0 && i % 4 != 0) ImGui::SameLine();
+    if (ImGui::ColorButton("##current_color", currentColor, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoDragDrop, ImVec2(ImGui::GetContentRegionAvail().x, 25))) {
+        ImGui::OpenPopup("ColorPickerPopup");
+    }
+    
+    // Quick Palette
+    const ImVec4 palette[] = {
+        ImVec4(1, 1, 1, 1),       ImVec4(1, 0, 0, 1),       ImVec4(0, 1, 0, 1),       ImVec4(0, 0, 1, 1),
+        ImVec4(1, 1, 0, 1),       ImVec4(0, 1, 1, 1),       ImVec4(1, 0, 1, 1),       ImVec4(0.5f, 0.5f, 0.5f, 1),
+        ImVec4(1.0f, 0.65f, 0.0f, 1), ImVec4(0.0f, 0.5f, 0.5f, 1), ImVec4(0.5f, 0.0f, 0.5f, 1), ImVec4(1.0f, 0.75f, 0.8f, 1), ImVec4(0.2f, 0.2f, 0.2f, 1)
+    };
+    for (int i = 0; i < 13; ++i) {
+      if (i > 0 && i % 7 != 0) ImGui::SameLine();
       ImGui::PushID(i);
-      if (ImGui::ColorButton("##col", colors[i])) {
-        sf::Color selected(static_cast<sf::Uint8>(colors[i].x * 255),
-                           static_cast<sf::Uint8>(colors[i].y * 255),
-                           static_cast<sf::Uint8>(colors[i].z * 255),
-                           static_cast<sf::Uint8>(colors[i].w * 255));
-        editor.setCurrentColor(selected);
-        if (editor.selectedObject) {
-          editor.selectedObject->setColor(selected);
-        }
-        for (auto* obj : editor.selectedObjects) {
-          if (obj) obj->setColor(selected);
-        }
+      if (ImGui::ColorButton("##pal", palette[i])) {
+         sf::Color c(static_cast<sf::Uint8>(palette[i].x * 255), static_cast<sf::Uint8>(palette[i].y * 255), static_cast<sf::Uint8>(palette[i].z * 255), 255);
+         editor.setCurrentColor(c);
+         if (editor.selectedObject) editor.selectedObject->setColor(c);
+         for(auto* obj : editor.selectedObjects) if(obj) obj->setColor(c);
       }
       ImGui::PopID();
     }
-  }
+    
+    // Embedded Color Picker
+    static float colorBuf[4] = {0,0,0,1};
+    ImGui::ColorEdit4("Custom", colorBuf, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_DisplayRGB); 
+    if (ImGui::IsItemEdited()) {
+         sf::Color c(static_cast<sf::Uint8>(colorBuf[0] * 255), static_cast<sf::Uint8>(colorBuf[1] * 255), static_cast<sf::Uint8>(colorBuf[2] * 255), static_cast<sf::Uint8>(colorBuf[3] * 255));
+         editor.setCurrentColor(c);
+         if (editor.selectedObject) editor.selectedObject->setColor(c);
+         for(auto* obj : editor.selectedObjects) if(obj) obj->setColor(c);
+    }
+
+    ImGui::Separator();
+    
+    // Thickness
+    int thickness = static_cast<int>(editor.currentThickness);
+    if (ImGui::SliderInt("Thickness", &thickness, 1, 10)) {
+        editor.currentThickness = static_cast<float>(thickness);
+        if (editor.selectedObject && (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+            editor.selectedObject->setThickness(editor.currentThickness);
+        }
+    }
+    
+    // Point Size
+    if (ImGui::SliderFloat("Point Size", &editor.currentPointSize, 2.0f, 20.0f, "%.1f")) {
+        if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
+            auto pt = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(editor.selectedObject));
+            if(pt) pt->setRadius(editor.currentPointSize);
+        }
+    }
+    }
+  }   
 
   ImGui::End();
+
+  // Draw Overlays
   drawOverlays(editor, guiMessage, messageActive);
 
-  (void)drawingView;                        // Mark as unused
-  window.setView(window.getDefaultView());  // Use Default View (Screen Space)
-  // Thickness slider (top-center)
-  updateThicknessSliderLayout(window.getSize(), editor.currentThickness);
-  window.draw(m_thicknessTrack);
-  window.draw(m_thicknessKnob);
-  if (m_thicknessLabel.getFont()) {
-    window.draw(m_thicknessLabel);
-  }
-
-  /*
-  // Help & instructions box (top-right)
-  if (m_fontLoaded || Button::getFontLoaded()) {
-    const sf::Font& helpFont = m_fontLoaded ? messageFont : Button::getFont();
-    const unsigned int helpSize = std::max(12u, Constants::BUTTON_TEXT_SIZE - 6);
-    const float padding = 8.0f;
-    std::vector<std::string> lines = {"Alt: Snap to Point", "Shift: Snap to Grid", "Ctrl: Multi-Select",
-                                      "F+/-: Scale UI",     "Del: Delete Object",  "H: Toggle All Labels"};
-
-    float maxWidth = 0.0f;
-    float totalHeight = 0.0f;
-    std::vector<sf::Text> texts;
-    texts.reserve(lines.size());
-    for (const auto& line : lines) {
-      sf::Text t;
-      t.setFont(helpFont);
-      t.setString(line);
-      t.setCharacterSize(helpSize);
-      t.setFillColor(sf::Color::White);
-      sf::FloatRect bounds = t.getLocalBounds();
-      maxWidth = std::max(maxWidth, bounds.width);
-      totalHeight += bounds.height + 4.0f;
-      texts.push_back(t);
-    }
-
-    sf::Vector2u winSize = window.getSize();
-    float boxWidth = maxWidth + padding * 2.0f;
-    float boxHeight = totalHeight + padding * 2.0f;
-    float boxX = static_cast<float>(winSize.x) - boxWidth - padding;
-    float boxY = padding;
-
-    sf::RectangleShape bg(sf::Vector2f(boxWidth, boxHeight));
-    bg.setPosition(std::round(boxX), std::round(boxY));
-    bg.setFillColor(sf::Color(0, 0, 0, 140));
-    bg.setOutlineThickness(1.0f);
-    bg.setOutlineColor(sf::Color(255, 255, 255, 80));
-    window.draw(bg);
-
-    float textY = boxY + padding;
-    for (auto& t : texts) {
-      t.setPosition(std::round(boxX + padding), std::round(textY));
-      window.draw(t);
-      textY += t.getLocalBounds().height + 4.0f;
-    }
-  }
-  */
-
-  // Dynamic left sidebar layout: scale button dimensions with font size
-  const float scaleBase = static_cast<float>(Constants::BUTTON_TEXT_SIZE);
-  const float buttonHeight = std::round(scaleBase * 1.8f);
-  const float buttonWidth = std::round(std::max(80.0f, scaleBase * 2.5f));
-  const float padding = std::round(std::max(4.0f, scaleBase * 0.4f));
-  const float sidebarWidth = std::round(buttonWidth + padding * 2.0f);
-  float currentY = padding;
-  for (auto& button : const_cast<std::vector<Button>&>(buttons)) {
-    const std::string& label = button.getLabel();
-    if (isTransformButtonLabel(label) && !s_showTransformTools) {
-      button.setSize(sf::Vector2f(0.f, 0.f));
-      button.setPosition(sf::Vector2f(-10000.f, -10000.f));
-      continue;
-    }
-
-    // Snap button dimensions/position to integers
-    button.setSize(sf::Vector2f(std::round(sidebarWidth - 2 * padding), std::round(buttonHeight)));
-    button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
-    currentY += buttonHeight + padding;
-  }
-  // After laying out buttons, determine where to place the color picker
-  float colorPickerX = padding;
-  float colorPickerY = currentY + padding * 2.0f;  // Add extra space below last button
-  if (m_colorPicker) {
-    m_colorPicker->setPosition(sf::Vector2f(colorPickerX, colorPickerY));
-  }
-
-  for (auto &button : const_cast<std::vector<Button>&>(buttons)) {
-    // Sync button state with editor tools
-    const std::string& label = button.getLabel();
-    if (label == "Axes") {
-      button.setActive(editor.areAxesVisible());
-    } else if (label == "Grid") {
-       button.setActive(editor.isGridVisible());
-    } else if (label == "Midpoint") {
-       button.setActive(editor.getCurrentTool() == ObjectType::Midpoint);
-    } else if (label == "Compass") {
-       button.setActive(editor.getCurrentTool() == ObjectType::Compass);
-     } else if (label == "Angle") {
-       button.setActive(editor.getCurrentTool() == ObjectType::Angle);
-     } else if (label == "Transform") {
-       button.setActive(s_showTransformTools);
-     } else if (label == "RflLine") {
-       button.setActive(editor.getCurrentTool() == ObjectType::ReflectAboutLine);
-     } else if (label == "RflPt") {
-       button.setActive(editor.getCurrentTool() == ObjectType::ReflectAboutPoint);
-     } else if (label == "Invert") {
-       button.setActive(editor.getCurrentTool() == ObjectType::ReflectAboutCircle);
-     } else if (label == "Rotate") {
-       button.setActive(editor.getCurrentTool() == ObjectType::RotateAroundPoint);
-     } else if (label == "Translate") {
-       button.setActive(editor.getCurrentTool() == ObjectType::TranslateByVector);
-     } else if (label == "Dilate") {
-       button.setActive(editor.getCurrentTool() == ObjectType::DilateFromPoint);
-    } else if (label == "Tangent") {
-       button.setActive(editor.getCurrentTool() == ObjectType::TangentLine);
-     } else if (label == "PerpBis") {
-       button.setActive(editor.getCurrentTool() == ObjectType::PerpendicularBisector);
-     } else if (label == "AngBis") {
-       button.setActive(editor.getCurrentTool() == ObjectType::AngleBisector);
-    } else if (label == "Intersect") {
-       button.setActive(editor.getCurrentTool() == ObjectType::Intersection);
-    }
-
-    button.draw(window);
-    if (label == "Color") {
-      const float iconSize = std::round(std::max(20.0f, scaleBase * 1.2f));
-      sf::RectangleShape colorPreview;
-      colorPreview.setSize(sf::Vector2f(iconSize, iconSize));
-      float iconX = button.getGlobalBounds().left + std::round(padding * 0.5f);
-      float iconY = button.getGlobalBounds().top + std::round((buttonHeight - iconSize) * 0.5f);
-      colorPreview.setPosition(iconX, iconY);
-      colorPreview.setFillColor(m_currentColor);
-      colorPreview.setOutlineThickness(1);
-      colorPreview.setOutlineColor(sf::Color::Black);
-      window.draw(colorPreview);
-    }
-  }
-
-  if (s_showTransformTools && m_fontLoaded) {
-    const Button* rotateBtn = nullptr;
-    const Button* dilateBtn = nullptr;
-    for (const auto& button : buttons) {
-      if (button.getLabel() == "Rotate") rotateBtn = &button;
-      if (button.getLabel() == "Dilate") dilateBtn = &button;
-    }
-
-    sf::Text valueText;
-    valueText.setFont(messageFont);
-    valueText.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
-    valueText.setFillColor(sf::Color::White);
-
-    if (rotateBtn) {
-      auto bounds = rotateBtn->getGlobalBounds();
-      valueText.setString("Angle: " + std::to_string(static_cast<int>(std::round(g_transformRotationDegrees))) + "\xC2\xB0");
-      valueText.setPosition(bounds.left + bounds.width + 6.0f, bounds.top);
-      window.draw(valueText);
-    }
-
-    if (dilateBtn) {
-      auto bounds = dilateBtn->getGlobalBounds();
-      valueText.setString("Factor: " + std::to_string(g_transformDilationFactor));
-      valueText.setPosition(bounds.left + bounds.width + 6.0f, bounds.top);
-      window.draw(valueText);
-    }
-  }
-  if (m_colorPicker && m_colorPicker->isOpen()) {
-    m_colorPicker->draw(window, Button::getFont());
-
-    if (m_fontLoaded) {
-      sf::Text paletteLabel;
-      paletteLabel.setFont(messageFont);
-      paletteLabel.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
-      paletteLabel.setFillColor(sf::Color::White);
-      paletteLabel.setString("Selected Object Color");
-      // Place label just above the color picker
-      paletteLabel.setPosition(colorPickerX, colorPickerY - Constants::BUTTON_TEXT_SIZE - 4.0f);
-      window.draw(paletteLabel);
-    }
-  }
-
-  if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
-    auto* angle = dynamic_cast<Angle*>(editor.selectedObject);
-    if (angle) {
-      sf::Vector2f basePos(10.f, 60.f);
-      sf::RectangleShape box = m_angleReflexBox;
-      sf::Text label = m_angleReflexLabel;
-
-      box.setPosition(basePos);
-      box.setFillColor(angle->isReflex() ? sf::Color(100, 200, 100) : sf::Color::Transparent);
-      label.setPosition(basePos.x + 20.f, basePos.y - 2.f);
-
-      window.draw(box);
-      window.draw(label);
-    }
-  }
-  // ContextMenu::draw is non-const; cast away const to call it from this const method
+  // Context Menu
   const_cast<ContextMenu&>(m_contextMenu).draw(window);
-  if (messageActive) {
-    // Position message (e.g., bottom center of window)
-    sf::FloatRect messageBounds = guiMessage.getLocalBounds();
-    sf::Vector2u winSize = window.getSize();
-    float bottomPadding = 12.0f;
-    guiMessage.setPosition(std::round(winSize.x / 2.f - messageBounds.width / 2.f), std::round(winSize.y - messageBounds.height - bottomPadding));
-    window.draw(guiMessage);
-  }
 
-  /*
-  // Render Tool Hint
-  if (m_fontLoaded) {
-    sf::Text hintText;
-    hintText.setFont(messageFont);
-    hintText.setCharacterSize(Constants::GUI_MESSAGE_TEXT_SIZE);
-    hintText.setFillColor(sf::Color(200, 200, 200));  // Light grey
-    hintText.setString(editor.getToolHint());
-
-    // Position at bottom center, above message if active
-    sf::FloatRect bounds = hintText.getLocalBounds();
-    sf::Vector2u winSize = window.getSize();
-    float yPos = winSize.y - bounds.height - 10.f;
-    if (messageActive) yPos -= 30.f;  // Move up if message is significant
-
-    hintText.setPosition(std::round(winSize.x / 2.f - bounds.width / 2.f), std::round(yPos));
-    window.draw(hintText);
-  }
-  */
-  //   // let editor manage views
-  // }
-
-  // Render ImGui on top of SFML-drawn GUI elements
   ImGui::SFML::Render(window);
 }
 
@@ -1002,57 +878,7 @@ bool GUI::handleEvent(sf::RenderWindow& window, const sf::Event& event, Geometry
   sf::Vector2f currentMousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window), window.getDefaultView());
   if (m_contextMenu.handleEvent(event, currentMousePos, editor)) return true;
 
-  if (event.type == sf::Event::MouseButtonPressed || event.type == sf::Event::MouseButtonReleased) {
-    sf::Vector2i mousePos(event.mouseButton.x, event.mouseButton.y);
-    if (handleSliderInteraction(mousePos, editor)) return true;
-  }
-  if (event.type == sf::Event::MouseMoved) {
-    sf::Vector2i mousePos(event.mouseMove.x, event.mouseMove.y);
-    if (handleSliderInteraction(mousePos, editor)) return true;
-  }
-
-  // Ensure sidebar layout matches draw() before hit-tests
-  {
-    const float scaleBase = static_cast<float>(Constants::BUTTON_TEXT_SIZE);
-    const float buttonHeight = std::round(scaleBase * 1.8f);
-    const float buttonWidth = std::round(std::max(80.0f, scaleBase * 2.5f));
-    const float padding = std::round(std::max(4.0f, scaleBase * 0.4f));
-    const float sidebarWidth = std::round(buttonWidth + padding * 2.0f);
-    float currentY = padding;
-    for (auto& button : buttons) {
-      const std::string& label = button.getLabel();
-      if (isTransformButtonLabel(label) && !s_showTransformTools) {
-        button.setSize(sf::Vector2f(0.f, 0.f));
-        button.setPosition(sf::Vector2f(-10000.f, -10000.f));
-        continue;
-      }
-      button.setSize(sf::Vector2f(std::round(sidebarWidth - 2 * padding), std::round(buttonHeight)));
-      button.setPosition(sf::Vector2f(std::round(padding), std::round(currentY)));
-      currentY += buttonHeight + padding;
-    }
-    if (m_colorPicker) {
-      float colorPickerX = padding;
-      float colorPickerY = currentY + padding * 2.0f;
-      m_colorPicker->setPosition(sf::Vector2f(colorPickerX, colorPickerY));
-    }
-  }
-
-  auto applyColorToSelection = [&](const sf::Color& color) -> bool {
-    bool applied = false;
-    if (!editor.selectedObjects.empty()) {
-      for (auto* obj : editor.selectedObjects) {
-        if (obj) {
-          obj->setColor(color);
-          applied = true;
-        }
-      }
-    } else if (editor.selectedObject) {
-      editor.selectedObject->setColor(color);
-      applied = true;
-    }
-    return applied;
-  };
-
+  // Handle Angle Reflex Toggle (Overlay)
   if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
     if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
       auto* angle = dynamic_cast<Angle*>(editor.selectedObject);
@@ -1067,295 +893,7 @@ bool GUI::handleEvent(sf::RenderWindow& window, const sf::Event& event, Geometry
     }
   }
 
-  if (event.type == sf::Event::MouseMoved) {
-    // Convert mouse position to GUI view (Screen Space) coordinates once
-    sf::Vector2f mousePosView = window.mapPixelToCoords(sf::Vector2i(event.mouseMove.x, event.mouseMove.y), window.getDefaultView());
-
-    if (m_colorPicker && m_colorPicker->isOpen()) {
-      if (m_colorPicker->handleMouseMove(event, mousePosView)) {
-        m_currentColor = m_colorPicker->getCurrentColorWithAlpha();
-        editor.setCurrentColor(m_currentColor);
-        if (editor.fillTarget) {
-          editor.fillTarget->setColor(m_currentColor);
-        }
-        applyColorToSelection(m_currentColor);
-        return true;
-      }
-    }
-
-    for (auto& button : buttons) {
-      // Assuming Button::isMouseOver uses the window and the GUI view,
-      // or takes the mousePosView directly.
-      // If Button::isMouseOver is simple (e.g. getGlobalBounds().contains()),
-      // it might need adjustment if the button's coordinate system isn't
-      // directly guiView. For this example, we'll assume Button::isMouseOver
-      // correctly uses guiView.
-      if (button.getGlobalBounds().contains(mousePosView)) {  // More direct check
-        button.setHovered(true);
-      } else {
-        button.setHovered(false);
-      }
-    }
-    // Mouse move events over GUI buttons usually don't "consume" the event
-    // fully, unless dragging a GUI element. So, no 'return true' here
-    // typically.
-  }
-
-  // Handle color picker - Non-blocking Property Inspector Mode
-  if (m_colorPicker && m_colorPicker->isOpen()) {
-    sf::Vector2f mousePosView = window.mapPixelToCoords(sf::Mouse::getPosition(window), window.getDefaultView());
-
-    // If in application mode, check if click is actually on the color picker
-    // Non-blocking Property Inspector Mode
-    // Check if the event is strictly within the color picker's UI
-    if (m_colorPicker->handleEvent(event, mousePosView)) {
-      m_currentColor = m_colorPicker->getCurrentColorWithAlpha();
-      editor.setCurrentColor(m_currentColor);
-
-      if (editor.selectedObject || !editor.selectedObjects.empty()) {
-        if (applyColorToSelection(m_currentColor)) {
-          editor.setGUIMessage("Updated Color");
-        }
-      }
-      if (editor.fillTarget) editor.fillTarget->setColor(m_currentColor);
-      return true;
-    }
-  }
-    // Application Mode logic removed to allow pass-through
-
-    // Inside the button click handler, when buttons are clicked:
-    if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-      for (auto& button : buttons) {
-        if (button.isMouseOver(window, window.getDefaultView())) {
-          std::cout << "Button clicked: " << button.getLabel() << std::endl;
-
-          if (button.getLabel() == "Parallel") {
-            editor.setCurrentTool(ObjectType::ParallelLine);
-            editor.setToolHint("Click a reference line, then place the parallel line.");
-
-            // Reset the parallel line creation state
-            resetParallelLineState();  // Reset state to ensure clean start
-            std::cout << "Parallel line tool activated. Click on a reference "
-                         "line first."
-                      << std::endl;
-            return true;
-          } else if (button.getLabel() == "Perp") {
-            editor.setCurrentTool(ObjectType::PerpendicularLine);
-            editor.setToolHint("Click a reference line, then place the perpendicular line.");
-
-            // Reset the perpendicular line creation state
-            resetPerpLineState();  // Reset state to ensure clean start
-            std::cout << "Perpendicular line tool activated. Click on a "
-                         "reference line first."
-                      << std::endl;
-            return true;
-          } else if (button.getLabel() == "PerpBis") {
-            editor.setCurrentTool(ObjectType::PerpendicularBisector);
-            editor.setToolHint("Pick two points or one segment to build its perpendicular bisector.");
-            editor.isCreatingPerpendicularBisector = false;
-            editor.perpBisectorP1 = nullptr;
-            editor.perpBisectorP2 = nullptr;
-            editor.perpBisectorLineRef = nullptr;
-            return true;
-          } else if (button.getLabel() == "AngBis") {
-            editor.setCurrentTool(ObjectType::AngleBisector);
-            editor.setToolHint("Select A, vertex B, C or two lines to bisect the angle.");
-            editor.isCreatingAngleBisector = false;
-            editor.angleBisectorPoints.clear();
-            editor.angleBisectorLine1 = nullptr;
-            editor.angleBisectorLine2 = nullptr;
-            return true;
-          } else if (button.getLabel() == "Tangent") {
-            editor.setCurrentTool(ObjectType::TangentLine);
-            editor.setToolHint("Select a point then a circle to draw tangents.");
-            editor.isCreatingTangent = false;
-            editor.tangentAnchorPoint = nullptr;
-            editor.tangentCircle = nullptr;
-            return true;
-          } else if (button.getLabel() == "Point") {
-            editor.setCurrentTool(ObjectType::Point);
-            editor.setToolHint("Click to create a point.");
-            return true;
-          } else if (button.getLabel() == "Line") {
-            editor.setCurrentTool(ObjectType::Line);
-            editor.setToolHint("Click start point, then click end point (Ctrl to snap).");
-            return true;
-          } else if (button.getLabel() == "Segment") {
-            editor.setCurrentTool(ObjectType::LineSegment);
-            editor.setToolHint("Click start point, then click end point (Ctrl to snap).");
-            return true;
-          } else if (button.getLabel() == "ObjPoint") {
-            editor.setCurrentTool(ObjectType::ObjectPoint);
-            editor.setToolHint("Click on a line or circle to attach a point.");
-            return true;
-          } else if (button.getLabel() == "Circle") {
-            editor.setCurrentTool(ObjectType::Circle);
-            editor.setToolHint("Click center, then drag radius.");
-            return true;
-          } else if (button.getLabel() == "Rect") {
-            editor.setCurrentTool(ObjectType::Rectangle);
-            editor.setToolHint("Click corner, then drag to opposite corner.");
-            return true;
-          } else if (button.getLabel() == "RotRect") {
-            editor.setCurrentTool(ObjectType::RectangleRotatable);
-            editor.setToolHint("Click first corner, drag side, then drag width.");
-            return true;
-          } else if (button.getLabel() == "Polygon") {
-            editor.setCurrentTool(ObjectType::Polygon);
-            editor.setToolHint("Click vertices. Press Enter to finish.");
-            return true;
-          } else if (button.getLabel() == "RegPoly") {
-            editor.setCurrentTool(ObjectType::RegularPolygon);
-            editor.setToolHint("Click center, then drag for size/rotation.");
-            return true;
-          } else if (button.getLabel() == "Triangle") {
-            editor.setCurrentTool(ObjectType::Triangle);
-            editor.setToolHint("Click 3 points to create a triangle.");
-            return true;
-          } else if (button.getLabel() == "Move") {
-            editor.setCurrentTool(ObjectType::None);
-            editor.setToolHint("Click to select. Drag to move. Ctrl+Drag to snap.");
-            return true;
-          } else if (button.getLabel() == "Grid") {
-            editor.toggleGrid();
-            button.setActive(!button.isActive());
-            return true;
-          } else if (button.getLabel() == "Axes") {
-            editor.toggleAxes();
-            return true;
-          } else if (button.getLabel() == "Reset") {
-            editor.resetView();
-            return true;
-
-          } else if (button.getLabel() == "Intersect") {
-            // Switch to intersection mode to allow targeted intersection creation
-            editor.setCurrentTool(ObjectType::Intersection);
-            editor.setToolHint("Click two objects to find their intersection.");
-            return true;
-          } else if (button.getLabel() == "Midpoint") {
-            editor.setCurrentTool(ObjectType::Midpoint);
-            editor.setToolHint("Select two points (or a line) to find the middle.");
-            return true;
-          } else if (button.getLabel() == "Compass") {
-            editor.setCurrentTool(ObjectType::Compass);
-            editor.setToolHint("Select segment/2 points for radius, then a center point.");
-            return true;
-          } else if (button.getLabel() == "Angle") {
-            editor.setCurrentTool(ObjectType::Angle);
-            editor.setToolHint("Click Point A, Vertex, then Point B.");
-            return true;
-          } else if (button.getLabel() == "Transform") {
-            s_showTransformTools = !s_showTransformTools;
-            editor.setGUIMessage(s_showTransformTools ? "Transform tools expanded" : "Transform tools collapsed");
-            return true;
-          } else if (button.getLabel() == "RflLine") {
-            editor.setCurrentTool(ObjectType::ReflectAboutLine);
-            editor.setToolHint("Select source point, then a line.");
-            return true;
-          } else if (button.getLabel() == "RflPt") {
-            editor.setCurrentTool(ObjectType::ReflectAboutPoint);
-            editor.setToolHint("Select source point, then a center point.");
-            return true;
-          } else if (button.getLabel() == "Invert") {
-            editor.setCurrentTool(ObjectType::ReflectAboutCircle);
-            editor.setToolHint("Select source point, then a circle.");
-            return true;
-          } else if (button.getLabel() == "Rotate") {
-            editor.setCurrentTool(ObjectType::RotateAroundPoint);
-            editor.setToolHint("Select source point, then pivot point.");
-            return true;
-          } else if (button.getLabel() == "Translate") {
-            editor.setCurrentTool(ObjectType::TranslateByVector);
-            editor.setToolHint("Select source point, then vector start and end points.");
-            return true;
-          } else if (button.getLabel() == "Dilate") {
-            editor.setCurrentTool(ObjectType::DilateFromPoint);
-            editor.setToolHint("Select source point, then dilation center.");
-            return true;
-          } else if (button.getLabel() == "Rot+") {
-            g_transformRotationDegrees = std::min(360.0f, g_transformRotationDegrees + 5.0f);
-            editor.setGUIMessage("Rotation angle: " + std::to_string(static_cast<int>(std::round(g_transformRotationDegrees))) + "\xC2\xB0");
-            return true;
-          } else if (button.getLabel() == "Rot-") {
-            g_transformRotationDegrees = std::max(0.0f, g_transformRotationDegrees - 5.0f);
-            editor.setGUIMessage("Rotation angle: " + std::to_string(static_cast<int>(std::round(g_transformRotationDegrees))) + "\xC2\xB0");
-            return true;
-          } else if (button.getLabel() == "Dil+") {
-            g_transformDilationFactor = std::min(10.0f, g_transformDilationFactor + 0.1f);
-            editor.setGUIMessage("Dilation factor: " + std::to_string(g_transformDilationFactor));
-            return true;
-          } else if (button.getLabel() == "Dil-") {
-            g_transformDilationFactor = std::max(0.1f, g_transformDilationFactor - 0.1f);
-            editor.setGUIMessage("Dilation factor: " + std::to_string(g_transformDilationFactor));
-            return true;
-          } else if (button.getLabel() == "Hide") {
-            editor.setCurrentTool(ObjectType::Hide);
-            editor.setToolHint("Click objects to hide them. Click ghosts (force visible) to unhide.");
-            return true;
-          } else if (button.getLabel() == "Detach") {
-            editor.setCurrentTool(ObjectType::Detach);
-            editor.setToolHint("Click a shared line endpoint to detach it.");
-            return true;
-          } else if (button.getLabel() == "Color") {
-            std::cout << "Color button clicked!" << std::endl;
-            if (m_colorPicker) {
-              m_colorPicker->setOpen(!m_colorPicker->isOpen());
-              if (m_colorPicker->isOpen()) {
-                sf::Color baseColor = editor.getCurrentColor();
-                if (editor.selectedObject) {
-                  baseColor = editor.selectedObject->getColor();
-                }
-                m_colorPicker->setCurrentColor(baseColor);
-                m_currentColor = m_colorPicker->getCurrentColorWithAlpha();
-                editor.setCurrentColor(m_currentColor);
-              }
-              std::cout << "Color picker " << (m_colorPicker->isOpen() ? "opened" : "closed") << std::endl;
-            }
-            return true;
-          } else if (button.getLabel() == "Save") {
-            std::cout << "Save button clicked!" << std::endl;
-            std::string path = FileDialogs::SaveFile("JSON Project (*.json)\0*.json\0", "json");
-            if (!path.empty()) {
-              editor.saveProject(path);
-              editor.setGUIMessage("Project Saved");
-            }
-            return true;
-          } else if (button.getLabel() == "Load") {
-            std::cout << "Load button clicked!" << std::endl;
-            std::string path = FileDialogs::OpenFile("JSON Project (*.json)\0*.json\0");
-            if (!path.empty()) {
-              editor.loadProject(path);
-              editor.setGUIMessage("Project Loaded");
-            }
-            return true;
-          } else if (button.getLabel() == "SVG") {
-            std::cout << "SVG Export button clicked!" << std::endl;
-            std::string path = FileDialogs::SaveFile("Scalable Vector Graphics (*.svg)\0*.svg\0", "svg");
-            if (!path.empty()) {
-              editor.exportSVG(path);
-              editor.setGUIMessage("Exported to SVG");
-            }
-            return true;
-          }
-          // ...existing code for other buttons...
-        }
-      }
-    }
-
-    // Remove or comment out the old logic block below, as tool activation
-    // is now handled by editor.setCurrentTool when buttons are clicked.
-    /*
-    // Circle Creation Logic (using world coordinates via editor)
-    if (isButtonActive("Circle")) {
-      // ...
-    } else if (isButtonActive("dragCircle")) {
-      // ...
-    } else if (isButtonActive("Point")) {
-      // ...
-    }
-    */
-
-    return false;  // Event not handled by GUI buttons (e.g., click on canvas)
+  return false;
 }
 
 void GUI::update(sf::Time deltaTime) {

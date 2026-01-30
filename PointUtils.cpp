@@ -688,199 +688,213 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
     GeometryEditor &editor,
     const sf::Vector2f &worldPos_sfml,
     float tolerance) {
+  const bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) ||
+                            sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
+  const bool allowExistingPointSnap = isAltPressed;
+  const bool allowObjectProjection = (editor.m_currentToolType == ObjectType::Point) || isAltPressed;
   // Limit object snapping in world units to avoid aggressive snapping when zoomed out
   const float objectSnapTolerance = std::min(tolerance, 0.35f);
   // 1. INSTANCE CHECK (Topological Glue)
   // Check if the click is on an EXISTING physical Point entity
-  for (const auto& pt : editor.points) {
-    if (pt && pt->isValid() && pt->isVisible() && pt->contains(worldPos_sfml, tolerance)) {
-        std::cout << "[TOPOLOGY] Found existing instance. Merging." << std::endl;
-        return pt; // Return the ACTUAL shared_ptr
+  if (allowExistingPointSnap) {
+    for (const auto& pt : editor.points) {
+      if (pt && pt->isValid() && pt->isVisible() && pt->contains(worldPos_sfml, tolerance)) {
+          std::cout << "[TOPOLOGY] Found existing instance. Merging." << std::endl;
+          return pt; // Return the ACTUAL shared_ptr
+      }
     }
   }
 
   // 2) Intersection
   if (auto hit = getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
-    auto existingIntersection = [&](const Point_2 &p) -> std::shared_ptr<Point> {
-      const double dupTol2 = 1e-6;
-      for (const auto &pt : editor.points) {
-        if (pt && pt->isValid()) {
-          if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
-            return pt;
+      auto existingIntersection = [&](const Point_2 &p) -> std::shared_ptr<Point> {
+        const double dupTol2 = 1e-6;
+        for (const auto &pt : editor.points) {
+          if (pt && pt->isValid()) {
+            if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
+              return pt;
+            }
+          }
+        }
+        return nullptr;
+      };
+
+      if (hit->obj1 && hit->obj2) {
+        auto points = DynamicIntersection::createGenericIntersection(
+            hit->obj1, hit->obj2, editor);
+        if (!points.empty()) {
+          std::shared_ptr<Point> bestPoint;
+          double bestDistSq = std::numeric_limits<double>::max();
+          for (const auto &pt : points) {
+            if (!pt) continue;
+            double distSq = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(),
+                                                                  hit->position));
+            if (distSq < bestDistSq) {
+              bestDistSq = distSq;
+              bestPoint = pt;
+            }
+          }
+          if (bestPoint) {
+            return bestPoint;
           }
         }
       }
-      return nullptr;
-    };
 
-    if (hit->obj1 && hit->obj2) {
-      auto points = DynamicIntersection::createGenericIntersection(
-          hit->obj1, hit->obj2, editor);
-      if (!points.empty()) {
-        std::shared_ptr<Point> bestPoint;
-        double bestDistSq = std::numeric_limits<double>::max();
-        for (const auto &pt : points) {
-          if (!pt) continue;
-          double distSq = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(),
-                                                                hit->position));
-          if (distSq < bestDistSq) {
-            bestDistSq = distSq;
-            bestPoint = pt;
-          }
-        }
-        if (bestPoint) {
-          return bestPoint;
+      if (hit->line1 && hit->line2) {
+        auto ip = DynamicIntersection::createLineLineIntersection(hit->line1, hit->line2, editor);
+        if (ip) {
+          return ip;
         }
       }
-    }
 
-    if (hit->line1 && hit->line2) {
-      auto ip = DynamicIntersection::createLineLineIntersection(hit->line1, hit->line2, editor);
-      if (ip) {
-        return ip;
+      if (auto existing = existingIntersection(hit->position)) {
+        return existing;
       }
-    }
 
-    if (auto existing = existingIntersection(hit->position)) {
-      return existing;
-    }
-
-    // Use centralized factory
-    auto newPoint = editor.createPoint(hit->position);
-    newPoint->setIntersectionPoint(true);
-    newPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
-    newPoint->setSelected(false);
-    newPoint->lock();
-    return newPoint;
+      // Use centralized factory
+      auto newPoint = editor.createPoint(hit->position);
+      newPoint->setIntersectionPoint(true);
+      newPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+      newPoint->setSelected(false);
+      newPoint->lock();
+      return newPoint;
   }
 
   // 2b) Existing ObjectPoints (after intersections)
-  for (const auto &op : editor.ObjectPoints) {
-    if (op && op->isValid() && op->isVisible() && op->contains(worldPos_sfml, objectSnapTolerance)) {
-      return std::static_pointer_cast<Point>(op);
+  if (allowExistingPointSnap) {
+    for (const auto &op : editor.ObjectPoints) {
+      if (op && op->isValid() && op->isVisible() && op->contains(worldPos_sfml, objectSnapTolerance)) {
+        return std::static_pointer_cast<Point>(op);
+      }
+    }
+
+    // 2b) Line endpoints (prioritize over line edge)
+    {
+      std::shared_ptr<Point> bestEndpoint = nullptr;
+      float bestDist2 = tolerance * tolerance;
+      for (auto &linePtr : editor.lines) {
+        if (!linePtr || !linePtr->isValid()) continue;
+
+        auto startPt = linePtr->getStartPointObjectShared();
+        if (startPt && startPt->isValid()) {
+          sf::Vector2f ptPos = startPt->getSFMLPosition();
+          float dx = ptPos.x - worldPos_sfml.x;
+          float dy = ptPos.y - worldPos_sfml.y;
+          float d2 = dx * dx + dy * dy;
+          if (d2 <= bestDist2) {
+            bestDist2 = d2;
+            bestEndpoint = startPt;
+          }
+        }
+
+        auto endPt = linePtr->getEndPointObjectShared();
+        if (endPt && endPt->isValid()) {
+          sf::Vector2f ptPos = endPt->getSFMLPosition();
+          float dx = ptPos.x - worldPos_sfml.x;
+          float dy = ptPos.y - worldPos_sfml.y;
+          float d2 = dx * dx + dy * dy;
+          if (d2 <= bestDist2) {
+            bestDist2 = d2;
+            bestEndpoint = endPt;
+          }
+        }
+      }
+
+      if (bestEndpoint) {
+        return bestEndpoint;
+      }
     }
   }
 
-  // 2b) Line endpoints (prioritize over line edge)
-  {
-    std::shared_ptr<Point> bestEndpoint = nullptr;
-    float bestDist2 = tolerance * tolerance;
+  // 3) Lines/edges (ObjectPoints) - allow for Point tool and Alt mode
+  if (allowObjectProjection) {
+    // 3a) Shape vertex
+    GeometricObject *shape = nullptr;
+    size_t vertexIndex = 0;
+    if (findShapeVertex(editor, worldPos_sfml, objectSnapTolerance, shape, vertexIndex)) {
+      auto hostPtr = editor.findSharedPtr(shape);
+      if (hostPtr) {
+        auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, vertexIndex, 0.0);
+        if (objPoint && objPoint->isValid()) {
+          objPoint->setIsVertexAnchor(true);
+          objPoint->setRadius(editor.currentPointSize);
+          editor.ObjectPoints.push_back(objPoint);
+          return objPoint;
+        }
+      }
+    }
+
+    // 3b) Shape edge
+    if (auto edgeHit = findNearestEdge(editor, worldPos_sfml, objectSnapTolerance)) {
+      if (edgeHit->host) {
+        if (auto circle = dynamic_cast<Circle *>(edgeHit->host)) {
+          auto circlePtr = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(circle));
+          if (circlePtr) {
+            auto objPoint = ObjectPoint::create(
+                circlePtr, edgeHit->relativePosition * 2.0 * M_PI,
+                Constants::OBJECT_POINT_DEFAULT_COLOR);
+            if (objPoint && objPoint->isValid()) {
+              objPoint->setRadius(editor.getCurrentPointSize());
+              editor.ObjectPoints.push_back(objPoint);
+              return objPoint;
+            }
+          }
+        } else {
+          auto hostPtr = editor.findSharedPtr(edgeHit->host);
+          if (hostPtr) {
+            auto objPoint = ObjectPoint::createOnShapeEdge(
+                hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
+            if (objPoint && objPoint->isValid()) {
+              objPoint->setIsVertexAnchor(false);
+              objPoint->setRadius(editor.getCurrentPointSize());
+              editor.ObjectPoints.push_back(objPoint);
+              return objPoint;
+            }
+          }
+        }
+      }
+    }
+
+    // 3c) Line object
+    Point_2 cursor = editor.toCGALPoint(worldPos_sfml);
+    double bestDist = static_cast<double>(objectSnapTolerance);
+    std::shared_ptr<Line> bestLine = nullptr;
+    double bestRel = 0.0;
     for (auto &linePtr : editor.lines) {
       if (!linePtr || !linePtr->isValid()) continue;
-
-      auto startPt = linePtr->getStartPointObjectShared();
-      if (startPt && startPt->isValid()) {
-        sf::Vector2f ptPos = startPt->getSFMLPosition();
-        float dx = ptPos.x - worldPos_sfml.x;
-        float dy = ptPos.y - worldPos_sfml.y;
-        float d2 = dx * dx + dy * dy;
-        if (d2 <= bestDist2) {
-          bestDist2 = d2;
-          bestEndpoint = startPt;
+      if (!linePtr->contains(worldPos_sfml, objectSnapTolerance)) continue;
+      try {
+        Point_2 startP = linePtr->getStartPoint();
+        Point_2 endP = linePtr->getEndPoint();
+        Line_2 hostLine = linePtr->getCGALLine();
+        Point_2 proj = hostLine.projection(cursor);
+        double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(proj, cursor)));
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestLine = linePtr;
+          Vector_2 lineVec = endP - startP;
+          double lineLenSq = CGAL::to_double(lineVec.squared_length());
+          double t = 0.5;
+          if (lineLenSq > 0.0) {
+            Vector_2 toProj = proj - startP;
+            t = CGAL::to_double(toProj * lineVec) / lineLenSq;
+            if (linePtr->isSegment()) {
+              t = std::max(0.0, std::min(1.0, t));
+            }
+          }
+          bestRel = t;
         }
-      }
-
-      auto endPt = linePtr->getEndPointObjectShared();
-      if (endPt && endPt->isValid()) {
-        sf::Vector2f ptPos = endPt->getSFMLPosition();
-        float dx = ptPos.x - worldPos_sfml.x;
-        float dy = ptPos.y - worldPos_sfml.y;
-        float d2 = dx * dx + dy * dy;
-        if (d2 <= bestDist2) {
-          bestDist2 = d2;
-          bestEndpoint = endPt;
-        }
+      } catch (...) {
       }
     }
-
-    if (bestEndpoint) {
-      return bestEndpoint;
-    }
-  }
-
-  // 3) Lines/edges (ObjectPoints)
-  // 3a) Shape vertex
-  GeometricObject *shape = nullptr;
-  size_t vertexIndex = 0;
-  if (findShapeVertex(editor, worldPos_sfml, objectSnapTolerance, shape, vertexIndex)) {
-    auto hostPtr = editor.findSharedPtr(shape);
-    if (hostPtr) {
-      auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, vertexIndex, 0.0);
+    if (bestLine) {
+      auto objPoint = ObjectPoint::create(bestLine, bestRel,
+                                          Constants::OBJECT_POINT_DEFAULT_COLOR);
       if (objPoint && objPoint->isValid()) {
-        objPoint->setIsVertexAnchor(true);
+        objPoint->setRadius(editor.getCurrentPointSize());
         editor.ObjectPoints.push_back(objPoint);
         return objPoint;
       }
-    }
-  }
-
-  // 3b) Shape edge
-  if (auto edgeHit = findNearestEdge(editor, worldPos_sfml, objectSnapTolerance)) {
-    if (edgeHit->host) {
-      if (auto circle = dynamic_cast<Circle *>(edgeHit->host)) {
-        auto circlePtr = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(circle));
-        if (circlePtr) {
-          auto objPoint = ObjectPoint::create(
-              circlePtr, edgeHit->relativePosition * 2.0 * M_PI,
-              Constants::OBJECT_POINT_DEFAULT_COLOR);
-          if (objPoint && objPoint->isValid()) {
-            editor.ObjectPoints.push_back(objPoint);
-            return objPoint;
-          }
-        }
-      } else {
-        auto hostPtr = editor.findSharedPtr(edgeHit->host);
-        if (hostPtr) {
-          auto objPoint = ObjectPoint::createOnShapeEdge(
-              hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
-          if (objPoint && objPoint->isValid()) {
-            objPoint->setIsVertexAnchor(false);
-            editor.ObjectPoints.push_back(objPoint);
-            return objPoint;
-          }
-        }
-      }
-    }
-  }
-
-  // 3c) Line object
-  Point_2 cursor = editor.toCGALPoint(worldPos_sfml);
-  double bestDist = static_cast<double>(objectSnapTolerance);
-  std::shared_ptr<Line> bestLine = nullptr;
-  double bestRel = 0.0;
-  for (auto &linePtr : editor.lines) {
-    if (!linePtr || !linePtr->isValid()) continue;
-    if (!linePtr->contains(worldPos_sfml, objectSnapTolerance)) continue;
-    try {
-      Point_2 startP = linePtr->getStartPoint();
-      Point_2 endP = linePtr->getEndPoint();
-      Line_2 hostLine = linePtr->getCGALLine();
-      Point_2 proj = hostLine.projection(cursor);
-      double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(proj, cursor)));
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestLine = linePtr;
-        Vector_2 lineVec = endP - startP;
-        double lineLenSq = CGAL::to_double(lineVec.squared_length());
-        double t = 0.5;
-        if (lineLenSq > 0.0) {
-          Vector_2 toProj = proj - startP;
-          t = CGAL::to_double(toProj * lineVec) / lineLenSq;
-          if (linePtr->isSegment()) {
-            t = std::max(0.0, std::min(1.0, t));
-          }
-        }
-        bestRel = t;
-      }
-    } catch (...) {
-    }
-  }
-  if (bestLine) {
-    auto objPoint = ObjectPoint::create(bestLine, bestRel,
-                                        Constants::OBJECT_POINT_DEFAULT_COLOR);
-    if (objPoint && objPoint->isValid()) {
-      editor.ObjectPoints.push_back(objPoint);
-      return objPoint;
     }
   }
 

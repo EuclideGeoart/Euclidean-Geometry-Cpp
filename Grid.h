@@ -17,6 +17,7 @@ public:
 
   void setGridSize(float size);
   float getGridSize() const;
+  float getCurrentGridSpacing() const;
   void toggleVisibility();
   bool isVisible() const;
   void setVisible(bool visible);

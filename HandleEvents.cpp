@@ -715,7 +715,8 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   
   // === USE SNAP STATE POSITION IF AVAILABLE ===
   // If the preview showed a snapped position (sticky to line/circle), use that position
-  if (isAltPressed && editor.m_snapState.kind != PointUtils::SnapState::Kind::None) {
+  if (editor.m_snapState.kind != PointUtils::SnapState::Kind::None &&
+      (isAltPressed || editor.m_snapState.kind != PointUtils::SnapState::Kind::ExistingPoint)) {
     cgalWorldPos = editor.m_snapState.position;
     worldPos_sfml = editor.toSFMLVector(cgalWorldPos);
     std::cout << "[SNAP] Using snapped position for point creation" << std::endl;
@@ -725,69 +726,86 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
   // --- SELECTION (Raw mouse position, nearest neighbor) ---
   // Use centralized screen-pixel selection tolerance
   float selectionTolerance = getDynamicSelectionTolerance(editor);
-  float bestDist = selectionTolerance;
-  std::shared_ptr<Point> bestPoint = nullptr;
+  // float bestDist = selectionTolerance;
+  // std::shared_ptr<Point> bestPoint = nullptr;
+  // bool hasForcedPoint = false;
+  // Point_2 forcedPointPos(FT(0), FT(0));
 
-  if (isAltPressed) {
-    // ObjectPoints first
-    for (const auto& op : editor.ObjectPoints) {
-      if (!op || !op->isValid() || !op->isVisible() || op->isLocked()) continue;
-      sf::Vector2f pos = op->getSFMLPosition();
-      float dx = pos.x - worldPos_sfml.x;
-      float dy = pos.y - worldPos_sfml.y;
-      float dist = std::sqrt(dx * dx + dy * dy);
-      if (dist <= bestDist) {
-        bestDist = dist;
-        bestPoint = std::static_pointer_cast<Point>(op);
-      }
-    }
+  // if (isAltPressed) {
+  //   // ObjectPoints first
+  //   for (const auto& op : editor.ObjectPoints) {
+  //     if (!op || !op->isValid() || !op->isVisible() || op->isLocked()) continue;
+  //     sf::Vector2f pos = op->getSFMLPosition();
+  //     float dx = pos.x - worldPos_sfml.x;
+  //     float dy = pos.y - worldPos_sfml.y;
+  //     float dist = std::sqrt(dx * dx + dy * dy);
+  //     if (dist <= bestDist) {
+  //       bestDist = dist;
+  //       bestPoint = std::static_pointer_cast<Point>(op);
+  //     }
+  //   }
 
-    // Free points
-    for (const auto& pt : editor.points) {
-      if (!pt || !pt->isValid() || !pt->isVisible() || pt->isLocked()) continue;
-      sf::Vector2f pos = pt->getSFMLPosition();
-      float dx = pos.x - worldPos_sfml.x;
-      float dy = pos.y - worldPos_sfml.y;
-      float dist = std::sqrt(dx * dx + dy * dy);
-      if (dist <= bestDist) {
-        bestDist = dist;
-        bestPoint = pt;
-      }
-    }
+  //   // Free points
+  //   for (const auto& pt : editor.points) {
+  //     if (!pt || !pt->isValid() || !pt->isVisible() || pt->isLocked()) continue;
+  //     sf::Vector2f pos = pt->getSFMLPosition();
+  //     float dx = pos.x - worldPos_sfml.x;
+  //     float dy = pos.y - worldPos_sfml.y;
+  //     float dist = std::sqrt(dx * dx + dy * dy);
+  //     if (dist <= bestDist) {
+  //       bestDist = dist;
+  //       bestPoint = pt;
+  //     }
+  //   }
 
-    if (bestPoint) {
-      bestPoint->setSelected(true);
-      std::cout << "Selected nearest point within hitbox." << std::endl;
-      return; // Do not create a new point
-    }
-  }
+  //   if (bestPoint) {
+  //     forcedPointPos = bestPoint->getCGALPosition();
+  //     hasForcedPoint = true;
+  //     std::cout << "ALT+Click: Snapping new point to existing point." << std::endl;
+  //   }
+  // }
 
-  // --- ALT MODE: Snap/Merge to existing point ---
-  if (isAltPressed) {
-    // Use larger tolerance (10px) for ALT merge mode
-    float selectionToleranceAlt = screenPixelsToWorldUnits(editor, 10.0f);
-    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, selectionToleranceAlt);
+  // // --- ALT MODE: Snap/Merge to existing point ---
+  // if (isAltPressed) {
+  //   // Use larger tolerance (10px) for ALT merge mode
+  //   float selectionToleranceAlt = screenPixelsToWorldUnits(editor, 10.0f);
+  //   auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, selectionToleranceAlt);
     
-    // Check if smartPoint is an EXISTING point (already in our lists)
-    bool isExistingPoint = false;
-    auto itPoints = std::find(editor.points.begin(), editor.points.end(), smartPoint);
-    if (itPoints != editor.points.end()) {
-      isExistingPoint = true;
-    }
-    for (const auto& op : editor.ObjectPoints) {
-      if (op == smartPoint) {
-        isExistingPoint = true;
-        break;
-      }
-    }
+  //   // Check if smartPoint is an EXISTING point (already in our lists)
+  //   bool isExistingPoint = false;
+  //   auto itPoints = std::find(editor.points.begin(), editor.points.end(), smartPoint);
+  //   if (itPoints != editor.points.end()) {
+  //     isExistingPoint = true;
+  //   }
+  //   for (const auto& op : editor.ObjectPoints) {
+  //     if (op == smartPoint) {
+  //       isExistingPoint = true;
+  //       break;
+  //     }
+  //   }
     
-    if (isExistingPoint && smartPoint) {
-      // Merge: Just select the existing point, don't create a new one
-      smartPoint->setSelected(true);
-      std::cout << "ALT+Click: Merged/selected existing point: " << smartPoint->getLabel() << std::endl;
-      return; // EXIT EARLY: No new point created
-    }
-  }
+  //   if (isExistingPoint && smartPoint) {
+  //     forcedPointPos = smartPoint->getCGALPosition();
+  //     hasForcedPoint = true;
+  //     std::cout << "ALT+Click: Snapping new point to existing point: " << smartPoint->getLabel() << std::endl;
+  //   }
+  // }
+
+  // if (hasForcedPoint) {
+  //   auto newPoint = editor.createPoint(forcedPointPos);
+  //   newPoint->setSelected(true);
+  //   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+  //   std::cout << "Point created at snapped position." << std::endl;
+  //   return;
+  // }
+
+  // if (isAltPressed) {
+  //   auto newPoint = editor.createPoint(cgalWorldPos);
+  //   newPoint->setSelected(true);
+  //   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+  //   std::cout << "Point created (Alt mode)." << std::endl;
+  //   return;
+  // }
   
   // --- STANDARD MODE (No Alt, or Alt didn't find existing point) ---
   
@@ -807,7 +825,15 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
       break;
     }
   }
-
+// If we snapped to an existing point WITH Alt, create a new point at that location
+  if (isAltPressed && smartPoint && isExistingPoint && !createdNew) {
+    auto newPoint = editor.createPoint(smartPoint->getCGALPosition());
+    newPoint->setSelected(true);
+    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+    std::cout << "ALT+Click: Created point at snapped existing point." << std::endl;
+    return;
+  }
+  
   // If we snapped to an existing point without ALT, create a new point instead
   if (!isAltPressed && smartPoint && isExistingPoint && !createdNew) {
     // Try to create an ObjectPoint on nearest edge/line
@@ -970,7 +996,75 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
     std::cout << "Line creation: Click at (" << CGAL::to_double(cgalWorldPos.x()) << ", " << CGAL::to_double(cgalWorldPos.y()) << ")" << std::endl;
 
-    std::shared_ptr<Point> clickedPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    // --- AUTO-SNAP LOGIC ---
+    // 1. Try to find an existing point at cursor (no Alt required)
+    GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    std::shared_ptr<Point> clickedPoint = nullptr;
+
+    if (hitObj) {
+        clickedPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+        if (clickedPoint) {
+            std::cout << "Auto-Snap: Reusing existing point." << std::endl;
+        }
+    }
+
+    // 2. If no existing point found, check for intersections or create new
+    if (!clickedPoint) {
+         // Fallback to finding intersection (without point creation yet)
+         // Or just create a new free point
+         if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+              // Handle intersection snap
+             clickedPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance); // Reuse createSmartPoint for complex intersection logic if needed, but force it?
+             // Actually, createSmartPoint REQUIRES Alt. So we should NOT use it if we want auto-snap.
+             // But for intersections, we WANT to create a point if it doesn't exist.
+             // So we should replicate intersection logic or force createSmartPoint to work without Alt?
+             // User constraint: Modify HandleEvents.cpp ONLY.
+             // We can't modify createSmartPoint.
+             // But we can replicate the intersection creation logic here or just assume if we didn't hit a point object, we create one.
+             
+             // Simplest approach: Just create a new point at the cursor (or snapped position).
+             // If getHoveredIntersection returns true, we can snap to that position.
+             
+             // Let's use the USER PROVIDED logic pattern:
+             // if (!smartPoint) { smartPoint = editor.createPoint(...); }
+             
+             // But to support Intersection Snapping, we need the intersection position.
+             // We can call getHoveredIntersection.
+              if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+                   clickedPoint = editor.createPoint(hit->position);
+                   clickedPoint->setIntersectionPoint(true);
+                   clickedPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+                   clickedPoint->lock();
+                   editor.points.push_back(clickedPoint);
+                   // Push command? User snippet suggests pushing create command later or usage implies ownership.
+                   // The user snippet: editor.points.push_back(smartPoint);
+              } else {
+                   clickedPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance); // Fallback to standard creation
+                   // Wait, createSmartPoint MIGHT return null if no alt and no feature? 
+                   // No, createSmartPoint creates a FREE point if nothing found. 
+                   // The ISSUE is that createSmartPoint requires Alt to snap to EXISTING points.
+                   // But it creates new points fine.
+                   // So our logic "If existing, reuse. Else createSmartPoint" works?
+                   // createSmartPoint checks "if (allowExistingPointSnap)" which is "Alt || PointTool".
+                   // If false, it skips checking existing points. 
+                   // Since we checked existing points manually above, we are safe to call it for new point creation?
+                   // Yes, but createSmartPoint ALSO checks intersections.
+                   // If we call it without Alt, it might SKIP snapping to existing ObjectPoints too?
+                   // Yes. 
+                   
+                   // So we should use createSmartPoint solely for NEW point creation, and we handled "Existing Point" manually.
+                   // BUT createSmartPoint logic 2b) Existing  Check is also guarded by allowExisting.
+                   // So it won't snap to ObjectPoints.
+                   
+                   // We need to pass {ObjectType::Point, ObjectType::ObjectPoint} to lookForObjectAt.
+                   // We did that. lookForObjectAt handles ObjectPoints? Yes.
+              }
+         }
+         
+         if (!clickedPoint) {
+              clickedPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+         }
+    }
     if (!editor.lineCreationPoint1) {
       // --- Starting line creation - first point ---
       deselectAllAndClearInteractionState(editor);
@@ -1611,8 +1705,23 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
       }
 
       // Use smart factory for anchor point
+      // Use smart factory for anchor point
       Point_2 anchorPos_cgal = cgalWorldPos;
-      std::shared_ptr<Point> clickedExistingPt = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+      std::shared_ptr<Point> clickedExistingPt = nullptr;
+
+      // FIX: Explicitly look for existing point first (Implicit Snap)
+      // This ensures we snap to existing points even if Alt is not held (consistent with user request)
+      GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+      if (hitObj) {
+        clickedExistingPt = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+        if (clickedExistingPt) std::cout << "Perp Tool: Snapped to existing point." << std::endl;
+      }
+
+      // If not found, create new point (SmartPoint handles intersections etc)
+      if (!clickedExistingPt) {
+        clickedExistingPt = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+      }
+
       if (clickedExistingPt) {
         anchorPos_cgal = clickedExistingPt->getCGALPosition();
       }
@@ -2191,7 +2300,24 @@ void handleRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButto
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
     float tolerance = getDynamicSelectionTolerance(editor);
 
-    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    // --- AUTO-SNAP LOGIC ---
+    GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    std::shared_ptr<Point> smartPoint = nullptr;
+    if (hitObj) {
+        smartPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+    }
+    if (!smartPoint) {
+         if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+               smartPoint = editor.createPoint(hit->position);
+               smartPoint->setIntersectionPoint(true);
+               smartPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+               smartPoint->lock();
+               editor.points.push_back(smartPoint);
+         } else {
+               smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+         }
+    }
+    // -----------------------
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
 
     if (!editor.isCreatingRectangle) {
@@ -2245,7 +2371,24 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
     float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
-    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    // --- AUTO-SNAP LOGIC ---
+    GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    std::shared_ptr<Point> smartPoint = nullptr;
+    if (hitObj) {
+        smartPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+    }
+    if (!smartPoint) {
+         if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+               smartPoint = editor.createPoint(hit->position);
+               smartPoint->setIntersectionPoint(true);
+               smartPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+               smartPoint->lock();
+               editor.points.push_back(smartPoint);
+         } else {
+               smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+         }
+    }
+    // -----------------------
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
     // ------------------------------------
 
@@ -2305,7 +2448,24 @@ void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
     float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
-    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    // --- AUTO-SNAP LOGIC ---
+    GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    std::shared_ptr<Point> smartPoint = nullptr;
+    if (hitObj) {
+        smartPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+    }
+    if (!smartPoint) {
+         if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+               smartPoint = editor.createPoint(hit->position);
+               smartPoint->setIntersectionPoint(true);
+               smartPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+               smartPoint->lock();
+               editor.points.push_back(smartPoint);
+         } else {
+               smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+         }
+    }
+    // -----------------------
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
     // ------------------------------------
 
@@ -2364,7 +2524,24 @@ void handleRegularPolygonCreation(GeometryEditor& editor, const sf::Event::Mouse
     float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
-    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    // --- AUTO-SNAP LOGIC ---
+    GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    std::shared_ptr<Point> smartPoint = nullptr;
+    if (hitObj) {
+        smartPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+    }
+    if (!smartPoint) {
+         if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+               smartPoint = editor.createPoint(hit->position);
+               smartPoint->setIntersectionPoint(true);
+               smartPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+               smartPoint->lock();
+               editor.points.push_back(smartPoint);
+         } else {
+               smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+         }
+    }
+    // -----------------------
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
     // ------------------------------------
 
@@ -2408,7 +2585,24 @@ void handleTriangleCreation(GeometryEditor& editor, const sf::Event::MouseButton
     float tolerance = getDynamicSelectionTolerance(editor);
 
     // --- TOPOLOGICAL SMART SNAP LOGIC ---
-    auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    // --- AUTO-SNAP LOGIC ---
+    GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    std::shared_ptr<Point> smartPoint = nullptr;
+    if (hitObj) {
+        smartPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+    }
+    if (!smartPoint) {
+         if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+               smartPoint = editor.createPoint(hit->position);
+               smartPoint->setIntersectionPoint(true);
+               smartPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+               smartPoint->lock();
+               editor.points.push_back(smartPoint);
+         } else {
+               smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+         }
+    }
+    // -----------------------
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
     // ------------------------------------
 
@@ -2467,7 +2661,10 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   // Grid snapping (Shift): snap world position to nearest grid point
   bool gridSnapActive = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
   if (gridSnapActive) {
-    float g = Constants::GRID_SIZE;
+    float g = editor.getCurrentGridSpacing();
+    if (g <= 0.0f) {
+      g = Constants::GRID_SIZE;
+    }
     worldPos_sfml.x = std::round(worldPos_sfml.x / g) * g;
     worldPos_sfml.y = std::round(worldPos_sfml.y / g) * g;
   }
@@ -2593,11 +2790,18 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     return;
   }
   if (mouseEvent.button == sf::Mouse::Left && sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt)) {
-    editor.isPanning = true;
-    editor.lastMousePos_sfml = worldPos_sfml;
-    std::cout << "Panning started with Alt+Left at: (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ")" << std::endl;
-    return;
+    // BUG FIX: Only allow Alt-Panning if NO tool is active.
+    // This allows Creation Tools (Line, Circle, etc.) to receive the Alt-Click for "Snap-to-Point" logic
+    // which is handled inside their specific creation functions (via PointUtils::createSmartPoint).
+    if (editor.m_currentToolType == ObjectType::None) {
+      editor.isPanning = true;
+      editor.lastMousePos_sfml = worldPos_sfml;
+      std::cout << "Panning started with Alt+Left at: (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ")" << std::endl;
+      return;
+    }
+    // If a tool IS active, we fall through so the tool creation logic can handle the Alt-Click (Snapping).
   }
+
   if (mouseEvent.button == sf::Mouse::Right) {
     // Double Right-Click Detection for Context Menu
     static sf::Clock lastRightClickClock;
@@ -3169,7 +3373,25 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
         sf::Vector2i mousePos = sf::Mouse::getPosition(editor.window);
         sf::Vector2f worldPos = editor.window.mapPixelToCoords(mousePos, editor.drawingView);
         float tolerance = getDynamicSelectionTolerance(editor);
-        auto centerPoint = PointUtils::createSmartPoint(editor, worldPos, tolerance);
+
+        // --- AUTO-SNAP LOGIC (Circle Center) ---
+        GeometricObject* hitObj = editor.lookForObjectAt(worldPos, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+        std::shared_ptr<Point> centerPoint = nullptr;
+        if (hitObj) {
+            centerPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+        }
+        if (!centerPoint) {
+             if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos, tolerance)) {
+                   centerPoint = editor.createPoint(hit->position);
+                   centerPoint->setIntersectionPoint(true);
+                   centerPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+                   centerPoint->lock();
+                   editor.points.push_back(centerPoint);
+             } else {
+                   centerPoint = PointUtils::createSmartPoint(editor, worldPos, tolerance);
+             }
+        }
+        // ---------------------------------------
 
         if (!centerPoint || !centerPoint->isValid()) {
           return;
@@ -3189,7 +3411,26 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
         // Complete circle creation
         try {
           float tolerance = getDynamicSelectionTolerance(editor);
-          auto radiusPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+
+          // --- AUTO-SNAP LOGIC (Circle Radius) ---
+          GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+          std::shared_ptr<Point> radiusPoint = nullptr;
+          if (hitObj) {
+              radiusPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+          }
+          if (!radiusPoint) {
+              if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+                    radiusPoint = editor.createPoint(hit->position);
+                    radiusPoint->setIntersectionPoint(true);
+                    radiusPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+                    radiusPoint->lock();
+                    editor.points.push_back(radiusPoint);
+              } else {
+                    radiusPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+              }
+          }
+          // ---------------------------------------
+
           if (!radiusPoint || !radiusPoint->isValid()) {
             return;
           }
@@ -3803,27 +4044,26 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     }
   }
 
-  // Font Size Adjustment (hold F and press +/-)
-  if (sf::Keyboard::isKeyPressed(sf::Keyboard::F)) {
-    bool sizeChanged = false;
-    if (keyEvent.code == sf::Keyboard::Equal || keyEvent.code == sf::Keyboard::Add) {
-      Constants::BUTTON_TEXT_SIZE += 1;
-      Constants::GUI_MESSAGE_TEXT_SIZE += 1;
-      sizeChanged = true;
-    } else if (keyEvent.code == sf::Keyboard::Dash || keyEvent.code == sf::Keyboard::Subtract) {
-      if (Constants::BUTTON_TEXT_SIZE > 8) {
-        Constants::BUTTON_TEXT_SIZE -= 1;
-        Constants::GUI_MESSAGE_TEXT_SIZE -= 1;
-        sizeChanged = true;
-      }
+  // Font Size Adjustment (F +/-)
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Check for PLUS keys (Numpad Add or Standard Equal/Plus)
+    if (keyEvent.code == sf::Keyboard::Add || keyEvent.code == sf::Keyboard::Equal) {
+        // ONLY if 'F' is held down
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::F)) {
+            io.FontGlobalScale = std::min(1.5f, io.FontGlobalScale + 0.05f); 
+        editor.setGUIMessage("UI Scale: " + std::to_string(io.FontGlobalScale));
+        }
     }
 
-    if (sizeChanged) {
-      editor.getGUI().updateFontSizes();
-      editor.setGUIMessage("Font Size updated: " + std::to_string(Constants::BUTTON_TEXT_SIZE));
-      return;
+    // Check for MINUS keys (Numpad Subtract or Standard Dash)
+    if (keyEvent.code == sf::Keyboard::Subtract || keyEvent.code == sf::Keyboard::Hyphen) {
+        // ONLY if 'F' is held down
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::F)) {
+            io.FontGlobalScale = std::max(0.1f, io.FontGlobalScale - 0.05f);
+            editor.setGUIMessage("UI Scale: " + std::to_string(io.FontGlobalScale)); 
+        }
     }
-  }
 
   if (keyEvent.control && keyEvent.code == sf::Keyboard::Z) {
     if (keyEvent.shift) {
@@ -4038,7 +4278,10 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   // Grid snapping (Shift): adjust world position before further processing
   bool gridSnapActive = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
   if (gridSnapActive) {
-    float g = Constants::GRID_SIZE;
+    float g = editor.getCurrentGridSpacing();
+    if (g <= 0.0f) {
+      g = Constants::GRID_SIZE;
+    }
     worldPos.x = std::round(worldPos.x / g) * g;
     worldPos.y = std::round(worldPos.y / g) * g;
   }
@@ -4145,13 +4388,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     float snapTolerance = getDynamicSelectionTolerance(editor);
     bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
 
-    if (!isAltPressed) {
-      // No snapping/projection unless Alt is held
-      editor.m_snapState = PointUtils::SnapState{};
-    } else {
-      // Check for existing points ONLY if ALT is pressed (merge mode)
-      bool snappedToPoint = false;
-      // Look for nearby points to snap to
+    // Check for existing points ONLY if ALT is pressed (merge mode)
+    bool snappedToPoint = false;
+    if (isAltPressed) {
       GeometricObject* nearbyPoint = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Point, ObjectType::ObjectPoint});
       if (nearbyPoint) {
         Point_2 pointPos;
@@ -4168,45 +4407,38 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         nearbyPoint->setHovered(true);
         snappedToPoint = true;
       }
+    }
 
-      // If not snapped to a point, try snapping to lines/circles
-      if (!snappedToPoint) {
-        // Look for lines or circles under cursor (ignore points for projection)
-        GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
+    // If not snapped to a point, allow snapping to lines/circles (projection)
+    if (!snappedToPoint) {
+      GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
 
-        if (nearbyObj) {
-          Point_2 cgalPos = editor.toCGALPoint(worldPos);
-          Point_2 projectedPos = cgalPos; // Default to mouse position
+      if (nearbyObj) {
+        Point_2 cgalPos = editor.toCGALPoint(worldPos);
+        Point_2 projectedPos = cgalPos; // Default to mouse position
 
-          // Project onto the object
-          if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
-            auto* line = dynamic_cast<Line*>(nearbyObj);
-            if (line && line->isValid()) {
-              // Use ProjectionUtils to project onto line
-              projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
-            }
-          } else if (nearbyObj->getType() == ObjectType::Circle) {
-            auto* circle = dynamic_cast<Circle*>(nearbyObj);
-            if (circle && circle->isValid()) {
-              Point_2 center = circle->getCenterPoint();
-              double radius = circle->getRadius();
-
-              // Project onto circle circumference
-              projectedPos = projectPointOntoCircle(cgalPos, center, radius);
-            }
+        // Project onto the object
+        if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
+          auto* line = dynamic_cast<Line*>(nearbyObj);
+          if (line && line->isValid()) {
+            projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
           }
-
-          // Update snap state for visual feedback (cyan preview point)
-          editor.m_snapState = PointUtils::SnapState{};
-          editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
-          editor.m_snapState.position = projectedPos;
-
-          // Highlight the object being snapped to
-          nearbyObj->setHovered(true);
-        } else {
-          // No nearby object - clear snap state
-          editor.m_snapState = PointUtils::SnapState{};
+        } else if (nearbyObj->getType() == ObjectType::Circle) {
+          auto* circle = dynamic_cast<Circle*>(nearbyObj);
+          if (circle && circle->isValid()) {
+            Point_2 center = circle->getCenterPoint();
+            double radius = circle->getRadius();
+            projectedPos = projectPointOntoCircle(cgalPos, center, radius);
+          }
         }
+
+        // Update snap state for visual feedback (cyan preview point)
+        editor.m_snapState = PointUtils::SnapState{};
+        editor.m_snapState.kind = PointUtils::SnapState::Kind::Line; // Use Line kind for object snapping
+        editor.m_snapState.position = projectedPos;
+        nearbyObj->setHovered(true);
+      } else {
+        editor.m_snapState = PointUtils::SnapState{};
       }
     }
   } else {
@@ -5990,10 +6222,30 @@ void handleEvents(GeometryEditor& editor) {
   sf::Event event;
   while (editor.window.pollEvent(event)) {
     ImGui::SFML::ProcessEvent(editor.window, event);
+    // Check if ImGui wants the mouse
     if (ImGui::GetIO().WantCaptureMouse) {
+      // IGNORE these events if hovering UI
       if (event.type == sf::Event::MouseButtonPressed ||
           event.type == sf::Event::MouseButtonReleased ||
           event.type == sf::Event::MouseWheelScrolled) {
+        continue;
+      }
+
+      // CRITICAL: Also ignore MouseMoved if it involves dragging (button held)
+      // This stops the selection box from updating while dragging a slider
+      if (event.type == sf::Event::MouseMoved) {
+        // Optional: You might still want hover effects, but definitely STOP dragging logic
+        if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+          continue;
+        }
+      }
+    }
+
+    // Check if ImGui wants the keyboard (for text inputs)
+    if (ImGui::GetIO().WantCaptureKeyboard) {
+      if (event.type == sf::Event::KeyPressed ||
+          event.type == sf::Event::KeyReleased ||
+          event.type == sf::Event::TextEntered) {
         continue;
       }
     }

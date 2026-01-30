@@ -253,6 +253,7 @@ class GUI {
   bool m_draggingThickness = false;
   void updateThicknessSliderLayout(const sf::Vector2u& windowSize, float currentValue) const;
 
+  mutable float m_sidebarWidth = 270.0f;
   // Utility function
   float distance(const sf::Vector2f& a, const sf::Vector2f& b) { return std::sqrt(std::pow(a.x - b.x, 2) + std::pow(a.y - b.y, 2)); }
 };

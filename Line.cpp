@@ -70,18 +70,18 @@ Line::Line(std::shared_ptr<Point> startPoint, std::shared_ptr<Point> endPoint, b
       m_endPoint(endPoint),
       m_isSegment(isSegment),
       m_color(color),
+      m_isUpdatingInternally(false),
       m_isUnderDirectManipulation(false),
       m_isParallelLine(false),
       m_isPerpendicularLine(false),
       m_constraintRefObject(),
       m_constraintRefEdgeIndex(-1),
-      m_thickness(Constants::LINE_THICKNESS),
       m_dashed(false),
       m_dashLength(Constants::LINE_DASH_LENGTH),
       m_gapLength(Constants::LINE_DASH_GAP),
       m_constraintDirection(0, 0),
+      m_thickness(Constants::LINE_THICKNESS),
       m_inConstraint(false),
-      m_isUpdatingInternally(false),
       m_externallyMovedEndpoint(nullptr) {
   bool localDebug = Constants::DEBUG_LINE_CREATION;
 
@@ -148,19 +148,8 @@ Line::Line(std::shared_ptr<Point> start, std::shared_ptr<Point> end, bool isSegm
       m_endPoint(end),
       m_isSegment(isSegment),
       m_color(color),
-      m_isUnderDirectManipulation(false),
-      m_isParallelLine(false),
-      m_isPerpendicularLine(false),
-      m_constraintRefObject(),
-      m_constraintRefEdgeIndex(-1),
-      m_dashed(false),
       m_dashLength(Constants::LINE_DASH_LENGTH),
-      m_gapLength(Constants::LINE_DASH_GAP),
-      m_thickness(Constants::LINE_THICKNESS),
-      m_constraintDirection(0, 0),
-      m_inConstraint(false),
-      m_isUpdatingInternally(false),
-      m_externallyMovedEndpoint(nullptr) {
+      m_gapLength(Constants::LINE_DASH_GAP) {
   if (!m_startPoint || !m_endPoint) {
     throw std::invalid_argument("Line constructor requires valid Point objects");
   }
@@ -630,12 +619,12 @@ const Kernel::FT MIN_SQ_LENGTH_THRESHOLD(
 // Constructor for Line with CGAL points
 Line::Line(const Point_2 &start, const Point_2 &end, bool isSegment, const sf::Color &color)
     : GeometricObject(isSegment ? ObjectType::LineSegment : ObjectType::Line, color),
+      m_lineType(LineType::Infinite),
       m_startPoint(nullptr),  // Initialize before other members that might
       // depend on it or for order
       m_endPoint(nullptr),
       m_isSegment(isSegment),
-      m_color(color),
-      m_constraintDirection(0, 0) {  // Initialize m_constraintDirection
+      m_color(color) {
 
   if (start == end) {
     throw std::invalid_argument("Line (CGAL constructor) endpoints are coincident (exact).");

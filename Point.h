@@ -102,6 +102,11 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   void setOutlineColor(const sf::Color &outlineColor);
   sf::Color getFillColor() const;
   sf::Color getOutlineColor() const;
+  
+  // Point Size Control
+  void setRadius(float screenRadius);
+  float getRadius() const { return m_desiredScreenRadius; }
+
   unsigned int getID() const override { return m_id; }
   void cleanupConnectedLines();
   void notifyConnectedLines();

@@ -101,9 +101,10 @@ class GeometryEditor {
     return nullptr;
   }
   // ---Color Management---
-  void setCurrentColor(sf::Color color) { m_currentDrawingColor = color; }
+  // ---Color Management---
+  void setCurrentColor(sf::Color color) { currentColor = color; }
 
-  sf::Color getCurrentColor() const { return m_currentDrawingColor; }
+  sf::Color getCurrentColor() const { return currentColor; }
   void changeSelectedObjectColor(sf::Color newColor);
 
   float currentThickness = Constants::LINE_THICKNESS_DEFAULT;
@@ -494,12 +495,10 @@ class GeometryEditor {
   std::shared_ptr<Line> m_perpendicularPreviewLine;  // For visual feedback
   Vector_2 m_perpendicularReferenceDirection;
 
- protected:
-  sf::Color m_color;
-
- private:
-  ColorPicker m_colorPicker;
-  sf::Color m_currentDrawingColor = sf::Color::Blue;
+ public:
+  // Current visual properties state
+  float currentPointSize = 5.0f; // Default point size
+  sf::Color currentColor = sf::Color::Black;
 
   // Axes handling
   std::shared_ptr<Line> xAxis;
@@ -511,6 +510,8 @@ class GeometryEditor {
   std::shared_ptr<Line> getXAxis() const { return xAxis; }
   std::shared_ptr<Line> getYAxis() const { return yAxis; }
   bool isGridVisible() const { return grid.isVisible(); }
+  float getCurrentGridSpacing() const { return grid.getCurrentGridSpacing(); }
+  float getCurrentPointSize() const { return currentPointSize; }
  private:
 
   // Methods that should remain private

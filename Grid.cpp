@@ -256,3 +256,5 @@ void Grid::draw(sf::RenderWindow &window, const sf::View &drawingView,
     }
   }
 }
+
+float Grid::getCurrentGridSpacing() const { return m_currentGridSpacing; }
