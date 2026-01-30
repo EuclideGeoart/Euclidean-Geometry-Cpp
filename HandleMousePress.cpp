@@ -1,21 +1,207 @@
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <limits>
 #include <memory>
 #include <vector>
 
 #include <SFML/Graphics.hpp>
 
+#include "Angle.h"
+#include "CGALSafeUtils.h"
+#include "Circle.h"
 #include "CommandSystem.h"
 #include "ConstructionObjects.h"
+#include "Constants.h"
 #include "GeometricObject.h"
 #include "GeometryEditor.h"
+#include "GUI.h"
 #include "Line.h"
+#include "ObjectPoint.h"
 #include "Point.h"
 #include "PointUtils.h"
-#include "TransformationObjects.h"
-#include "Circle.h"
 #include "Polygon.h"
+#include "Rectangle.h"
+#include "RegularPolygon.h"
+#include "TransformationObjects.h"
+#include "Triangle.h"
+#include "Types.h"
+#include "VariantUtils.h"
+#include "VertexLabelManager.h"
+#include "ProjectionUtils.h"
 
 extern float g_transformRotationDegrees;
 extern float g_transformDilationFactor;
+
+// Forward declarations for helpers defined in HandleEvents.cpp
+void deselectAllAndClearInteractionState(GeometryEditor& editor);
+
+static float screenPixelsToWorldUnits(const GeometryEditor& editor, float screenPixels) {
+  if (editor.window.getSize().x > 0) {
+    float scale = editor.drawingView.getSize().x / static_cast<float>(editor.window.getSize().x);
+    return screenPixels * scale;
+  }
+  return 1e-12f;
+}
+
+static float getDynamicSelectionTolerance(const GeometryEditor& editor) {
+  return screenPixelsToWorldUnits(editor, Constants::SELECTION_SCREEN_PIXELS);
+}
+
+static float getDynamicSnapTolerance(const GeometryEditor& editor) {
+  return screenPixelsToWorldUnits(editor, Constants::SNAP_SCREEN_PIXELS);
+}
+
+static GeometricObject* findClosestObject(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance);
+
+static std::shared_ptr<Point> createSmartPointFromClick(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance) {
+  Point_2 cgalPos = editor.toCGALPoint(worldPos_sfml);
+  GeometricObject* hitObj = findClosestObject(editor, worldPos_sfml, tolerance);
+  if (hitObj) {
+    if (hitObj->getType() == ObjectType::Point || hitObj->getType() == ObjectType::ObjectPoint ||
+        hitObj->getType() == ObjectType::IntersectionPoint) {
+      return std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+    }
+
+    if (hitObj->getType() == ObjectType::Line || hitObj->getType() == ObjectType::LineSegment) {
+      auto linePtr = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitObj));
+      if (linePtr && linePtr->isValid()) {
+        Point_2 startPos = linePtr->getStartPoint();
+        Point_2 endPos = linePtr->getEndPoint();
+        double relativePos = ProjectionUtils::getRelativePositionOnLine(cgalPos, startPos, endPos, linePtr->isSegment());
+        auto objPoint = ObjectPoint::create(linePtr, relativePos, Constants::OBJECT_POINT_DEFAULT_COLOR);
+        if (objPoint && objPoint->isValid()) {
+          editor.ObjectPoints.push_back(objPoint);
+          return objPoint;
+        }
+      }
+    }
+
+    if (hitObj->getType() == ObjectType::Circle) {
+      auto circlePtr = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(hitObj));
+      if (circlePtr && circlePtr->isValid()) {
+        Point_2 center = circlePtr->getCenterPoint();
+        Vector_2 toClick = cgalPos - center;
+        double angleRad = std::atan2(CGAL::to_double(toClick.y()), CGAL::to_double(toClick.x()));
+        auto objPoint = ObjectPoint::create(circlePtr, angleRad, Constants::OBJECT_POINT_DEFAULT_COLOR);
+        if (objPoint && objPoint->isValid()) {
+          editor.ObjectPoints.push_back(objPoint);
+          return objPoint;
+        }
+      }
+    }
+
+    if (hitObj->getType() == ObjectType::Rectangle || hitObj->getType() == ObjectType::Triangle ||
+        hitObj->getType() == ObjectType::Polygon || hitObj->getType() == ObjectType::RegularPolygon) {
+      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+      if (edgeHit && edgeHit->host) {
+        auto hostPtr = editor.findSharedPtr(edgeHit->host);
+        if (hostPtr) {
+          auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
+          if (objPoint && objPoint->isValid()) {
+            editor.ObjectPoints.push_back(objPoint);
+            return objPoint;
+          }
+        }
+      }
+    }
+  }
+
+  if (auto hit = PointUtils::getHoveredIntersection(editor, worldPos_sfml, tolerance)) {
+    auto pt = editor.createPoint(hit->position);
+    if (pt) {
+      pt->setIntersectionPoint(true);
+      pt->setFillColor(Constants::INTERSECTION_POINT_COLOR);
+      pt->lock();
+      editor.points.push_back(pt);
+    }
+    return pt;
+  }
+
+  return PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+}
+
+static GeometricObject* findClosestObject(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance) {
+  GeometricObject* closest = nullptr;
+  double bestDistSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
+  Point_2 cgalPos = editor.toCGALPoint(worldPos_sfml);
+
+  auto considerPoint = [&](GeometricObject* obj) {
+    if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return;
+    auto* pt = dynamic_cast<Point*>(obj);
+    if (!pt) return;
+    double distSq = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), cgalPos));
+    if (distSq <= bestDistSq) {
+      bestDistSq = distSq;
+      closest = obj;
+    }
+  };
+
+  for (auto& objPointPtr : editor.ObjectPoints) considerPoint(objPointPtr.get());
+  for (auto& pointPtr : editor.points) considerPoint(pointPtr.get());
+
+  if (closest) return closest;
+
+  auto considerEdges = [&](GeometricObject* obj, const std::vector<Segment_2>& edges) {
+    if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return;
+    double localBest = std::numeric_limits<double>::infinity();
+    for (const auto& edge : edges) {
+      double distSq = CGAL::to_double(CGAL::squared_distance(edge, cgalPos));
+      if (distSq < localBest) localBest = distSq;
+    }
+    if (localBest <= bestDistSq) {
+      bestDistSq = localBest;
+      closest = obj;
+    }
+  };
+
+  for (auto& linePtr : editor.lines) {
+    if (!linePtr || !linePtr->isValid() || !linePtr->isVisible() || linePtr->isLocked()) continue;
+    if (!linePtr->contains(worldPos_sfml, tolerance)) continue;
+    double distSq = 0.0;
+    if (linePtr->isSegment()) {
+      Segment_2 seg(linePtr->getStartPoint(), linePtr->getEndPoint());
+      distSq = CGAL::to_double(CGAL::squared_distance(seg, cgalPos));
+    } else {
+      distSq = CGAL::to_double(CGAL::squared_distance(linePtr->getCGALLine(), cgalPos));
+    }
+    if (distSq <= bestDistSq) {
+      bestDistSq = distSq;
+      closest = linePtr.get();
+    }
+  }
+
+  for (auto& circlePtr : editor.circles) {
+    if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible() || circlePtr->isLocked()) continue;
+    Point_2 center = circlePtr->getCenterPoint();
+    double distToCenter = std::sqrt(CGAL::to_double(CGAL::squared_distance(center, cgalPos)));
+    double delta = std::abs(distToCenter - circlePtr->getRadius());
+    double distSq = delta * delta;
+    if (distSq <= bestDistSq && delta <= tolerance) {
+      bestDistSq = distSq;
+      closest = circlePtr.get();
+    }
+  }
+
+  for (auto& rectPtr : editor.rectangles) {
+    if (!rectPtr || !rectPtr->isValid() || !rectPtr->isVisible() || rectPtr->isLocked()) continue;
+    considerEdges(rectPtr.get(), rectPtr->getEdges());
+  }
+  for (auto& triPtr : editor.triangles) {
+    if (!triPtr || !triPtr->isValid() || !triPtr->isVisible() || triPtr->isLocked()) continue;
+    considerEdges(triPtr.get(), triPtr->getEdges());
+  }
+  for (auto& polyPtr : editor.polygons) {
+    if (!polyPtr || !polyPtr->isValid() || !polyPtr->isVisible() || polyPtr->isLocked()) continue;
+    considerEdges(polyPtr.get(), polyPtr->getEdges());
+  }
+  for (auto& regPtr : editor.regularPolygons) {
+    if (!regPtr || !regPtr->isValid() || !regPtr->isVisible() || regPtr->isLocked()) continue;
+    considerEdges(regPtr.get(), regPtr->getEdges());
+  }
+
+  return closest;
+}
 
 static std::string getPrimeLabel(const std::string& oldLabel) {
   return oldLabel.empty() ? std::string() : (oldLabel + "'");
@@ -447,4 +633,3026 @@ bool handleTransformationCreation(GeometryEditor& editor,
   editor.setGUIMessage("Error: Unsupported source object.");
   clearSelection();
   return false;
+}
+
+// --- Helper: Midpoint & Compass State ---
+static std::vector<GeometricObject*> tempSelectedObjects;
+
+// --- Helper: Midpoint Tool Logic ---
+static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* clickedObj) {
+  if (clickedObj && (clickedObj->getType() == ObjectType::Line || clickedObj->getType() == ObjectType::LineSegment)) {
+    auto lineShared = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(clickedObj));
+    if (lineShared && lineShared->isValid()) {
+      auto midpoint = std::make_shared<Midpoint>(lineShared, Constants::POINT_DEFAULT_COLOR);
+      editor.points.push_back(midpoint);
+      midpoint->setSelected(true);
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpoint)));
+
+      std::cout << "Created Dynamic Midpoint on Segment" << std::endl;
+      editor.setGUIMessage("Midpoint constructed on segment.");
+    }
+    return;
+  }
+
+  if (clickedObj && (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint ||
+                     clickedObj->getType() == ObjectType::IntersectionPoint)) {
+    bool alreadySelected = false;
+    for (auto* obj : tempSelectedObjects) {
+      if (obj == clickedObj) alreadySelected = true;
+    }
+    if (alreadySelected) return;
+
+    clickedObj->setSelected(true);
+    tempSelectedObjects.push_back(clickedObj);
+
+    if (tempSelectedObjects.size() == 2) {
+      auto p1 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[0]));
+      auto p2 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[1]));
+
+      if (p1 && p2) {
+        auto midpoint = std::make_shared<Midpoint>(p1, p2, Constants::POINT_DEFAULT_COLOR);
+        editor.points.push_back(midpoint);
+        midpoint->setSelected(true);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpoint)));
+
+        std::cout << "Created Dynamic Midpoint between points" << std::endl;
+        editor.setGUIMessage("Midpoint constructed.");
+      }
+
+      for (auto* obj : tempSelectedObjects) obj->setSelected(false);
+      tempSelectedObjects.clear();
+    } else {
+      editor.setGUIMessage("Midpoint: Select second point.");
+    }
+  }
+}
+
+// --- Helper: Compass Tool Logic ---
+static void handleCompassToolClick(GeometryEditor& editor,
+                                   GeometricObject* clickedObj,
+                                   const sf::Vector2f& worldPos_sfml,
+                                   float tolerance) {
+  if (tempSelectedObjects.empty()) {
+    if (!clickedObj) return;
+
+    if (clickedObj->getType() == ObjectType::LineSegment) {
+      clickedObj->setSelected(true);
+      tempSelectedObjects.push_back(clickedObj);
+      editor.setGUIMessage("Compass: Radius set from Line. Select Center Point.");
+      return;
+    }
+
+    if (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint) {
+      clickedObj->setSelected(true);
+      tempSelectedObjects.push_back(clickedObj);
+      editor.setGUIMessage("Compass: Radius Pt 1 selected. Select Radius Pt 2.");
+      return;
+    }
+  } else if (tempSelectedObjects.size() == 1 && (tempSelectedObjects[0]->getType() == ObjectType::Point ||
+                                                 tempSelectedObjects[0]->getType() == ObjectType::ObjectPoint)) {
+    if (!clickedObj) return;
+    if (clickedObj == tempSelectedObjects[0]) return;
+
+    if (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint) {
+      clickedObj->setSelected(true);
+      tempSelectedObjects.push_back(clickedObj);
+      editor.setGUIMessage("Compass: Radius defined. Select Center Point.");
+    }
+    return;
+  } else if ((tempSelectedObjects.size() == 1 && tempSelectedObjects[0]->getType() == ObjectType::LineSegment) ||
+             (tempSelectedObjects.size() == 2 && tempSelectedObjects[0]->getType() == ObjectType::Point)) {
+    handleCompassCreation(editor, tempSelectedObjects, worldPos_sfml, tolerance);
+  }
+}
+
+void createObjectPointOnLine(GeometryEditor& editor, Line* lineHost, const Point_2& cgalWorldPos) {
+  std::cout << "Creating ObjectPoint on line" << std::endl;
+
+  if (!lineHost->getStartPointObject() || !lineHost->getEndPointObject()) {
+    std::cerr << "Cannot create ObjectPoint: Line has invalid endpoints" << std::endl;
+    return;
+  }
+
+  Point_2 startPos, endPos;
+  try {
+    startPos = lineHost->getStartPoint();
+    endPos = lineHost->getEndPoint();
+
+    if (startPos == endPos) {
+      std::cerr << "Cannot create ObjectPoint: Line endpoints are coincident" << std::endl;
+      return;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Error getting line endpoints: " << e.what() << std::endl;
+    return;
+  }
+
+  double relativePos;
+  try {
+    relativePos = ProjectionUtils::getRelativePositionOnLine(cgalWorldPos, startPos, endPos, lineHost->isSegment());
+    std::cout << "Calculated relative position: " << relativePos << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "Error calculating relative position: " << e.what() << std::endl;
+    relativePos = 0.5;
+  }
+
+  auto hostLineShared = editor.getLineSharedPtr(lineHost);
+  if (!hostLineShared) {
+    std::cerr << "Error: Could not get shared_ptr for line host" << std::endl;
+    return;
+  }
+
+  try {
+    auto newObjPoint = ObjectPoint::create(hostLineShared, relativePos, Constants::OBJECT_POINT_DEFAULT_COLOR);
+
+    if (newObjPoint && newObjPoint->isValid()) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      std::string label = LabelManager::getNextLabel(labelPool);
+      newObjPoint->setLabel(label);
+      newObjPoint->setShowLabel(true);
+      editor.ObjectPoints.push_back(newObjPoint);
+      std::cout << "ObjectPoint created successfully at position " << relativePos << std::endl;
+      std::cout << "Total ObjectPoints: " << editor.ObjectPoints.size() << std::endl;
+      editor.setGUIMessage("ObjectPoint created on line");
+    } else {
+      std::cerr << "Failed to create valid ObjectPoint" << std::endl;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Error creating ObjectPoint: " << e.what() << std::endl;
+  }
+}
+
+void createObjectPointOnCircle(GeometryEditor& editor, std::shared_ptr<Circle> circlePtr, const Point_2& clickPos) {
+  try {
+    if (!circlePtr) {
+      std::cerr << "ERROR: circlePtr is null" << std::endl;
+      return;
+    }
+
+    Point_2 center = circlePtr->getCenterPoint();
+    Vector_2 vectorToClick = clickPos - center;
+    double angleRad = std::atan2(CGAL::to_double(vectorToClick.y()), CGAL::to_double(vectorToClick.x()));
+
+    auto objectPoint = ObjectPoint::create(circlePtr, angleRad, sf::Color::Red);
+
+    if (objectPoint) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      std::string label = LabelManager::getNextLabel(labelPool);
+      objectPoint->setLabel(label);
+      objectPoint->setShowLabel(true);
+      editor.ObjectPoints.push_back(objectPoint);
+      std::cout << "ObjectPoint created successfully on circle" << std::endl;
+    }
+
+  } catch (const std::exception& e) {
+    std::cerr << "ERROR creating ObjectPoint: " << e.what() << std::endl;
+  }
+}
+
+static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared_ptr<Rectangle>& rect) {
+  if (!rect) return;
+  auto c1 = rect->getCorner1Point();
+  auto c2 = rect->getCorner2Point();
+
+  if (rect->isRotatable()) {
+    if (c1) {
+      c1->setShowLabel(false);
+    }
+    if (c2) {
+      c2->setShowLabel(false);
+    }
+    rect->setDependentCornerPoints(nullptr, nullptr);
+    return;
+  }
+
+  if (!rect->isRotatable()) {
+    auto verts = rect->getVertices();
+    if (verts.size() != 4) return;
+
+    if (c1) {
+      c1->setLabel("A");
+      c1->setShowLabel(true);
+    }
+    if (c2) {
+      c2->setLabel("C");
+      c2->setShowLabel(true);
+    }
+
+    auto bPoint = editor.createPoint(verts[1]);
+    auto dPoint = editor.createPoint(verts[3]);
+    if (bPoint) {
+      bPoint->setLabel("B");
+      bPoint->setShowLabel(true);
+      bPoint->setDependent(true);
+      bPoint->setCreatedWithShape(true);
+    }
+    if (dPoint) {
+      dPoint->setLabel("D");
+      dPoint->setShowLabel(true);
+      dPoint->setDependent(true);
+      dPoint->setCreatedWithShape(true);
+    }
+    rect->setDependentCornerPoints(bPoint, dPoint);
+    return;
+  }
+
+  if (c1) {
+    c1->setLabel("A");
+    c1->setShowLabel(true);
+  }
+  if (c2) {
+    c2->setLabel("B");
+    c2->setShowLabel(true);
+  }
+
+  Point_2 a = rect->getCorner1();
+  Point_2 b = rect->getCorner2();
+  double dx = CGAL::to_double(b.x()) - CGAL::to_double(a.x());
+  double dy = CGAL::to_double(b.y()) - CGAL::to_double(a.y());
+  double height = std::sqrt(dx * dx + dy * dy);
+  if (height < 1e-9) return;
+  double ux = -dy / height;
+  double uy = dx / height;
+
+  double width = rect->getWidth();
+
+  Point_2 c(FT(CGAL::to_double(b.x()) + ux * width), FT(CGAL::to_double(b.y()) + uy * width));
+  Point_2 d(FT(CGAL::to_double(a.x()) + ux * width), FT(CGAL::to_double(a.y()) + uy * width));
+
+  auto cPoint = editor.createPoint(c);
+  auto dPoint = editor.createPoint(d);
+  if (cPoint) {
+    cPoint->setLabel("C");
+    cPoint->setShowLabel(true);
+    cPoint->setCreatedWithShape(true);
+  }
+  if (dPoint) {
+    dPoint->setLabel("D");
+    dPoint->setShowLabel(true);
+    dPoint->setDependent(true);
+    dPoint->setCreatedWithShape(true);
+  }
+  rect->setDependentCornerPoints(cPoint, dPoint);
+}
+
+void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) {
+    return;
+  }
+
+  sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+  Point_2 cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
+
+  bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
+
+  if (editor.m_snapState.kind != PointUtils::SnapState::Kind::None &&
+      (isAltPressed || editor.m_snapState.kind != PointUtils::SnapState::Kind::ExistingPoint)) {
+    cgalWorldPos = editor.m_snapState.position;
+    worldPos_sfml = editor.toSFMLVector(cgalWorldPos);
+    std::cout << "[SNAP] Using snapped position for point creation" << std::endl;
+  }
+
+  float selectionTolerance = getDynamicSelectionTolerance(editor);
+
+  size_t prePointsCount = editor.points.size();
+  size_t preObjPointsCount = editor.ObjectPoints.size();
+  auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, selectionTolerance);
+  bool createdNew = (editor.points.size() > prePointsCount) || (editor.ObjectPoints.size() > preObjPointsCount);
+  bool isExistingPoint = false;
+  auto itExisting = std::find(editor.points.begin(), editor.points.end(), smartPoint);
+  if (itExisting != editor.points.end()) {
+    isExistingPoint = true;
+  }
+  for (const auto& op : editor.ObjectPoints) {
+    if (op == smartPoint) {
+      isExistingPoint = true;
+      break;
+    }
+  }
+
+  if (isAltPressed && smartPoint && isExistingPoint && !createdNew) {
+    auto newPoint = editor.createPoint(smartPoint->getCGALPosition());
+    newPoint->setSelected(true);
+    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(
+        editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+    std::cout << "ALT+Click: Created point at snapped existing point." << std::endl;
+    return;
+  }
+
+  if (!isAltPressed && smartPoint && isExistingPoint && !createdNew) {
+    if (auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, selectionTolerance)) {
+      if (edgeHit->host) {
+        if (auto circle = dynamic_cast<Circle*>(edgeHit->host)) {
+          auto circlePtr = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(circle));
+          if (circlePtr) {
+            auto objPoint = ObjectPoint::create(circlePtr, edgeHit->relativePosition * 2.0 * M_PI,
+                                                Constants::OBJECT_POINT_DEFAULT_COLOR);
+            if (objPoint && objPoint->isValid()) {
+              editor.ObjectPoints.push_back(objPoint);
+              smartPoint = objPoint;
+            }
+          }
+        } else {
+          auto hostPtr = editor.findSharedPtr(edgeHit->host);
+          if (hostPtr) {
+            auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
+            if (objPoint && objPoint->isValid()) {
+              objPoint->setIsVertexAnchor(false);
+              editor.ObjectPoints.push_back(objPoint);
+              smartPoint = objPoint;
+            }
+          }
+        }
+      }
+    }
+
+    if (smartPoint && isExistingPoint && smartPoint == *itExisting) {
+      Point_2 cursor = editor.toCGALPoint(worldPos_sfml);
+      double bestDist = static_cast<double>(selectionTolerance);
+      std::shared_ptr<Line> bestLine = nullptr;
+      double bestRel = 0.0;
+      for (auto& linePtr : editor.lines) {
+        if (!linePtr || !linePtr->isValid()) continue;
+        if (!linePtr->contains(worldPos_sfml, selectionTolerance)) continue;
+        try {
+          Point_2 startP = linePtr->getStartPoint();
+          Point_2 endP = linePtr->getEndPoint();
+          Line_2 hostLine = linePtr->getCGALLine();
+          Point_2 proj = hostLine.projection(cursor);
+          double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(proj, cursor)));
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestLine = linePtr;
+            Vector_2 lineVec = endP - startP;
+            double lineLenSq = CGAL::to_double(lineVec.squared_length());
+            double t = 0.5;
+            if (lineLenSq > 0.0) {
+              Vector_2 toProj = proj - startP;
+              t = CGAL::to_double(toProj * lineVec) / lineLenSq;
+              if (linePtr->isSegment()) {
+                t = std::max(0.0, std::min(1.0, t));
+              }
+            }
+            bestRel = t;
+          }
+        } catch (...) {
+        }
+      }
+      if (bestLine) {
+        auto objPoint = ObjectPoint::create(bestLine, bestRel, Constants::OBJECT_POINT_DEFAULT_COLOR);
+        if (objPoint && objPoint->isValid()) {
+          editor.ObjectPoints.push_back(objPoint);
+          smartPoint = objPoint;
+        }
+      }
+    }
+
+    if (smartPoint && isExistingPoint && smartPoint == *itExisting) {
+      smartPoint = editor.createPoint(editor.toCGALPoint(worldPos_sfml));
+    }
+  }
+  if (smartPoint && smartPoint->isValid()) {
+    bool addedPoint = false;
+    auto it = std::find(editor.points.begin(), editor.points.end(), smartPoint);
+
+    bool isObjectPoint = false;
+    for (const auto& op : editor.ObjectPoints) {
+      if (op == smartPoint) {
+        isObjectPoint = true;
+        break;
+      }
+    }
+
+    if (it == editor.points.end() && !isObjectPoint) {
+      editor.points.push_back(smartPoint);
+      addedPoint = true;
+    }
+
+    if (addedPoint || smartPoint->getLabel().empty()) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      std::string label = LabelManager::getNextLabel(labelPool);
+      smartPoint->setLabel(label);
+      smartPoint->setShowLabel(true);
+    }
+
+    smartPoint->setSelected(true);
+    if (addedPoint) {
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(smartPoint)));
+    }
+  }
+
+  std::cout << "Point created at (" << cgalWorldPos.x() << ", " << cgalWorldPos.y() << ")" << std::endl;
+}
+
+void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) {
+    return;
+  }
+
+  try {
+    sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+
+    const float MAX_COORD = 1e15f;
+    if (!std::isfinite(worldPos_sfml.x) || !std::isfinite(worldPos_sfml.y) || std::abs(worldPos_sfml.x) > MAX_COORD ||
+        std::abs(worldPos_sfml.y) > MAX_COORD) {
+      std::cerr << "handleLineCreation: Mouse coordinates out of bounds" << std::endl;
+      return;
+    }
+
+    Point_2 cgalWorldPos;
+    try {
+      cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
+
+      if (!CGAL::is_finite(cgalWorldPos.x()) || !CGAL::is_finite(cgalWorldPos.y())) {
+        std::cerr << "handleLineCreation: CGAL point conversion failed" << std::endl;
+        return;
+      }
+
+      double x_double = CGAL::to_double(cgalWorldPos.x());
+      double y_double = CGAL::to_double(cgalWorldPos.y());
+
+      if (!std::isfinite(x_double) || !std::isfinite(y_double) || std::abs(x_double) > MAX_COORD ||
+          std::abs(y_double) > MAX_COORD) {
+        std::cerr << "handleLineCreation: CGAL coordinates out of reasonable range" << std::endl;
+        return;
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "Error converting position to CGAL: " << e.what() << std::endl;
+      return;
+    }
+
+    float tolerance = getDynamicSnapTolerance(editor);
+
+    std::cout << "Line creation: Click at (" << CGAL::to_double(cgalWorldPos.x()) << ", " << CGAL::to_double(cgalWorldPos.y()) << ")"
+              << std::endl;
+
+    std::shared_ptr<Point> clickedPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+    if (!editor.lineCreationPoint1) {
+      deselectAllAndClearInteractionState(editor);
+
+      editor.lineCreationPoint1 = clickedPoint;
+
+      if (!editor.lineCreationPoint1 || !editor.lineCreationPoint1->isValid()) {
+        std::cerr << "Error: First point for line is invalid after creation/selection." << std::endl;
+        editor.lineCreationPoint1 = nullptr;
+        return;
+      }
+
+      editor.lineCreationPoint1->setSelected(true);
+      editor.dragMode = DragMode::CreateLineP1;
+      std::cout << "First point selected for line creation." << std::endl;
+
+    } else {
+      if (!editor.lineCreationPoint1->isValid()) {
+        std::cerr << "Error: First point for line creation is no longer valid." << std::endl;
+        editor.lineCreationPoint1 = nullptr;
+        editor.dragMode = DragMode::None;
+        return;
+      }
+
+      std::shared_ptr<Point> secondPoint = clickedPoint;
+
+      if (secondPoint == editor.lineCreationPoint1) {
+        std::cout << "Line creation canceled: same point selected for start and end." << std::endl;
+        editor.lineCreationPoint1->setSelected(false);
+        editor.lineCreationPoint1 = nullptr;
+        editor.dragMode = DragMode::None;
+        return;
+      }
+
+      if (!editor.lineCreationPoint1 || !editor.lineCreationPoint1->isValid() || !secondPoint || !secondPoint->isValid()) {
+        std::cerr << "Error: One or both points for line creation are invalid" << std::endl;
+        if (editor.lineCreationPoint1) {
+          editor.lineCreationPoint1->setSelected(false);
+        }
+        editor.lineCreationPoint1 = nullptr;
+        editor.dragMode = DragMode::None;
+        return;
+      }
+
+      try {
+        Point_2 p1_pos_final = editor.lineCreationPoint1->getCGALPosition();
+        Point_2 p2_pos_final = secondPoint->getCGALPosition();
+
+        if (!CGAL::is_finite(p1_pos_final.x()) || !CGAL::is_finite(p1_pos_final.y()) || !CGAL::is_finite(p2_pos_final.x()) ||
+            !CGAL::is_finite(p2_pos_final.y())) {
+          std::cerr << "Error: Line endpoint coordinates are not finite before creation" << std::endl;
+          editor.lineCreationPoint1->setSelected(false);
+          editor.lineCreationPoint1 = nullptr;
+          editor.dragMode = DragMode::None;
+          return;
+        }
+
+        double p1_x_final, p1_y_final, p2_x_final, p2_y_final;
+        try {
+          p1_x_final = CGAL::to_double(p1_pos_final.x());
+          p1_y_final = CGAL::to_double(p1_pos_final.y());
+          p2_x_final = CGAL::to_double(p2_pos_final.x());
+          p2_y_final = CGAL::to_double(p2_pos_final.y());
+        } catch (const std::exception& e) {
+          std::cerr << "Error: Cannot convert line endpoint coordinates to double: " << e.what() << std::endl;
+          editor.lineCreationPoint1->setSelected(false);
+          editor.lineCreationPoint1 = nullptr;
+          editor.dragMode = DragMode::None;
+          return;
+        }
+
+        if (!std::isfinite(p1_x_final) || !std::isfinite(p1_y_final) || !std::isfinite(p2_x_final) || !std::isfinite(p2_y_final)) {
+          std::cerr << "Error: Line endpoint coordinates are not finite doubles" << std::endl;
+          editor.lineCreationPoint1->setSelected(false);
+          editor.lineCreationPoint1 = nullptr;
+          editor.dragMode = DragMode::None;
+          return;
+        }
+
+        const double MAX_COORD_SAFE = 1e8;
+        if (std::abs(p1_x_final) > MAX_COORD_SAFE || std::abs(p1_y_final) > MAX_COORD_SAFE || std::abs(p2_x_final) > MAX_COORD_SAFE ||
+            std::abs(p2_y_final) > MAX_COORD_SAFE) {
+          std::cerr << "Error: Line coordinates exceed safe range" << std::endl;
+          editor.lineCreationPoint1->setSelected(false);
+          editor.lineCreationPoint1 = nullptr;
+          editor.dragMode = DragMode::None;
+          return;
+        }
+
+        double dx_final = p2_x_final - p1_x_final;
+        double dy_final = p2_y_final - p1_y_final;
+        double distSquared_final = dx_final * dx_final + dy_final * dy_final;
+
+        const double minDistSquared = Constants::MIN_DISTANCE_SQUARED_LINE_CREATION;
+
+        if (!std::isfinite(distSquared_final) || distSquared_final < minDistSquared) {
+          std::cerr << "Error: Final line endpoints are too close (distance² = " << distSquared_final
+                    << ", min required = " << minDistSquared << ")" << std::endl;
+          editor.lineCreationPoint1->setSelected(false);
+          editor.lineCreationPoint1 = nullptr;
+          editor.dragMode = DragMode::None;
+          return;
+        }
+
+        bool isSegment = (editor.m_currentToolType == ObjectType::LineSegment);
+        std::cout << "Creating " << (isSegment ? "segment" : "line") << " between validated points." << std::endl;
+
+        auto newLine = std::make_shared<Line>(editor.lineCreationPoint1, secondPoint, isSegment, editor.getCurrentColor(),
+                                              editor.objectIdCounter++);
+
+        if (!newLine || !newLine->isValid()) {
+          std::cerr << "Error: Failed to create valid " << (isSegment ? "segment" : "line") << std::endl;
+        } else {
+          newLine->registerWithEndpoints();
+          editor.lines.push_back(newLine);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+          std::cout << (isSegment ? "Segment" : "Line") << " created successfully." << std::endl;
+        }
+
+      } catch (const std::exception& e) {
+        std::cerr << "Error during final line validation/creation: " << e.what() << std::endl;
+        editor.lineCreationPoint1->setSelected(false);
+        editor.lineCreationPoint1 = nullptr;
+        editor.dragMode = DragMode::None;
+        return;
+      }
+
+      editor.lineCreationPoint1->setSelected(false);
+      editor.lineCreationPoint1 = nullptr;
+      editor.dragMode = DragMode::None;
+    }
+
+  } catch (const std::exception& e) {
+    std::cerr << "Critical error in handleLineCreation: " << e.what() << std::endl;
+    if (editor.lineCreationPoint1) {
+      try {
+        editor.lineCreationPoint1->setSelected(false);
+      } catch (...) {
+      }
+    }
+    editor.lineCreationPoint1 = nullptr;
+    editor.dragMode = DragMode::None;
+  }
+}
+
+void handleLineSegmentCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  handleLineCreation(editor, mouseEvent);
+}
+
+// handleParallelLineCreation, handlePerpendicularLineCreation, handlePerpendicularBisectorCreation,
+// handleAngleBisectorCreation, handleTangentCreation, handleObjectPointCreation,
+// handleRectangleCreation, handleRotatableRectangleCreation, handlePolygonCreation,
+// handleRegularPolygonCreation, handleTriangleCreation follow (migrated unchanged).
+// (The full migrated implementations are appended below.)
+
+void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+  Point_2 cgalWorldPos;
+  try {
+    cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
+    if (!CGAL::is_finite(cgalWorldPos.x()) || !CGAL::is_finite(cgalWorldPos.y())) {
+      std::cerr << "ParallelLineCreation: Initial cgalWorldPos from click is not finite." << std::endl;
+      editor.resetParallelLineToolState();
+      return;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Error converting click to CGAL point in ParallelLineCreation: " << e.what() << std::endl;
+    editor.resetParallelLineToolState();
+    return;
+  }
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  try {
+    if (!editor.m_isPlacingParallel) {
+      editor.resetParallelLineToolState();
+
+      GeometricObject* refObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
+
+      if (refObj) {
+        std::shared_ptr<GeometricObject> refObjSP;
+        int edgeIndex = -1;
+        Vector_2 refDirection;
+        bool validReferenceFound = false;
+
+        if (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment) {
+          Line* rawLinePtr = static_cast<Line*>(refObj);
+          refObjSP = editor.getLineSharedPtr(rawLinePtr);
+          if (refObjSP) {
+            if (auto linePtr = std::dynamic_pointer_cast<Line>(refObjSP)) {
+              if (linePtr->isValid()) {
+                Point_2 p1 = linePtr->getStartPoint();
+                Point_2 p2 = linePtr->getEndPoint();
+                if (p1 != p2) {
+                  refDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
+                  validReferenceFound = true;
+                }
+              }
+            }
+          }
+        } else {
+          std::vector<Segment_2> edges = refObj->getEdges();
+          double minDistance = std::numeric_limits<double>::max();
+          int bestEdgeIndex = -1;
+
+          for (size_t i = 0; i < edges.size(); ++i) {
+            double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(edges[i], cgalWorldPos)));
+            if (dist < minDistance) {
+              minDistance = dist;
+              bestEdgeIndex = static_cast<int>(i);
+            }
+          }
+
+          if (bestEdgeIndex != -1) {
+            if (refObj->getType() == ObjectType::Rectangle) {
+              for (auto& r : editor.rectangles)
+                if (r.get() == refObj) refObjSP = r;
+            } else if (refObj->getType() == ObjectType::Triangle) {
+              for (auto& t : editor.triangles)
+                if (t.get() == refObj) refObjSP = t;
+            } else if (refObj->getType() == ObjectType::Polygon) {
+              for (auto& p : editor.polygons)
+                if (p.get() == refObj) refObjSP = p;
+            } else if (refObj->getType() == ObjectType::RegularPolygon) {
+              for (auto& rp : editor.regularPolygons)
+                if (rp.get() == refObj) refObjSP = rp;
+            }
+
+            if (refObjSP) {
+              refDirection = edges[bestEdgeIndex].to_vector();
+              edgeIndex = bestEdgeIndex;
+              validReferenceFound = true;
+            }
+          }
+        }
+
+        if (validReferenceFound) {
+          if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
+            editor.setGUIMessage("Parallel: Edge too short.");
+            editor.resetParallelLineToolState();
+            return;
+          }
+
+          editor.m_parallelReference.object = refObjSP;
+          editor.m_parallelReference.edgeIndex = edgeIndex;
+          editor.m_parallelReferenceDirection = refDirection;
+
+          editor.m_isPlacingParallel = true;
+          editor.setGUIMessage("Parallel: Ref selected. Click to place line.");
+          return;
+        }
+      }
+
+      bool isHorizontalAxis = false;
+      bool isVerticalAxis = false;
+      if (std::abs(worldPos_sfml.y) <= tolerance)
+        isHorizontalAxis = true;
+      else if (std::abs(worldPos_sfml.x) <= tolerance)
+        isVerticalAxis = true;
+
+      if (isHorizontalAxis) {
+        editor.m_parallelReference.reset();
+        editor.m_parallelReferenceDirection = Vector_2(1, 0);
+        editor.m_isPlacingParallel = true;
+        editor.setGUIMessage("Parallel: X-Axis selected. Click to place line.");
+      } else if (isVerticalAxis) {
+        editor.m_parallelReference.reset();
+        editor.m_parallelReferenceDirection = Vector_2(0, 1);
+        editor.m_isPlacingParallel = true;
+        editor.setGUIMessage("Parallel: Y-Axis selected. Click to place line.");
+      } else {
+        editor.setGUIMessage("Parallel: Click on a line, shape edge, or axis to select reference.");
+      }
+
+    } else {
+      if (editor.m_parallelReferenceDirection == Vector_2(0, 0)) {
+        std::cerr << "CRITICAL_ERROR (Parallel): No reference direction set for placement." << std::endl;
+        editor.resetParallelLineToolState();
+        return;
+      }
+
+      Point_2 anchorPos_cgal = cgalWorldPos;
+      std::shared_ptr<Point> clickedExistingPt = nullptr;
+
+      std::shared_ptr<Point> anchor = PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
+      if (anchor) {
+        clickedExistingPt = anchor;
+        anchorPos_cgal = anchor->getCGALPosition();
+
+        bool exists = false;
+        for (const auto& p : editor.points) {
+          if (p == clickedExistingPt) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          for (const auto& p : editor.ObjectPoints) {
+            if (p == clickedExistingPt) {
+              exists = true;
+              break;
+            }
+          }
+        }
+        if (!exists) {
+          if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedExistingPt)) {
+            editor.ObjectPoints.push_back(objPt);
+          }
+        }
+      }
+
+      if (!clickedExistingPt) {
+        auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance * 2.0f);
+        if (edgeHit.has_value()) {
+          const auto& hit = edgeHit.value();
+
+          if (Circle* circle = dynamic_cast<Circle*>(hit.host)) {
+            for (auto& circlePtr : editor.circles) {
+              if (circlePtr.get() == circle) {
+                auto objPoint = ObjectPoint::create(circlePtr, hit.relativePosition * 2.0 * M_PI,
+                                                    Constants::OBJECT_POINT_DEFAULT_COLOR);
+                if (objPoint && objPoint->isValid()) {
+                  editor.ObjectPoints.push_back(objPoint);
+                  clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
+                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
+                }
+                break;
+              }
+            }
+          } else {
+            std::shared_ptr<GeometricObject> hostPtr = nullptr;
+            auto findHost = [&](auto& container) {
+              for (auto& shape : container) {
+                if (shape.get() == hit.host) {
+                  hostPtr = std::static_pointer_cast<GeometricObject>(shape);
+                  return true;
+                }
+              }
+              return false;
+            };
+
+            if (findHost(editor.rectangles) || findHost(editor.polygons) || findHost(editor.regularPolygons) ||
+                findHost(editor.triangles)) {
+              if (hostPtr) {
+                auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, hit.edgeIndex, hit.relativePosition);
+                if (objPoint && objPoint->isValid()) {
+                  editor.ObjectPoints.push_back(objPoint);
+                  clickedExistingPt = objPoint;
+                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (!clickedExistingPt) {
+        for (auto& linePtr : editor.lines) {
+          if (auto refObj = editor.m_parallelReference.lock()) {
+            if (linePtr && linePtr.get() != refObj.get() && linePtr->contains(worldPos_sfml, tolerance)) {
+              try {
+                Line_2 hostLine = linePtr->getCGALLine();
+                Point_2 projectedPoint = hostLine.projection(cgalWorldPos);
+                anchorPos_cgal = projectedPoint;
+                break;
+              } catch (const std::exception& e) {
+                std::cerr << "Error projecting to line: " << e.what() << std::endl;
+              }
+            }
+          } else {
+            if (linePtr && linePtr->contains(worldPos_sfml, tolerance)) {
+              try {
+                Line_2 hostLine = linePtr->getCGALLine();
+                Point_2 projectedPoint = hostLine.projection(cgalWorldPos);
+                anchorPos_cgal = projectedPoint;
+                break;
+              } catch (const std::exception& e) {
+                std::cerr << "Error projecting to line: " << e.what() << std::endl;
+              }
+            }
+          }
+        }
+      }
+
+      Vector_2 unit_construction_dir;
+      try {
+        unit_construction_dir = CGALSafeUtils::normalize_vector_robust(editor.m_parallelReferenceDirection,
+                                                                       "ParallelCreate_normalize_ref_dir");
+      } catch (const std::runtime_error& e) {
+        std::cerr << "CRITICAL_ERROR (Parallel): Normalizing construction direction: " << e.what() << std::endl;
+        editor.resetParallelLineToolState();
+        return;
+      }
+
+      Kernel::FT constructionLength_ft = Kernel::FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
+
+      Point_2 p1_final_pos = anchorPos_cgal;
+      Point_2 p2_final_pos = anchorPos_cgal + (unit_construction_dir * constructionLength_ft * 0.5);
+
+      std::shared_ptr<Point> finalStartPoint = nullptr;
+      std::shared_ptr<Point> finalEndPoint = nullptr;
+
+      if (clickedExistingPt) {
+        finalStartPoint = clickedExistingPt;
+        p2_final_pos = finalStartPoint->getCGALPosition() + (unit_construction_dir * constructionLength_ft);
+
+        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+        if (!newP2 || !newP2->isValid()) {
+          std::cerr << "CRITICAL_ERROR (Parallel): Failed to create valid newP2." << std::endl;
+          editor.resetParallelLineToolState();
+          return;
+        }
+        newP2->setVisible(false);
+        editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
+        finalEndPoint = newP2;
+      } else {
+        auto newP1 = std::make_shared<Point>(p1_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+
+        if (!newP1 || !newP1->isValid() || !newP2 || !newP2->isValid()) {
+          std::cerr << "CRITICAL_ERROR (Parallel): Failed to create valid points." << std::endl;
+          editor.resetParallelLineToolState();
+          return;
+        }
+        newP2->setVisible(false);
+        editor.points.push_back(newP1);
+        editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP1)));
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
+        finalStartPoint = newP1;
+        finalEndPoint = newP2;
+      }
+
+      if (finalStartPoint && finalEndPoint && finalStartPoint->isValid() && finalEndPoint->isValid()) {
+        auto newLine = std::make_shared<Line>(finalStartPoint, finalEndPoint, false, Constants::CONSTRUCTION_LINE_COLOR,
+                                              editor.objectIdCounter++);
+        if (newLine && newLine->isValid()) {
+          newLine->registerWithEndpoints();
+          editor.lines.push_back(newLine);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+
+          if (auto refObj = editor.m_parallelReference.lock()) {
+            newLine->setAsParallelLine(refObj, editor.m_parallelReference.edgeIndex, editor.m_parallelReferenceDirection);
+          } else {
+            newLine->setAsParallelLine(nullptr, -1, editor.m_parallelReferenceDirection);
+            std::cout << "Parallel line created relative to axis" << std::endl;
+          }
+
+          editor.setGUIMessage("Parallel: Line placed. Select new reference.");
+        } else {
+          std::cerr << "Failed to create valid parallel line object." << std::endl;
+        }
+      }
+      editor.resetParallelLineToolState();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "CRITICAL EXCEPTION in handleParallelLineCreation: " << e.what() << std::endl;
+    editor.resetParallelLineToolState();
+  }
+}
+
+void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+  Point_2 cgalWorldPos;
+  try {
+    cgalWorldPos = editor.toCGALPoint(worldPos_sfml);
+    if (!CGAL::is_finite(cgalWorldPos.x()) || !CGAL::is_finite(cgalWorldPos.y())) {
+      std::cerr << "PerpLineCreation: Initial cgalWorldPos from click is not finite." << std::endl;
+      editor.resetPerpendicularLineToolState();
+      return;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Error converting click to CGAL point in PerpendicularLineCreation: " << e.what() << std::endl;
+    editor.resetPerpendicularLineToolState();
+    return;
+  }
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  try {
+    if (!editor.m_isPlacingPerpendicular) {
+      editor.resetPerpendicularLineToolState();
+
+      GeometricObject* refObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
+
+      if (refObj) {
+        std::shared_ptr<GeometricObject> refObjSP;
+        int edgeIndex = -1;
+        Vector_2 refDirection;
+        bool validReferenceFound = false;
+
+        if (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment) {
+          Line* rawLinePtr = static_cast<Line*>(refObj);
+          refObjSP = editor.getLineSharedPtr(rawLinePtr);
+          if (refObjSP) {
+            if (auto linePtr = std::dynamic_pointer_cast<Line>(refObjSP)) {
+              if (linePtr->isValid()) {
+                Point_2 p1 = linePtr->getStartPoint();
+                Point_2 p2 = linePtr->getEndPoint();
+                if (p1 != p2) {
+                  refDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
+                  validReferenceFound = true;
+                }
+              }
+            }
+          }
+        } else {
+          std::vector<Segment_2> edges = refObj->getEdges();
+          double minDistance = std::numeric_limits<double>::max();
+          int bestEdgeIndex = -1;
+
+          for (size_t i = 0; i < edges.size(); ++i) {
+            double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(edges[i], cgalWorldPos)));
+            if (dist < minDistance) {
+              minDistance = dist;
+              bestEdgeIndex = static_cast<int>(i);
+            }
+          }
+
+          if (bestEdgeIndex != -1) {
+            if (refObj->getType() == ObjectType::Rectangle) {
+              for (auto& r : editor.rectangles)
+                if (r.get() == refObj) refObjSP = r;
+            } else if (refObj->getType() == ObjectType::Triangle) {
+              for (auto& t : editor.triangles)
+                if (t.get() == refObj) refObjSP = t;
+            } else if (refObj->getType() == ObjectType::Polygon) {
+              for (auto& p : editor.polygons)
+                if (p.get() == refObj) refObjSP = p;
+            } else if (refObj->getType() == ObjectType::RegularPolygon) {
+              for (auto& rp : editor.regularPolygons)
+                if (rp.get() == refObj) refObjSP = rp;
+            }
+
+            if (refObjSP) {
+              refDirection = edges[bestEdgeIndex].to_vector();
+              edgeIndex = bestEdgeIndex;
+              validReferenceFound = true;
+            }
+          }
+        }
+
+        if (validReferenceFound) {
+          if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
+            editor.setGUIMessage("Perp: Edge too short.");
+            editor.resetPerpendicularLineToolState();
+            return;
+          }
+
+          editor.m_perpendicularReference.object = refObjSP;
+          editor.m_perpendicularReference.edgeIndex = edgeIndex;
+          editor.m_perpendicularReferenceDirection = refDirection;
+
+          editor.m_isPlacingPerpendicular = true;
+          editor.setGUIMessage("Perp: Ref selected. Click to place line.");
+          return;
+        }
+      }
+
+      bool isHorizontalAxis = false;
+      bool isVerticalAxis = false;
+      if (std::abs(worldPos_sfml.y) <= tolerance)
+        isHorizontalAxis = true;
+      else if (std::abs(worldPos_sfml.x) <= tolerance)
+        isVerticalAxis = true;
+
+      if (isHorizontalAxis) {
+        editor.m_perpendicularReference.reset();
+        editor.m_perpendicularReferenceDirection = Vector_2(1, 0);
+        editor.m_isPlacingPerpendicular = true;
+        editor.setGUIMessage("Perp: X-Axis selected. Click to place line.");
+      } else if (isVerticalAxis) {
+        editor.m_perpendicularReference.reset();
+        editor.m_perpendicularReferenceDirection = Vector_2(0, 1);
+        editor.m_isPlacingPerpendicular = true;
+        editor.setGUIMessage("Perp: Y-Axis selected. Click to place line.");
+      } else {
+        editor.setGUIMessage("Select a line or edge to invoke Perpendicular Tool.");
+      }
+    } else {
+      if (editor.m_perpendicularReferenceDirection == Vector_2(0, 0)) {
+        std::cerr << "CRITICAL_ERROR (Perp): No reference direction set for placement." << std::endl;
+        editor.resetPerpendicularLineToolState();
+        return;
+      }
+
+      Point_2 anchorPos_cgal = cgalWorldPos;
+      std::shared_ptr<Point> clickedExistingPt = nullptr;
+
+      GeometricObject* hitObj = editor.lookForObjectAt(
+          worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+      if (hitObj) {
+        clickedExistingPt = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
+        if (clickedExistingPt) std::cout << "Perp Tool: Snapped to existing point." << std::endl;
+      }
+
+      if (!clickedExistingPt) {
+        clickedExistingPt = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+      }
+
+      if (clickedExistingPt) {
+        anchorPos_cgal = clickedExistingPt->getCGALPosition();
+      }
+
+      Vector_2 perp_to_ref_dir(-editor.m_perpendicularReferenceDirection.y(), editor.m_perpendicularReferenceDirection.x());
+
+      Vector_2 unit_construction_dir;
+      try {
+        unit_construction_dir = CGALSafeUtils::normalize_vector_robust(perp_to_ref_dir, "PerpCreate_normalize_perp_dir");
+      } catch (const std::runtime_error& e) {
+        std::cerr << "CRITICAL_ERROR (Perp): Normalizing construction direction: " << e.what() << std::endl;
+        editor.resetPerpendicularLineToolState();
+        return;
+      }
+
+      Kernel::FT constructionLength_ft = Kernel::FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
+
+      Point_2 p1_final_pos = anchorPos_cgal;
+      Point_2 p2_final_pos = anchorPos_cgal + (unit_construction_dir * constructionLength_ft * 0.5);
+
+      std::shared_ptr<Point> finalStartPoint = nullptr;
+      std::shared_ptr<Point> finalEndPoint = nullptr;
+
+      if (clickedExistingPt) {
+        finalStartPoint = clickedExistingPt;
+        p2_final_pos = finalStartPoint->getCGALPosition() + (unit_construction_dir * constructionLength_ft);
+
+        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+        if (!newP2 || !newP2->isValid()) {
+          std::cerr << "CRITICAL_ERROR (Perp): Failed to create valid newP2." << std::endl;
+          editor.resetPerpendicularLineToolState();
+          return;
+        }
+        newP2->setVisible(false);
+        editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
+        finalEndPoint = newP2;
+      } else {
+        auto newP1 = std::make_shared<Point>(p1_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+
+        if (!newP1 || !newP1->isValid() || !newP2 || !newP2->isValid()) {
+          std::cerr << "CRITICAL_ERROR (Perp): Failed to create valid points." << std::endl;
+          editor.resetPerpendicularLineToolState();
+          return;
+        }
+        newP2->setVisible(false);
+        editor.points.push_back(newP1);
+        editor.points.push_back(newP2);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP1)));
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
+        finalStartPoint = newP1;
+        finalEndPoint = newP2;
+      }
+
+      if (finalStartPoint && finalEndPoint && finalStartPoint->isValid() && finalEndPoint->isValid()) {
+        auto newLine = std::make_shared<Line>(finalStartPoint, finalEndPoint, false, Constants::CONSTRUCTION_LINE_COLOR,
+                                              editor.objectIdCounter++);
+        if (newLine && newLine->isValid()) {
+          newLine->registerWithEndpoints();
+          editor.lines.push_back(newLine);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+
+          if (auto refObj = editor.m_perpendicularReference.lock()) {
+            newLine->setAsPerpendicularLine(refObj, editor.m_perpendicularReference.edgeIndex, editor.m_perpendicularReferenceDirection);
+          } else {
+            newLine->setAsPerpendicularLine(nullptr, -1, editor.m_perpendicularReferenceDirection);
+            std::cout << "Perpendicular line created relative to axis" << std::endl;
+          }
+
+          editor.setGUIMessage("Perp: Line placed. Select new reference.");
+        } else {
+          std::cerr << "Failed to create valid perpendicular line object." << std::endl;
+        }
+      }
+      editor.resetPerpendicularLineToolState();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "CRITICAL EXCEPTION in handlePerpendicularLineCreation: " << e.what() << std::endl;
+    editor.resetPerpendicularLineToolState();
+  }
+}
+
+void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  auto resetState = [&]() {
+    editor.isCreatingPerpendicularBisector = false;
+    editor.perpBisectorP1 = nullptr;
+    editor.perpBisectorP2 = nullptr;
+    editor.perpBisectorLineRef = nullptr;
+  };
+
+  auto createBisectorFromPoints = [&](std::shared_ptr<Point> a, std::shared_ptr<Point> b) {
+    if (!a || !b) {
+      editor.setGUIMessage("Error: Missing points for bisector.");
+      resetState();
+      return;
+    }
+
+    Vector_2 v = b->getCGALPosition() - a->getCGALPosition();
+    double lenSq = CGAL::to_double(v.squared_length());
+    if (lenSq < 1e-12) {
+      editor.setGUIMessage("Error: Cannot build bisector of zero-length segment.");
+      resetState();
+      return;
+    }
+
+    auto bisector = std::make_shared<PerpendicularBisector>(a, b, editor.objectIdCounter++);
+    if (bisector && bisector->isValid()) {
+      editor.lines.push_back(bisector);
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
+      editor.setGUIMessage("Perpendicular bisector created.");
+    } else {
+      editor.setGUIMessage("Error: Failed to create bisector line.");
+    }
+    resetState();
+  };
+
+  std::vector<ObjectType> allowed = {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::Line, ObjectType::LineSegment};
+  GeometricObject* obj = editor.lookForObjectAt(worldPos_sfml, tolerance, allowed);
+
+  if (!editor.isCreatingPerpendicularBisector) {
+    if (obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
+      auto* lineRaw = static_cast<Line*>(obj);
+      createBisectorFromPoints(lineRaw->getStartPointObjectShared(), lineRaw->getEndPointObjectShared());
+      return;
+    }
+
+    auto first = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    if (!first || !first->isValid()) {
+      editor.setGUIMessage("Select a point or segment for bisector.");
+      return;
+    }
+    editor.perpBisectorP1 = first;
+    editor.isCreatingPerpendicularBisector = true;
+    editor.setGUIMessage("Select second point for bisector.");
+    return;
+  }
+
+  auto second = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+  if (!second || !second->isValid()) {
+    editor.setGUIMessage("Select a valid second point.");
+    resetState();
+    return;
+  }
+  editor.perpBisectorP2 = second;
+  createBisectorFromPoints(editor.perpBisectorP1, editor.perpBisectorP2);
+}
+
+void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  auto resetState = [&]() {
+    editor.isCreatingAngleBisector = false;
+    editor.angleBisectorPoints.clear();
+    editor.angleBisectorLine1 = nullptr;
+    editor.angleBisectorLine2 = nullptr;
+  };
+
+  std::vector<ObjectType> allowed = {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::Line, ObjectType::LineSegment};
+  GeometricObject* obj = editor.lookForObjectAt(worldPos_sfml, tolerance, allowed);
+
+  if (!editor.isCreatingAngleBisector && obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
+    editor.angleBisectorLine1 = editor.getLineSharedPtr(static_cast<Line*>(obj));
+    editor.isCreatingAngleBisector = true;
+    editor.setGUIMessage("AngleBis: Select second line.");
+    return;
+  }
+
+  if (editor.angleBisectorLine1 && obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
+    editor.angleBisectorLine2 = editor.getLineSharedPtr(static_cast<Line*>(obj));
+    if (!editor.angleBisectorLine2 || editor.angleBisectorLine1.get() == obj) {
+      editor.setGUIMessage("AngleBis: Invalid second line.");
+      resetState();
+      return;
+    }
+
+    auto result = CGAL::intersection(editor.angleBisectorLine1->getCGALLine(), editor.angleBisectorLine2->getCGALLine());
+    if (!result) {
+      editor.setGUIMessage("AngleBis: Lines do not intersect.");
+      resetState();
+      return;
+    }
+    const Point_2* I = safe_get_point<Point_2>(&(*result));
+    if (!I) {
+      editor.setGUIMessage("AngleBis: Intersection not a point.");
+      resetState();
+      return;
+    }
+    Vector_2 d1 = editor.angleBisectorLine1->getCGALLine().direction().to_vector();
+    Vector_2 d2 = editor.angleBisectorLine2->getCGALLine().direction().to_vector();
+    double l1 = std::sqrt(CGAL::to_double(d1.squared_length()));
+    double l2 = std::sqrt(CGAL::to_double(d2.squared_length()));
+    if (l1 < 1e-9 || l2 < 1e-9) {
+      editor.setGUIMessage("AngleBis: Invalid line directions.");
+      resetState();
+      return;
+    }
+    Vector_2 u = d1 / FT(l1);
+    Vector_2 v = d2 / FT(l2);
+    Vector_2 w = u + v;
+    if (CGAL::to_double(w.squared_length()) < 1e-12) {
+      editor.setGUIMessage("AngleBis: Lines are opposite; bisector undefined.");
+      resetState();
+      return;
+    }
+    auto bisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++);
+    if (bisector && bisector->isValid()) {
+      editor.lines.push_back(bisector);
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
+      editor.setGUIMessage("Angle bisector created.");
+    } else {
+      editor.setGUIMessage("AngleBis: Failed to create line.");
+    }
+    resetState();
+    return;
+  }
+
+  auto pt = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+  if (!pt || !pt->isValid()) {
+    editor.setGUIMessage("AngleBis: Select valid points.");
+    resetState();
+    return;
+  }
+  editor.angleBisectorPoints.push_back(pt);
+  editor.isCreatingAngleBisector = true;
+  if (editor.angleBisectorPoints.size() < 3) {
+    editor.setGUIMessage("AngleBis: Select more points (need 3).");
+    return;
+  }
+
+  auto A = editor.angleBisectorPoints[0]->getCGALPosition();
+  auto B = editor.angleBisectorPoints[1]->getCGALPosition();
+  auto C = editor.angleBisectorPoints[2]->getCGALPosition();
+  Vector_2 u = A - B;
+  Vector_2 v = C - B;
+  double lu = std::sqrt(CGAL::to_double(u.squared_length()));
+  double lv = std::sqrt(CGAL::to_double(v.squared_length()));
+  if (lu < 1e-9 || lv < 1e-9) {
+    editor.setGUIMessage("AngleBis: Points too close.");
+    resetState();
+    return;
+  }
+  Vector_2 uN = u / FT(lu);
+  Vector_2 vN = v / FT(lv);
+  Vector_2 w = uN + vN;
+  if (CGAL::to_double(w.squared_length()) < 1e-12) {
+    editor.setGUIMessage("AngleBis: 180-degree angle; bisector undefined.");
+    resetState();
+    return;
+  }
+  auto bisector = std::make_shared<AngleBisector>(editor.angleBisectorPoints[1], editor.angleBisectorPoints[0],
+                                                  editor.angleBisectorPoints[2], editor.objectIdCounter++);
+  if (bisector && bisector->isValid()) {
+    editor.lines.push_back(bisector);
+    editor.commandManager.pushHistoryOnly(
+        std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
+    editor.setGUIMessage("Angle bisector created.");
+  } else {
+    editor.setGUIMessage("AngleBis: Failed to create line.");
+  }
+  resetState();
+}
+
+void handleTangentCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), editor.drawingView);
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  auto resetState = [&]() {
+    editor.isCreatingTangent = false;
+    editor.tangentAnchorPoint = nullptr;
+    editor.tangentCircle = nullptr;
+  };
+
+  auto addTangentLine = [&](int solutionIndex, const std::string& msg) {
+    auto tangent = std::make_shared<TangentLine>(editor.tangentAnchorPoint, editor.tangentCircle, solutionIndex,
+                                                 editor.objectIdCounter++);
+    if (tangent && tangent->isValid()) {
+      editor.lines.push_back(tangent);
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(tangent)));
+      editor.setGUIMessage(msg);
+    } else {
+      editor.setGUIMessage("Error: Failed to create tangent line.");
+    }
+  };
+
+  std::vector<ObjectType> allowed = {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::Circle};
+  GeometricObject* obj = editor.lookForObjectAt(worldPos_sfml, tolerance, allowed);
+
+  auto ensurePoint = [&](GeometricObject* o) -> std::shared_ptr<Point> {
+    if (!o) return nullptr;
+    if (o->getType() == ObjectType::Point || o->getType() == ObjectType::ObjectPoint) {
+      return PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+    }
+    return nullptr;
+  };
+
+  if (!editor.tangentAnchorPoint && obj && obj->getType() != ObjectType::Circle) {
+    editor.tangentAnchorPoint = ensurePoint(obj);
+    editor.setGUIMessage("Tangent: select a circle.");
+    return;
+  }
+
+  if (!editor.tangentCircle && obj && obj->getType() == ObjectType::Circle) {
+    for (auto& c : editor.circles) {
+      if (c.get() == obj) {
+        editor.tangentCircle = c;
+        break;
+      }
+    }
+    if (!editor.tangentCircle) {
+      editor.setGUIMessage("Tangent: circle selection failed.");
+      resetState();
+      return;
+    }
+    if (!editor.tangentAnchorPoint) {
+      editor.setGUIMessage("Tangent: now pick a point.");
+      return;
+    }
+  }
+
+  if (!editor.tangentAnchorPoint && !editor.tangentCircle) {
+    if (obj && obj->getType() == ObjectType::Circle) {
+      for (auto& c : editor.circles) {
+        if (c.get() == obj) editor.tangentCircle = c;
+      }
+      editor.setGUIMessage("Tangent: now pick a point.");
+      return;
+    }
+    editor.tangentAnchorPoint = ensurePoint(obj);
+    editor.setGUIMessage("Tangent: select a circle.");
+    return;
+  }
+
+  if (!editor.tangentAnchorPoint || !editor.tangentCircle) {
+    resetState();
+    return;
+  }
+
+  Point_2 P = editor.tangentAnchorPoint->getCGALPosition();
+  Point_2 O = editor.tangentCircle->getCenterPoint();
+  double r = editor.tangentCircle->getRadius();
+  Vector_2 OP = P - O;
+  double d = std::sqrt(CGAL::to_double(OP.squared_length()));
+  if (d < 1e-9) {
+    editor.setGUIMessage("Tangent: point coincides with center.");
+    resetState();
+    return;
+  }
+
+  if (d < r - 1e-6) {
+    editor.setGUIMessage("Tangent: Point inside circle.");
+    resetState();
+    return;
+  }
+
+  if (std::abs(d - r) < 1e-6) {
+    addTangentLine(0, "Tangent created (point on circle).");
+    resetState();
+    return;
+  }
+
+  addTangentLine(0, "Tangent created.");
+  addTangentLine(1, "Tangent created.");
+  resetState();
+}
+
+void handleObjectPointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  std::cout << "handleObjectPointCreation: ENTERED" << std::endl;
+
+  sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+  sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+  Point_2 cgalWorldPos = editor.toCGALPoint(worldPos);
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  std::cout << "Looking for host at (" << worldPos.x << ", " << worldPos.y << ") with tolerance " << tolerance << std::endl;
+
+  std::shared_ptr<Line> hostLine = nullptr;
+  std::shared_ptr<Circle> hostCircle = nullptr;
+
+  for (auto& line : editor.lines) {
+    if (line && line->contains(worldPos, tolerance)) {
+      hostLine = line;
+      std::cout << "Found line host: " << line->getID() << std::endl;
+      break;
+    }
+  }
+
+  if (!hostLine) {
+    std::cout << "getCircleAtPosition: Checking " << editor.circles.size() << " circles" << std::endl;
+
+    for (size_t i = 0; i < editor.circles.size(); ++i) {
+      auto& circle_sp_in_list = editor.circles[i];
+
+      std::cout << "  Circle[" << i << "]: ptr=" << circle_sp_in_list.get() << ", use_count=" << circle_sp_in_list.use_count() << std::endl;
+
+      if (circle_sp_in_list && circle_sp_in_list->isValid() && circle_sp_in_list->contains(worldPos, tolerance)) {
+        std::cout << "  Found matching circle at index " << i << std::endl;
+
+        try {
+          auto shared_test = circle_sp_in_list->shared_from_this();
+          std::cout << "  Circle shared_from_this() test: use_count=" << shared_test.use_count() << std::endl;
+
+          if (!shared_test) {
+            std::cout << "  ERROR: Circle's shared_from_this() returned null!" << std::endl;
+            std::cout << "  This indicates enable_shared_from_this was never initialized" << std::endl;
+            std::cout << "  Skipping this circle to avoid crash" << std::endl;
+            continue;
+          }
+        } catch (const std::exception& e) {
+          std::cout << "  ERROR: Exception testing shared_from_this(): " << e.what() << std::endl;
+          std::cout << "  Skipping this circle to avoid crash" << std::endl;
+          continue;
+        }
+
+        hostCircle = circle_sp_in_list;
+        if (hostCircle) {
+          std::cout << "Found circle host: " << hostCircle->getID() << ", current use_count: " << hostCircle.use_count() << std::endl;
+        }
+        break;
+      }
+    }
+
+    if (!hostCircle) {
+      std::cout << "No circle found at position" << std::endl;
+    }
+  }
+
+  if (!hostLine && !hostCircle) {
+    std::cout << "No suitable host object found for ObjectPoint creation" << std::endl;
+    editor.setGUIMessage("ObjectPoint: Click on a line or circle");
+    return;
+  }
+
+  try {
+    if (hostLine) {
+      createObjectPointOnLine(editor, hostLine.get(), cgalWorldPos);
+    } else if (hostCircle) {
+      if (!hostCircle || hostCircle.use_count() == 0) {
+        std::cerr << "ERROR: hostCircle for ObjectPoint creation is null or has zero use_count before calling createObjectPointOnCircle."
+                  << std::endl;
+        editor.setGUIMessage("Error: Invalid circle host for ObjectPoint");
+        return;
+      }
+      std::cout << "Passing hostCircle to createObjectPointOnCircle, use_count: " << hostCircle.use_count() << std::endl;
+      createObjectPointOnCircle(editor, hostCircle, cgalWorldPos);
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Exception creating ObjectPoint: " << e.what() << std::endl;
+    editor.setGUIMessage("Error: Failed to create ObjectPoint");
+  }
+}
+
+void handleRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) return;
+
+  try {
+    sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+
+    std::shared_ptr<Point> smartPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+
+    Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
+
+    if (!editor.isCreatingRectangle) {
+      editor.rectangleCorner1 = cgalWorldPos;
+      editor.rectangleCorner1Point = smartPoint;
+      editor.isCreatingRectangle = true;
+      try {
+        editor.previewRectangle = std::make_shared<Rectangle>(editor.rectangleCorner1, editor.rectangleCorner1, false,
+                                                              editor.getCurrentColor(), editor.objectIdCounter);
+      } catch (...) {
+        editor.previewRectangle.reset();
+      }
+      editor.setGUIMessage("Rectangle: Click 2nd corner (Snapping Enabled)");
+    } else {
+      editor.rectangleCorner2 = cgalWorldPos;
+      editor.rectangleCorner2Point = smartPoint;
+      if (editor.rectangleCorner1 != editor.rectangleCorner2) {
+        auto corner1 = editor.rectangleCorner1Point ? editor.rectangleCorner1Point : editor.createPoint(editor.rectangleCorner1);
+        auto corner2 = editor.rectangleCorner2Point ? editor.rectangleCorner2Point : editor.createPoint(editor.rectangleCorner2);
+        if (corner1 && !editor.rectangleCorner1Point) {
+          corner1->setCreatedWithShape(true);
+        }
+        if (corner2 && !editor.rectangleCorner2Point) {
+          corner2->setCreatedWithShape(true);
+        }
+        auto newRectangle =
+            std::make_shared<Rectangle>(corner1, corner2, false, editor.getCurrentColor(), editor.objectIdCounter++);
+        applyRectangleVertexLabels(editor, newRectangle);
+        editor.rectangles.push_back(newRectangle);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
+        editor.setGUIMessage("Rectangle created");
+      }
+      editor.isCreatingRectangle = false;
+      editor.rectangleCorner1Point.reset();
+      editor.rectangleCorner2Point.reset();
+      editor.previewRectangle.reset();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Exception in handleRectangleCreation: " << e.what() << std::endl;
+    editor.isCreatingRectangle = false;
+  }
+}
+
+void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) return;
+
+  try {
+    sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+
+    std::shared_ptr<Point> smartPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+
+    Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
+
+    if (!editor.isCreatingRotatableRectangle) {
+      editor.rectangleCorner1 = cgalWorldPos;
+      editor.rectangleCorner1Point = smartPoint;
+      editor.isCreatingRotatableRectangle = true;
+      try {
+        editor.previewRectangle = std::make_shared<Rectangle>(editor.rectangleCorner1, editor.rectangleCorner1, 0.0,
+                                                              editor.getCurrentColor(), editor.objectIdCounter);
+      } catch (...) {
+        editor.previewRectangle.reset();
+      }
+      editor.setGUIMessage("RotRect: Click adjacent point (Snapping Enabled)");
+    } else {
+      editor.rectangleCorner2 = cgalWorldPos;
+      editor.rectangleCorner2Point = smartPoint;
+
+      double dx = CGAL::to_double(editor.rectangleCorner2.x() - editor.rectangleCorner1.x());
+      double dy = CGAL::to_double(editor.rectangleCorner2.y() - editor.rectangleCorner1.y());
+      double sideLength = std::sqrt(dx * dx + dy * dy);
+
+      if (sideLength > Constants::MIN_CIRCLE_RADIUS) {
+        auto corner1 = editor.rectangleCorner1Point ? editor.rectangleCorner1Point : editor.createPoint(editor.rectangleCorner1);
+        auto corner2 = editor.rectangleCorner2Point ? editor.rectangleCorner2Point : editor.createPoint(editor.rectangleCorner2);
+        if (corner1 && !editor.rectangleCorner1Point) {
+          corner1->setCreatedWithShape(true);
+        }
+        if (corner2 && !editor.rectangleCorner2Point) {
+          corner2->setCreatedWithShape(true);
+        }
+        auto newRectangle =
+            std::make_shared<Rectangle>(corner1, corner2, sideLength, editor.getCurrentColor(), editor.objectIdCounter++);
+        applyRectangleVertexLabels(editor, newRectangle);
+        editor.rectangles.push_back(newRectangle);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
+        editor.setGUIMessage("Rotatable rectangle created");
+      }
+      editor.isCreatingRotatableRectangle = false;
+      editor.rectangleCorner1Point.reset();
+      editor.rectangleCorner2Point.reset();
+      editor.previewRectangle.reset();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Exception in handleRotatableRectangleCreation: " << e.what() << std::endl;
+    editor.isCreatingRotatableRectangle = false;
+  }
+}
+
+void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) return;
+
+  try {
+    sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+
+    std::shared_ptr<Point> smartPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+
+    Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
+
+    if (!editor.isCreatingPolygon) {
+      editor.isCreatingPolygon = true;
+      editor.polygonVertices.clear();
+      editor.polygonVertexPoints.clear();
+      editor.polygonVertices.push_back(cgalWorldPos);
+      editor.polygonVertexPoints.push_back(smartPoint);
+    } else {
+      if (editor.polygonVertices.size() >= 3 && cgalWorldPos == editor.polygonVertices[0]) {
+        std::vector<std::shared_ptr<Point>> finalPoints;
+        for (size_t i = 0; i < editor.polygonVertexPoints.size(); ++i) {
+          if (editor.polygonVertexPoints[i])
+            finalPoints.push_back(editor.polygonVertexPoints[i]);
+          else
+            finalPoints.push_back(editor.createPoint(editor.polygonVertices[i]));
+        }
+
+        for (size_t i = 0; i < finalPoints.size(); ++i) {
+          if (finalPoints[i]) {
+            finalPoints[i]->setLabel("P" + std::to_string(i + 1));
+          }
+        }
+        auto newPoly = std::make_shared<Polygon>(finalPoints, editor.getCurrentColor(), editor.objectIdCounter++);
+        editor.polygons.push_back(newPoly);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
+        editor.isCreatingPolygon = false;
+        editor.polygonVertices.clear();
+        editor.polygonVertexPoints.clear();
+        editor.previewPolygon.reset();
+        editor.setGUIMessage("Polygon closed.");
+        return;
+      }
+      editor.polygonVertices.push_back(cgalWorldPos);
+      editor.polygonVertexPoints.push_back(smartPoint);
+    }
+
+    if (!editor.polygonVertices.empty()) {
+      editor.previewPolygon = std::make_shared<Polygon>(editor.polygonVertices, editor.getCurrentColor(), editor.objectIdCounter);
+    }
+    editor.setGUIMessage("Polygon: Add vertex or click start to close");
+  } catch (const std::exception& e) {
+    std::cerr << "Exception in handlePolygonCreation: " << e.what() << std::endl;
+  }
+}
+
+void handleRegularPolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) return;
+
+  try {
+    sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+
+    std::shared_ptr<Point> smartPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+
+    Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
+
+    if (editor.regularPolygonPhase == 0) {
+      editor.regularPolygonCenter = cgalWorldPos;
+      editor.regularPolygonCenterPoint = smartPoint;
+      editor.regularPolygonPhase = 1;
+      editor.setGUIMessage("RegPoly: Define radius (Snapping Enabled)");
+    } else if (editor.regularPolygonPhase == 1) {
+      editor.regularPolygonFirstVertex = cgalWorldPos;
+      editor.regularPolygonFirstVertexPoint = smartPoint;
+
+      double dx = CGAL::to_double(editor.regularPolygonFirstVertex.x() - editor.regularPolygonCenter.x());
+      double dy = CGAL::to_double(editor.regularPolygonFirstVertex.y() - editor.regularPolygonCenter.y());
+      if (std::sqrt(dx * dx + dy * dy) > Constants::MIN_CIRCLE_RADIUS) {
+        auto newRegPoly = std::make_shared<RegularPolygon>(
+            editor.regularPolygonCenterPoint ? editor.regularPolygonCenterPoint : editor.createPoint(editor.regularPolygonCenter),
+            editor.regularPolygonFirstVertexPoint ? editor.regularPolygonFirstVertexPoint : editor.createPoint(editor.regularPolygonFirstVertex),
+            editor.regularPolygonNumSides, editor.getCurrentColor(), editor.objectIdCounter++);
+        editor.regularPolygons.push_back(newRegPoly);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRegPoly)));
+        editor.setGUIMessage("Regular polygon created");
+        editor.regularPolygonPhase = 0;
+        editor.regularPolygonCenterPoint.reset();
+        editor.regularPolygonFirstVertexPoint.reset();
+      }
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Exception in handleRegularPolygonCreation: " << e.what() << std::endl;
+    editor.regularPolygonPhase = 0;
+  }
+}
+
+void handleTriangleCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (mouseEvent.button != sf::Mouse::Left) return;
+
+  try {
+    sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+
+    std::shared_ptr<Point> smartPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+
+    Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
+
+    editor.triangleVertices.push_back(cgalWorldPos);
+    editor.triangleVertexPoints.push_back(smartPoint);
+
+    if (editor.triangleVertices.size() == 1) {
+      editor.setGUIMessage("Triangle: Click 2nd vertex");
+      editor.isCreatingTriangle = true;
+    } else if (editor.triangleVertices.size() == 2) {
+      editor.setGUIMessage("Triangle: Click 3rd vertex");
+      editor.previewTriangle = nullptr;
+    } else if (editor.triangleVertices.size() == 3) {
+      if (!CGAL::collinear(editor.triangleVertices[0], editor.triangleVertices[1], editor.triangleVertices[2])) {
+        auto p1 = editor.triangleVertexPoints[0] ? editor.triangleVertexPoints[0] : editor.createPoint(editor.triangleVertices[0]);
+        auto p2 = editor.triangleVertexPoints[1] ? editor.triangleVertexPoints[1] : editor.createPoint(editor.triangleVertices[1]);
+        auto p3 = editor.triangleVertexPoints[2] ? editor.triangleVertexPoints[2] : editor.createPoint(editor.triangleVertices[2]);
+
+        auto newTriangle = std::make_shared<Triangle>(p1, p2, p3, editor.getCurrentColor(), editor.objectIdCounter++);
+        editor.triangles.push_back(newTriangle);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTriangle)));
+        editor.setGUIMessage("Triangle created");
+      } else {
+        editor.setGUIMessage("Error: Points are collinear");
+      }
+      editor.triangleVertices.clear();
+      editor.triangleVertexPoints.clear();
+      editor.isCreatingTriangle = false;
+      editor.previewTriangle = nullptr;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Exception in handleTriangleCreation: " << e.what() << std::endl;
+    editor.triangleVertices.clear();
+    editor.triangleVertexPoints.clear();
+    editor.isCreatingTriangle = false;
+  }
+}
+
+static void handleIntersectionCreation(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml) {
+  float tolerance = getDynamicSelectionTolerance(editor);
+  auto smartPoint = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
+  if (smartPoint && smartPoint->isValid()) {
+    smartPoint->setSelected(true);
+  }
+}
+
+static void handleCircleCreation(GeometryEditor& editor,
+                                 const sf::Event::MouseButtonEvent& mouseEvent,
+                                 const sf::Vector2f& worldPos_sfml) {
+  if (mouseEvent.button != sf::Mouse::Left) return;
+
+  if (!editor.isCreatingCircle) {
+    sf::Vector2i mousePos = sf::Mouse::getPosition(editor.window);
+    sf::Vector2f worldPos = editor.window.mapPixelToCoords(mousePos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+
+    std::shared_ptr<Point> centerPoint = createSmartPointFromClick(editor, worldPos, tolerance);
+
+    if (!centerPoint || !centerPoint->isValid()) {
+      return;
+    }
+
+    Point_2 center = centerPoint->getCGALPosition();
+    editor.isCreatingCircle = true;
+    editor.createStart_cgal = center;
+
+    sf::Color selectedColor = editor.getCurrentColor();
+    editor.previewCircle = Circle::create(centerPoint.get(), nullptr, 0.0, selectedColor);
+    std::cout << "Preview circle created at address: " << editor.previewCircle.get() << std::endl;
+    std::cout << "Creating circle with center at (" << CGAL::to_double(center.x()) << ", " << CGAL::to_double(center.y()) << ") and radius 0"
+              << std::endl;
+  } else {
+    try {
+      float tolerance = getDynamicSelectionTolerance(editor);
+
+      std::shared_ptr<Point> radiusPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+
+      if (!radiusPoint || !radiusPoint->isValid()) {
+        return;
+      }
+
+      Point* centerPoint = editor.previewCircle ? editor.previewCircle->getCenterPointObject() : nullptr;
+      if (!centerPoint) {
+        return;
+      }
+
+      Point_2 center = centerPoint->getCGALPosition();
+      double radius_sq = CGAL::to_double(CGAL::squared_distance(center, radiusPoint->getCGALPosition()));
+      double radius = std::sqrt(radius_sq);
+
+      if (radius >= Constants::MIN_CIRCLE_RADIUS) {
+        sf::Color selectedColor = editor.previewCircle ? editor.previewCircle->getColor() : editor.getCurrentColor();
+        auto finalCircle = Circle::create(centerPoint, radiusPoint, radius, selectedColor);
+        if (finalCircle && finalCircle->isValid()) {
+          editor.circles.push_back(finalCircle);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(finalCircle)));
+          std::cout << "Circle Created with radius: " << radius << std::endl;
+        } else {
+          std::cerr << "Preview circle is invalid" << std::endl;
+        }
+      } else {
+        std::cout << "Circle not created: radius too small." << std::endl;
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "Error creating circle: " << e.what() << std::endl;
+    }
+
+    editor.isCreatingCircle = false;
+    editor.previewCircle.reset();
+    editor.dragMode = DragMode::None;
+  }
+}
+
+static void handleAngleCreation(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml) {
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  auto anchor = PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
+
+  if (anchor && anchor->isValid()) {
+    auto ensurePointStored = [&](const std::shared_ptr<Point>& pt) {
+      if (!pt) return;
+      for (auto& p : editor.points)
+        if (p == pt) return;
+      for (auto& op : editor.ObjectPoints)
+        if (op == pt) return;
+      if (std::find(editor.points.begin(), editor.points.end(), pt) == editor.points.end() &&
+          std::find(editor.ObjectPoints.begin(), editor.ObjectPoints.end(), pt) == editor.ObjectPoints.end()) {
+        pt->setVisible(true);
+        pt->update();
+        editor.points.push_back(pt);
+      }
+    };
+
+    ensurePointStored(anchor);
+
+    if (editor.angleLine1) {
+      editor.angleLine1->setSelected(false);
+      editor.angleLine1 = nullptr;
+      editor.setGUIMessage("Angle: Switched to Point Selection");
+    }
+
+    if (!editor.anglePointA) {
+      editor.anglePointA = anchor;
+      editor.setGUIMessage("Angle: Point A selected. Click Vertex.");
+      return;
+    }
+    if (!editor.angleVertex) {
+      editor.angleVertex = anchor;
+      editor.setGUIMessage("Angle: Vertex selected. Click Point B.");
+      return;
+    }
+    if (!editor.anglePointB) {
+      editor.anglePointB = anchor;
+    }
+
+    if (editor.anglePointA && editor.angleVertex && editor.anglePointB) {
+      auto angle = std::make_shared<Angle>(editor.anglePointA, editor.angleVertex, editor.anglePointB, false, editor.getCurrentColor());
+      sf::Vector2u winSize = editor.window.getSize();
+      sf::Vector2f viewSize = editor.drawingView.getSize();
+      float zoomScale = (winSize.x > 0) ? (viewSize.x / static_cast<float>(winSize.x)) : 1.0f;
+      float idealRadius = 50.0f * zoomScale;
+      angle->setRadius(idealRadius);
+      angle->setVisible(true);
+      angle->update();
+      editor.angles.push_back(angle);
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
+      std::cout << "Angle created via 3 points." << std::endl;
+      editor.setGUIMessage("Angle created.");
+
+      editor.anglePointA = nullptr;
+      editor.angleVertex = nullptr;
+      editor.anglePointB = nullptr;
+    }
+    return;
+  }
+
+  GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment});
+  if (hitObj) {
+    if (editor.anglePointA) editor.anglePointA = nullptr;
+    if (editor.angleVertex) editor.angleVertex = nullptr;
+
+    Line* lineRaw = static_cast<Line*>(hitObj);
+    auto linePtr = editor.getLineSharedPtr(lineRaw);
+
+    if (linePtr) {
+      if (!editor.angleLine1) {
+        editor.angleLine1 = linePtr;
+        editor.angleLine1->setSelected(true);
+        editor.setGUIMessage("Angle: Line 1 selected. Click Line 2.");
+      } else if (!editor.angleLine2 && linePtr != editor.angleLine1) {
+        editor.angleLine2 = linePtr;
+
+        Vector_2 v1 = editor.angleLine1->getCGALLine().direction().to_vector();
+        Vector_2 v2 = editor.angleLine2->getCGALLine().direction().to_vector();
+        double len1 = std::sqrt(CGAL::to_double(v1.squared_length()));
+        double len2 = std::sqrt(CGAL::to_double(v2.squared_length()));
+
+        constexpr double kEpsLen = 1e-9;
+        if (len1 < kEpsLen || len2 < kEpsLen) {
+          editor.setGUIMessage("Error: Cannot measure angle of zero-length segment.");
+          editor.angleLine1->setSelected(false);
+          editor.angleLine1 = nullptr;
+          editor.angleLine2 = nullptr;
+          return;
+        }
+
+        double dot = CGAL::to_double(v1 * v2) / (len1 * len2);
+
+        if (std::abs(std::abs(dot) - 1.0) < 1e-9) {
+          editor.setGUIMessage("Error: Lines are parallel, cannot form angle.");
+          editor.angleLine1->setSelected(false);
+          editor.angleLine1 = nullptr;
+          editor.angleLine2 = nullptr;
+          return;
+        }
+
+        auto result = CGAL::intersection(editor.angleLine1->getCGALLine(), editor.angleLine2->getCGALLine());
+        if (result) {
+          const Point_2* intersectionPt = nullptr;
+
+          if (const Point_2* p = safe_get_point<Point_2>(&(*result))) {
+            intersectionPt = p;
+          } else if (const auto* p = safe_get_point<Point_2>(&(*result))) {
+            intersectionPt = p;
+          }
+
+          if (intersectionPt) {
+            auto vertex = PointUtils::createSmartPoint(editor, editor.toSFMLVector(*intersectionPt), tolerance);
+
+            if (std::find(editor.points.begin(), editor.points.end(), vertex) == editor.points.end() &&
+                std::find(editor.ObjectPoints.begin(), editor.ObjectPoints.end(), vertex) == editor.ObjectPoints.end()) {
+              vertex->setVisible(true);
+              editor.points.push_back(vertex);
+            }
+
+            Point_2 vPos = vertex->getCGALPosition();
+
+            Point_2 p1_cgal;
+            double d1_start = CGAL::to_double(CGAL::squared_distance(vPos, editor.angleLine1->getStartPoint()));
+            double d1_end = CGAL::to_double(CGAL::squared_distance(vPos, editor.angleLine1->getEndPoint()));
+
+            if (d1_start > d1_end) {
+              p1_cgal = editor.angleLine1->getStartPoint();
+            } else {
+              p1_cgal = editor.angleLine1->getEndPoint();
+            }
+
+            Point_2 p2_cgal;
+            double d2_start = CGAL::to_double(CGAL::squared_distance(vPos, editor.angleLine2->getStartPoint()));
+            double d2_end = CGAL::to_double(CGAL::squared_distance(vPos, editor.angleLine2->getEndPoint()));
+
+            if (d2_start > d2_end) {
+              p2_cgal = editor.angleLine2->getStartPoint();
+            } else {
+              p2_cgal = editor.angleLine2->getEndPoint();
+            }
+
+            if (std::max(d1_start, d1_end) < 1e-9 || std::max(d2_start, d2_end) < 1e-9) {
+              editor.setGUIMessage("Error: Cannot measure angle of zero-length segment.");
+              editor.angleLine1->setSelected(false);
+              editor.angleLine1 = nullptr;
+              editor.angleLine2 = nullptr;
+              return;
+            }
+
+            auto ensureArmPoint = [&](const Point_2& target) -> std::shared_ptr<Point> {
+              for (auto& p : editor.points) {
+                if (p && p->isValid() && p->getCGALPosition() == target) return p;
+              }
+              for (auto& p : editor.ObjectPoints) {
+                if (p && p->isValid() && p->getCGALPosition() == target) return p;
+              }
+              auto newP = std::make_shared<Point>(target, 1.0f, sf::Color::Transparent);
+              newP->setVisible(false);
+              editor.points.push_back(newP);
+              return newP;
+            };
+
+            auto p1 = ensureArmPoint(p1_cgal);
+            auto p2 = ensureArmPoint(p2_cgal);
+
+            if (p1 && vertex && p2) {
+              auto angle = std::make_shared<Angle>(p1, vertex, p2, false, editor.getCurrentColor());
+              sf::Vector2u winSize = editor.window.getSize();
+              sf::Vector2f viewSize = editor.drawingView.getSize();
+              float zoomScale = (winSize.x > 0) ? (viewSize.x / static_cast<float>(winSize.x)) : 1.0f;
+              float idealRadius = 50.0f * zoomScale;
+              angle->setRadius(idealRadius);
+              angle->setVisible(true);
+              angle->update();
+              editor.angles.push_back(angle);
+              editor.commandManager.pushHistoryOnly(
+                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
+              std::cout << "Angle created via 2 lines." << std::endl;
+              editor.setGUIMessage("Angle created.");
+            } else {
+              editor.setGUIMessage("Error: Failed to determine angle vertices.");
+            }
+          } else {
+            editor.setGUIMessage("Error: Intersection is not a point (Collinear/Overlapping?).");
+          }
+        } else {
+          editor.setGUIMessage("Error: Lines are parallel.");
+        }
+
+        editor.angleLine1->setSelected(false);
+        editor.angleLine1 = nullptr;
+        editor.angleLine2 = nullptr;
+      }
+    }
+  }
+}
+
+void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+
+  sf::Vector2f guiPos = editor.window.mapPixelToCoords(pixelPos, editor.guiView);
+  sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+
+  if (editor.gui.isMouseOverPalette(guiPos)) {
+    sf::Event eventToForward;
+    eventToForward.type = sf::Event::MouseButtonPressed;
+    eventToForward.mouseButton = mouseEvent;
+    editor.gui.handleEvent(editor.window, eventToForward, editor);
+    return;
+  }
+
+  bool gridSnapActive = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
+  if (gridSnapActive) {
+    float g = editor.getCurrentGridSpacing();
+    if (g <= 0.0f) {
+      g = Constants::GRID_SIZE;
+    }
+    worldPos_sfml.x = std::round(worldPos_sfml.x / g) * g;
+    worldPos_sfml.y = std::round(worldPos_sfml.y / g) * g;
+  }
+
+  std::cout << "Mouse press at pixel: (" << pixelPos.x << ", " << pixelPos.y << "), world: (" << worldPos_sfml.x << ", "
+            << worldPos_sfml.y << ")" << std::endl;
+
+  Point_2 worldPos_cgal;
+  try {
+    worldPos_cgal = editor.toCGALPoint(worldPos_sfml);
+    std::cout << "Converted to CGAL: (" << CGAL::to_double(worldPos_cgal.x()) << ", " << CGAL::to_double(worldPos_cgal.y()) << ")"
+              << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "Error converting to CGAL point: " << e.what() << std::endl;
+  }
+
+  float tolerance = getDynamicSelectionTolerance(editor);
+  std::cout << "Dynamic tolerance: " << tolerance << std::endl;
+  std::cout << "Current tolerance: " << tolerance << std::endl;
+
+  editor.showHoverMessage = false;
+  if (editor.debugMode) {
+    editor.debugObjectDetection(worldPos_sfml, tolerance);
+  }
+
+  bool eventHandledByGui = false;
+  std::cout << "GUI check: y=" << guiPos.y << ", threshold=" << (Constants::BUTTON_SIZE.y + 0.7f) << std::endl;
+  if (guiPos.y <= Constants::BUTTON_SIZE.y + 0.7f) {
+    std::cout << "In GUI button area, forwarding to GUI handler..." << std::endl;
+    sf::Event eventToForward;
+    eventToForward.type = sf::Event::MouseButtonPressed;
+    eventToForward.mouseButton = mouseEvent;
+    if (editor.gui.handleEvent(editor.window, eventToForward, editor)) {
+      std::cout << "GUI handled the event!" << std::endl;
+      eventHandledByGui = true;
+    } else {
+      std::cout << "GUI did not handle the event" << std::endl;
+    }
+  }
+  if (eventHandledByGui) {
+    return;
+  }
+
+  if (mouseEvent.button == sf::Mouse::Left && editor.showGlobalLabels) {
+    sf::Vector2f mouseScreenPos(static_cast<float>(pixelPos.x), static_cast<float>(pixelPos.y));
+
+    auto hitLabel = [&](GeometricObject* obj, sf::Vector2f& outLabelPos) -> bool {
+      if (!obj) return false;
+      if (!obj->getShowLabel()) return false;
+
+      auto* pt = dynamic_cast<Point*>(obj);
+      if (!pt || !pt->isVisible()) return false;
+
+      std::string label = pt->getLabel();
+      if (label.empty()) return false;
+
+      const sf::Font* labelFont = Point::commonFont ? Point::commonFont : (Button::getFontLoaded() ? &Button::getFont() : nullptr);
+      if (!labelFont) return false;
+
+      sf::Vector2f worldPos = pt->getSFMLPosition();
+      sf::Vector2i screenPos = editor.window.mapCoordsToPixel(worldPos, editor.drawingView);
+      sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+      labelPos += pt->getLabelOffset();
+      labelPos.x = std::round(labelPos.x);
+      labelPos.y = std::round(labelPos.y);
+
+      sf::Text text;
+      text.setFont(*labelFont);
+      text.setString(label);
+      text.setCharacterSize(Constants::GRID_LABEL_FONT_SIZE);
+      text.setPosition(labelPos);
+
+      sf::FloatRect bounds = text.getGlobalBounds();
+      if (bounds.contains(mouseScreenPos)) {
+        outLabelPos = labelPos;
+        return true;
+      }
+      return false;
+    };
+
+    auto tryLabelDrag = [&](const auto& container) -> bool {
+      for (const auto& obj : container) {
+        if (!obj) continue;
+        sf::Vector2f labelPos;
+        if (hitLabel(obj.get(), labelPos)) {
+          deselectAllAndClearInteractionState(editor);
+          editor.selectedObject = obj.get();
+          editor.selectedObjects.clear();
+          editor.selectedObjects.push_back(obj.get());
+          obj->setSelected(true);
+
+          editor.isDraggingLabel = true;
+          editor.labelDragObject = obj.get();
+          editor.labelDragGrabOffset = mouseScreenPos - labelPos;
+          editor.isDragging = false;
+          editor.dragMode = DragMode::None;
+          editor.m_selectedEndpoint = EndpointSelection::None;
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (tryLabelDrag(editor.points)) return;
+    if (tryLabelDrag(editor.ObjectPoints)) return;
+  }
+
+  if (mouseEvent.button == sf::Mouse::Right && sf::Keyboard::isKeyPressed(sf::Keyboard::LControl)) {
+    editor.isPanning = true;
+    editor.lastMousePos_sfml = worldPos_sfml;
+    std::cout << "Panning started with Right+Ctrl at: (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ")" << std::endl;
+    return;
+  }
+  if (mouseEvent.button == sf::Mouse::Left && sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) {
+    editor.isPanning = true;
+    editor.lastMousePos_sfml = worldPos_sfml;
+    std::cout << "Panning started with Space+Left at: (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ")" << std::endl;
+    return;
+  }
+  if (mouseEvent.button == sf::Mouse::Left && sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt)) {
+    if (editor.m_currentToolType == ObjectType::None) {
+      editor.isPanning = true;
+      editor.lastMousePos_sfml = worldPos_sfml;
+      std::cout << "Panning started with Alt+Left at: (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ")" << std::endl;
+      return;
+    }
+  }
+
+  if (mouseEvent.button == sf::Mouse::Right) {
+    static sf::Clock lastRightClickClock;
+    static int rightClickCount = 0;
+
+    float timeSinceLast = lastRightClickClock.getElapsedTime().asSeconds();
+    if (timeSinceLast < 0.4f) {
+      rightClickCount++;
+    } else {
+      rightClickCount = 1;
+    }
+    lastRightClickClock.restart();
+
+    if (rightClickCount == 2) {
+      float tolerance = getDynamicSelectionTolerance(editor);
+      GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
+
+      if (hitObj) {
+        editor.selectedObject = hitObj;
+        hitObj->setShowLabel(!hitObj->getShowLabel());
+        std::cout << "Toggle Label Visibility" << std::endl;
+        sf::View DefaultView = editor.window.getDefaultView();
+        sf::Vector2f guiPos = editor.window.mapPixelToCoords(sf::Vector2i(mouseEvent.x, mouseEvent.y), DefaultView);
+
+        editor.getGUI().getContextMenu().open(guiPos, editor);
+
+        editor.isPanning = false;
+        rightClickCount = 0;
+        return;
+      }
+    }
+
+    editor.isPanning = true;
+    editor.lastMousePos_sfml = worldPos_sfml;
+    std::cout << "Panning started with Right click" << std::endl;
+    return;
+  }
+  if (mouseEvent.button == sf::Mouse::Left && !eventHandledByGui) {
+    editor.isPanning = false;
+  }
+
+  if (eventHandledByGui) {
+    return;
+  }
+
+  switch (editor.m_currentToolType) {
+    case ObjectType::Hide: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        float tolerance = getDynamicSelectionTolerance(editor);
+        GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
+        if (hitObj) {
+          hitObj->setVisible(!hitObj->isVisible());
+          hitObj->setSelected(false);
+          hitObj->setHovered(false);
+          if (editor.selectedObject == hitObj) {
+            editor.selectedObject = nullptr;
+          }
+        }
+        return;
+      }
+      break;
+    }
+    case ObjectType::Detach: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        float tolerance = getDynamicSelectionTolerance(editor);
+        double bestDistSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
+
+        GeometricObject* bestObj = nullptr;
+        std::shared_ptr<Point> pointToDetach = nullptr;
+        enum class PointRole { None, LineStart, LineEnd, CircleCenter, CircleRadius };
+        PointRole role = PointRole::None;
+
+        Point_2 clickPos = editor.toCGALPoint(worldPos_sfml);
+
+        for (auto& linePtr : editor.lines) {
+          if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
+          auto start = linePtr->getStartPointObjectShared();
+          auto end = linePtr->getEndPointObjectShared();
+
+          if (start) {
+            double d1 = CGAL::to_double(CGAL::squared_distance(clickPos, start->getCGALPosition()));
+            if (d1 <= bestDistSq) {
+              bestDistSq = d1;
+              bestObj = linePtr.get();
+              pointToDetach = start;
+              role = PointRole::LineStart;
+            }
+          }
+
+          if (end) {
+            double d2 = CGAL::to_double(CGAL::squared_distance(clickPos, end->getCGALPosition()));
+            if (d2 <= bestDistSq) {
+              bestDistSq = d2;
+              bestObj = linePtr.get();
+              pointToDetach = end;
+              role = PointRole::LineEnd;
+            }
+          }
+        }
+
+        for (auto& circlePtr : editor.circles) {
+          if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible()) continue;
+
+          Point* centerRaw = circlePtr->getCenterPointObject();
+          std::shared_ptr<Point> centerShared;
+
+          if (centerRaw) {
+            for (auto& p : editor.points) {
+              if (p.get() == centerRaw) {
+                centerShared = p;
+                break;
+              }
+            }
+            if (!centerShared) {
+              for (auto& p : editor.ObjectPoints) {
+                if (p.get() == centerRaw) {
+                  centerShared = std::static_pointer_cast<Point>(p);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (centerShared) {
+            double dCenter = CGAL::to_double(CGAL::squared_distance(clickPos, centerShared->getCGALPosition()));
+            if (dCenter <= bestDistSq) {
+              bestDistSq = dCenter;
+              bestObj = circlePtr.get();
+              pointToDetach = centerShared;
+              role = PointRole::CircleCenter;
+            }
+          }
+
+          Point* radiusRaw = circlePtr->getRadiusPointObject();
+          std::shared_ptr<Point> radiusShared;
+          if (radiusRaw) {
+            for (auto& p : editor.points) {
+              if (p.get() == radiusRaw) {
+                radiusShared = p;
+                break;
+              }
+            }
+            if (!radiusShared) {
+              for (auto& p : editor.ObjectPoints) {
+                if (p.get() == radiusRaw) {
+                  radiusShared = std::static_pointer_cast<Point>(p);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (radiusShared) {
+            double dRadius = CGAL::to_double(CGAL::squared_distance(clickPos, radiusShared->getCGALPosition()));
+            if (dRadius <= bestDistSq) {
+              bestDistSq = dRadius;
+              bestObj = circlePtr.get();
+              pointToDetach = radiusShared;
+              role = PointRole::CircleRadius;
+            }
+          }
+        }
+
+        if (bestObj && pointToDetach) {
+          int usageCount = 0;
+
+          for (auto& linePtr : editor.lines) {
+            if (!linePtr || !linePtr->isValid()) continue;
+            if (linePtr->getStartPointObjectShared() == pointToDetach || linePtr->getEndPointObjectShared() == pointToDetach) {
+              ++usageCount;
+            }
+          }
+
+          for (auto& circlePtr : editor.circles) {
+            if (!circlePtr || !circlePtr->isValid()) continue;
+            Point* c = circlePtr->getCenterPointObject();
+            Point* r = circlePtr->getRadiusPointObject();
+            if (c == pointToDetach.get()) ++usageCount;
+            if (r == pointToDetach.get()) ++usageCount;
+          }
+
+          if (usageCount > 1) {
+            auto newPoint = std::make_shared<Point>(pointToDetach->getCGALPosition(), 1.0f, pointToDetach->getFillColor(),
+                                                    pointToDetach->getOutlineColor());
+            newPoint->setVisible(true);
+            newPoint->update();
+            editor.points.push_back(newPoint);
+
+            if (role == PointRole::LineStart) {
+              static_cast<Line*>(bestObj)->setPoints(newPoint, static_cast<Line*>(bestObj)->getEndPointObjectShared());
+            } else if (role == PointRole::LineEnd) {
+              static_cast<Line*>(bestObj)->setPoints(static_cast<Line*>(bestObj)->getStartPointObjectShared(), newPoint);
+            } else if (role == PointRole::CircleCenter) {
+              static_cast<Circle*>(bestObj)->setCenterPointObject(newPoint.get());
+            } else if (role == PointRole::CircleRadius) {
+              static_cast<Circle*>(bestObj)->setRadiusPoint(newPoint);
+            }
+
+            editor.selectedObject = newPoint.get();
+            editor.selectedObject->setSelected(true);
+            editor.setGUIMessage("Endpoint/Center detached.");
+          } else {
+            editor.setGUIMessage("Point is not shared.");
+          }
+        }
+        return;
+      }
+      break;
+    }
+    case ObjectType::Midpoint: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+        sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+        float tolerance = std::max(getDynamicSelectionTolerance(editor), getDynamicSnapTolerance(editor));
+        GeometricObject* clickedObj = findClosestObject(editor, worldPos, tolerance);
+        handleMidpointToolClick(editor, clickedObj);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Compass: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+        sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+        float tolerance = std::max(getDynamicSelectionTolerance(editor), getDynamicSnapTolerance(editor));
+        GeometricObject* clickedObj = findClosestObject(editor, worldPos, tolerance);
+        handleCompassToolClick(editor, clickedObj, worldPos, tolerance);
+        return;
+      }
+      break;
+    }
+    case ObjectType::ReflectAboutLine:
+    case ObjectType::ReflectAboutPoint:
+    case ObjectType::ReflectAboutCircle:
+    case ObjectType::RotateAroundPoint:
+    case ObjectType::TranslateByVector:
+    case ObjectType::DilateFromPoint: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
+        sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+        float tolerance = getDynamicSelectionTolerance(editor);
+        handleTransformationCreation(editor, tempSelectedObjects, worldPos, tolerance);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Angle: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleAngleCreation(editor, worldPos_sfml);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Point: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handlePointCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Intersection: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleIntersectionCreation(editor, worldPos_sfml);
+        return;
+      }
+      break;
+    }
+    case ObjectType::ParallelLine: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleParallelLineCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::PerpendicularLine: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handlePerpendicularLineCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::PerpendicularBisector: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handlePerpendicularBisectorCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::AngleBisector: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleAngleBisectorCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::TangentLine: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleTangentCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Circle: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleCircleCreation(editor, mouseEvent, worldPos_sfml);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Line: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        try {
+          handleLineCreation(editor, mouseEvent);
+        } catch (const std::exception& e) {
+          std::cerr << "handleLineCreation threw exception: " << e.what() << std::endl;
+        } catch (...) {
+          std::cerr << "handleLineCreation threw unknown exception" << std::endl;
+        }
+        return;
+      }
+      break;
+    }
+    case ObjectType::LineSegment: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        try {
+          handleLineSegmentCreation(editor, mouseEvent);
+        } catch (const std::exception& e) {
+          std::cerr << "handleLineCreation threw exception: " << e.what() << std::endl;
+        } catch (...) {
+          std::cerr << "handleLineCreation threw unknown exception" << std::endl;
+        }
+        return;
+      }
+      break;
+    }
+    case ObjectType::ObjectPoint: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleObjectPointCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Rectangle: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleRectangleCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::RectangleRotatable: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleRotatableRectangleCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Polygon: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handlePolygonCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::RegularPolygon: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleRegularPolygonCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::Triangle: {
+      if (mouseEvent.button == sf::Mouse::Left) {
+        handleTriangleCreation(editor, mouseEvent);
+        return;
+      }
+      break;
+    }
+    case ObjectType::None:
+    default:
+      break;
+  }
+
+  if (mouseEvent.button == sf::Mouse::Left && (editor.m_currentToolType == ObjectType::None)) {
+    GeometricObject* previousSelection = editor.selectedObject;
+
+    GeometricObject* potentialSelection = nullptr;
+    DragMode potentialDragMode = DragMode::None;
+    EndpointSelection potentialEndpointSelection = EndpointSelection::None;
+    int potentialVertexIndex = -1;
+
+    editor.activeVertexIndex = -1;
+    editor.activeVertexShape = nullptr;
+
+    std::cout << "Looking for object at (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ") with tolerance " << tolerance << std::endl;
+
+    GeometricObject* closestObject = findClosestObject(editor, worldPos_sfml, tolerance);
+    if (closestObject && (closestObject->getType() == ObjectType::Point || closestObject->getType() == ObjectType::ObjectPoint ||
+                          closestObject->getType() == ObjectType::IntersectionPoint)) {
+      potentialSelection = closestObject;
+      if (potentialSelection->getType() == ObjectType::ObjectPoint) {
+        potentialDragMode = DragMode::DragObjectPoint;
+      } else {
+        potentialDragMode = DragMode::MoveFreePoint;
+      }
+      goto objectFoundLabel;
+    }
+
+    {
+      GeometricObject* bestPointCandidate = nullptr;
+      double minDistanceSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
+
+      auto checkPointCandidate = [&](GeometricObject* obj) {
+        if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return;
+
+        sf::Vector2f objPos;
+        if (auto pt = dynamic_cast<Point*>(obj)) {
+          objPos = pt->getSFMLPosition();
+        } else {
+          return;
+        }
+
+        double dx = worldPos_sfml.x - objPos.x;
+        double dy = worldPos_sfml.y - objPos.y;
+        double distSq = dx * dx + dy * dy;
+
+        if (distSq < minDistanceSq) {
+          minDistanceSq = distSq;
+          bestPointCandidate = obj;
+        }
+      };
+
+      for (auto& objPointPtr : editor.ObjectPoints) {
+        checkPointCandidate(objPointPtr.get());
+      }
+
+      for (auto& pointPtr : editor.points) {
+        checkPointCandidate(pointPtr.get());
+      }
+
+      if (bestPointCandidate) {
+        potentialSelection = bestPointCandidate;
+
+        if (potentialSelection->getType() == ObjectType::ObjectPoint) {
+          std::cout << "Found Closest ObjectPoint" << std::endl;
+          potentialDragMode = DragMode::DragObjectPoint;
+        } else {
+          std::cout << "Found Closest Free Point" << std::endl;
+          potentialDragMode = DragMode::MoveFreePoint;
+        }
+
+        goto objectFoundLabel;
+      }
+    }
+    {
+      auto checkVertexHit = [&](auto& container) -> bool {
+        for (auto& ptr : container) {
+          if (!ptr || !ptr->isValid() || !ptr->isVisible() || ptr->isLocked()) continue;
+          auto verts = ptr->getInteractableVertices();
+          for (size_t i = 0; i < verts.size(); ++i) {
+            float vx = static_cast<float>(CGAL::to_double(verts[i].x()));
+            float vy = static_cast<float>(CGAL::to_double(verts[i].y()));
+            float dx = vx - worldPos_sfml.x;
+            float dy = vy - worldPos_sfml.y;
+            float dist = std::sqrt(dx * dx + dy * dy);
+
+            if (dist <= tolerance * 1.5f) {
+              std::cout << "Found Shape Vertex (Priority 2.5)" << std::endl;
+              potentialSelection = ptr.get();
+              potentialDragMode = DragMode::MoveShapeVertex;
+              potentialVertexIndex = static_cast<int>(i);
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      auto checkRegularPolygonCreationPoints = [&]() -> bool {
+        for (auto& ptr : editor.regularPolygons) {
+          if (!ptr || !ptr->isValid() || !ptr->isVisible() || ptr->isLocked()) continue;
+          auto creationPts = ptr->getCreationPointsSFML();
+          for (size_t i = 0; i < creationPts.size(); ++i) {
+            float dx = creationPts[i].x - worldPos_sfml.x;
+            float dy = creationPts[i].y - worldPos_sfml.y;
+            float dist = std::sqrt(dx * dx + dy * dy);
+            if (dist <= tolerance * 1.5f) {
+              potentialSelection = ptr.get();
+              potentialDragMode = DragMode::MoveShapeVertex;
+              potentialVertexIndex = static_cast<int>(i);
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      if (checkVertexHit(editor.rectangles) || checkVertexHit(editor.polygons) || checkRegularPolygonCreationPoints() ||
+          checkVertexHit(editor.triangles)) {
+        goto objectFoundLabel;
+      }
+    }
+
+    for (auto& anglePtr : editor.angles) {
+      if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && !anglePtr->isLocked() &&
+          anglePtr->contains(worldPos_sfml, tolerance)) {
+        std::cout << "Found Angle (Priority 2.8)" << std::endl;
+        potentialSelection = anglePtr.get();
+
+        if (anglePtr->isMouseOverArc(worldPos_sfml, tolerance)) {
+          editor.isResizingAngle = true;
+          std::cout << "Angle Resize Mode Activated" << std::endl;
+        } else {
+          editor.isResizingAngle = false;
+        }
+
+        potentialDragMode = DragMode::None;
+        goto objectFoundLabel;
+      }
+    }
+
+    for (auto& linePtr : editor.lines) {
+      if (linePtr && linePtr->isValid() && linePtr->isVisible() && !linePtr->isLocked() &&
+          linePtr->contains(worldPos_sfml, tolerance)) {
+        std::cout << "Found Line Body (Priority 3)" << std::endl;
+        potentialSelection = linePtr.get();
+
+        Point* startPt = linePtr->getStartPointObject();
+        Point* endPt = linePtr->getEndPointObject();
+        bool startConstrained = (dynamic_cast<ObjectPoint*>(startPt) != nullptr) || (startPt && startPt->isLocked());
+        bool endConstrained = (dynamic_cast<ObjectPoint*>(endPt) != nullptr) || (endPt && endPt->isLocked());
+
+        if (startConstrained || endConstrained) {
+          potentialDragMode = DragMode::None;
+          std::cout << "  Line has constrained endpoint(s) - translation disabled" << std::endl;
+        } else {
+          potentialDragMode = DragMode::TranslateLine;
+        }
+        editor.dragStart_sfml = worldPos_sfml;
+        goto objectFoundLabel;
+      }
+    }
+
+    {
+      auto checkShapeEdges = [&](auto& container) -> bool {
+        for (auto& shape : container) {
+          if (!shape || !shape->isValid() || !shape->isVisible() || shape->isLocked()) continue;
+          auto edges = shape->getEdges();
+          for (const auto& edge : edges) {
+            Point_2 proj;
+            double relPos;
+            double dist = PointUtils::projectPointOntoSegment(editor.toCGALPoint(worldPos_sfml), edge, proj, relPos);
+
+            if (dist < tolerance) {
+              std::cout << "Found Shape Edge (Priority 3.5)" << std::endl;
+              potentialSelection = shape.get();
+              potentialDragMode = DragMode::TranslateShape;
+              return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      if (checkShapeEdges(editor.rectangles) || checkShapeEdges(editor.polygons) || checkShapeEdges(editor.regularPolygons) ||
+          checkShapeEdges(editor.triangles)) {
+        goto objectFoundLabel;
+      }
+    }
+
+    {
+      for (auto& circlePtr : editor.circles) {
+        if (!circlePtr || !circlePtr->isValid() || !circlePtr->isVisible() || circlePtr->isLocked()) continue;
+        float centerTolerance = tolerance * 4.0f;
+        if (circlePtr->isCenterPointHovered(worldPos_sfml, centerTolerance)) {
+          potentialSelection = circlePtr.get();
+          potentialDragMode = DragMode::InteractWithCircle;
+          editor.dragStart_sfml = worldPos_sfml;
+          goto objectFoundLabel;
+        } else if (circlePtr->contains(worldPos_sfml, tolerance)) {
+          potentialSelection = circlePtr.get();
+          potentialDragMode = DragMode::InteractWithCircle;
+          editor.dragStart_sfml = worldPos_sfml;
+          goto objectFoundLabel;
+        }
+      }
+
+      auto checkShapeContains = [&](auto& container) -> bool {
+        for (auto& ptr : container) {
+          if (!ptr || !ptr->isValid() || !ptr->isVisible() || ptr->isLocked()) continue;
+          if (ptr->contains(worldPos_sfml, tolerance)) {
+            std::cout << "Found Shape Interior (Priority 4)" << std::endl;
+            potentialSelection = ptr.get();
+            potentialDragMode = DragMode::TranslateShape;
+            return true;
+          }
+        }
+        return false;
+      };
+
+      if (checkShapeContains(editor.rectangles) || checkShapeContains(editor.polygons) || checkShapeContains(editor.regularPolygons) ||
+          checkShapeContains(editor.triangles)) {
+        goto objectFoundLabel;
+      }
+    }
+
+    if (potentialSelection) {
+      std::cout << "Object found! Type: " << static_cast<int>(potentialSelection->getType()) << std::endl;
+
+      bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) || sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+
+      if (potentialSelection) {
+        if (isCtrlHeld) {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(), potentialSelection);
+          if (it != editor.selectedObjects.end()) {
+            potentialSelection->setSelected(false);
+            editor.selectedObjects.erase(it);
+            if (editor.selectedObject == potentialSelection) {
+              editor.selectedObject = nullptr;
+            }
+          } else {
+            potentialSelection->setSelected(true);
+            editor.selectedObjects.push_back(potentialSelection);
+            editor.selectedObject = potentialSelection;
+          }
+        } else {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(), potentialSelection);
+          if (it == editor.selectedObjects.end()) {
+            deselectAllAndClearInteractionState(editor);
+            editor.selectedObject = potentialSelection;
+            editor.selectedObjects.push_back(potentialSelection);
+            potentialSelection->setSelected(true);
+          } else {
+            editor.selectedObject = potentialSelection;
+          }
+        }
+      }
+
+      if (editor.selectedObject) {
+        try {
+          std::cout << "Setting object as selected" << std::endl;
+          editor.selectedObject->setSelected(true);
+          sf::Color selectedColor = editor.selectedObject->getColor();
+          editor.setCurrentColor(selectedColor);
+          editor.gui.setCurrentColor(selectedColor);
+          if (auto& picker = editor.gui.getColorPicker()) {
+            picker->setCurrentColor(selectedColor);
+          }
+        } catch (const std::exception& e) {
+          std::cerr << "Error setting selection state: " << e.what() << std::endl;
+        }
+      }
+
+      if (editor.selectedObject && editor.selectedObject->isLocked()) {
+        editor.dragMode = DragMode::None;
+        editor.m_selectedEndpoint = EndpointSelection::None;
+        editor.isDragging = false;
+        editor.lastMousePos_sfml = worldPos_sfml;
+        editor.dragStart_sfml = worldPos_sfml;
+        return;
+      }
+
+      editor.dragMode = potentialDragMode;
+      editor.m_selectedEndpoint = potentialEndpointSelection;
+      editor.isDragging = true;
+      editor.lastMousePos_sfml = worldPos_sfml;
+      editor.dragStart_sfml = worldPos_sfml;
+
+      std::cout << "DEBUG: Before MoveShapeVertex check - potentialDragMode=" << static_cast<int>(potentialDragMode)
+                << " (6=MoveShapeVertex)" << std::endl;
+      if (potentialDragMode == DragMode::MoveShapeVertex) {
+        editor.activeVertexIndex = potentialVertexIndex;
+        editor.activeVertexShape = potentialSelection;
+        std::cout << "DEBUG handleMousePress: Set activeVertexShape=" << editor.activeVertexShape
+                  << " activeVertexIndex=" << editor.activeVertexIndex << std::endl;
+        if (auto* rect = dynamic_cast<Rectangle*>(potentialSelection)) {
+          rect->setActiveVertex(potentialVertexIndex);
+        } else if (auto* poly = dynamic_cast<Polygon*>(potentialSelection)) {
+          poly->setActiveVertex(potentialVertexIndex);
+        } else if (auto* reg = dynamic_cast<RegularPolygon*>(potentialSelection)) {
+          reg->setActiveVertex(potentialVertexIndex);
+        } else if (auto* tri = dynamic_cast<Triangle*>(potentialSelection)) {
+          tri->setActiveVertex(potentialVertexIndex);
+        }
+      }
+
+      if (potentialDragMode == DragMode::MoveShapeVertex) {
+        editor.activeVertexIndex = potentialVertexIndex;
+        editor.activeVertexShape = potentialSelection;
+        if (auto* rect = dynamic_cast<Rectangle*>(potentialSelection)) {
+          rect->setActiveVertex(potentialVertexIndex);
+        } else if (auto* poly = dynamic_cast<Polygon*>(potentialSelection)) {
+          poly->setActiveVertex(potentialVertexIndex);
+        } else if (auto* reg = dynamic_cast<RegularPolygon*>(potentialSelection)) {
+          reg->setActiveVertex(potentialVertexIndex);
+        } else if (auto* tri = dynamic_cast<Triangle*>(potentialSelection)) {
+          tri->setActiveVertex(potentialVertexIndex);
+        }
+      }
+
+      if (potentialDragMode == DragMode::MoveShapeVertex) {
+        editor.activeVertexIndex = potentialVertexIndex;
+        editor.activeVertexShape = potentialSelection;
+        if (auto* rect = dynamic_cast<Rectangle*>(potentialSelection)) {
+          rect->setActiveVertex(potentialVertexIndex);
+        } else if (auto* poly = dynamic_cast<Polygon*>(potentialSelection)) {
+          poly->setActiveVertex(potentialVertexIndex);
+        } else if (auto* reg = dynamic_cast<RegularPolygon*>(potentialSelection)) {
+          reg->setActiveVertex(potentialVertexIndex);
+        }
+      }
+
+      std::cout << "Object selected with drag mode: " << static_cast<int>(editor.dragMode) << std::endl;
+    } else {
+      deselectAllAndClearInteractionState(editor);
+      editor.selectedObject = nullptr;
+      editor.potentialSelectionBoxStart_sfml = worldPos_sfml;
+      editor.isDrawingSelectionBox = false;
+      return;
+    }
+  objectFoundLabel:
+    if (potentialSelection) {
+      std::cout << "Object found! Type: " << static_cast<int>(potentialSelection->getType()) << std::endl;
+
+      bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) || sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+
+      if (potentialSelection) {
+        if (isCtrlHeld) {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(), potentialSelection);
+          if (it != editor.selectedObjects.end()) {
+            potentialSelection->setSelected(false);
+            editor.selectedObjects.erase(it);
+            if (editor.selectedObject == potentialSelection) {
+              editor.selectedObject = nullptr;
+            }
+          } else {
+            potentialSelection->setSelected(true);
+            editor.selectedObjects.push_back(potentialSelection);
+            editor.selectedObject = potentialSelection;
+          }
+        } else {
+          auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(), potentialSelection);
+          if (it == editor.selectedObjects.end()) {
+            deselectAllAndClearInteractionState(editor);
+            editor.selectedObject = potentialSelection;
+            editor.selectedObjects.push_back(potentialSelection);
+            potentialSelection->setSelected(true);
+          } else {
+            editor.selectedObject = potentialSelection;
+          }
+        }
+      }
+
+      editor.dragMode = potentialDragMode;
+      editor.m_selectedEndpoint = potentialEndpointSelection;
+      editor.isDragging = true;
+      editor.lastMousePos_sfml = worldPos_sfml;
+      editor.dragStart_sfml = worldPos_sfml;
+
+      if (editor.selectedObject && editor.selectedObject->isLocked()) {
+        editor.dragMode = DragMode::None;
+        editor.m_selectedEndpoint = EndpointSelection::None;
+        editor.isDragging = false;
+        editor.lastMousePos_sfml = worldPos_sfml;
+        editor.dragStart_sfml = worldPos_sfml;
+        return;
+      }
+
+      if (potentialDragMode == DragMode::MoveShapeVertex) {
+        editor.activeVertexIndex = potentialVertexIndex;
+        editor.activeVertexShape = potentialSelection;
+        std::cout << "DEBUG objectFoundLabel: Set activeVertexShape=" << editor.activeVertexShape
+                  << " activeVertexIndex=" << editor.activeVertexIndex << std::endl;
+        if (auto* rect = dynamic_cast<Rectangle*>(potentialSelection)) {
+          rect->setActiveVertex(potentialVertexIndex);
+        } else if (auto* poly = dynamic_cast<Polygon*>(potentialSelection)) {
+          poly->setActiveVertex(potentialVertexIndex);
+        } else if (auto* reg = dynamic_cast<RegularPolygon*>(potentialSelection)) {
+          reg->setActiveVertex(potentialVertexIndex);
+        } else if (auto* tri = dynamic_cast<Triangle*>(potentialSelection)) {
+          tri->setActiveVertex(potentialVertexIndex);
+        }
+      }
+
+      std::cout << "Object selected with drag mode: " << static_cast<int>(editor.dragMode) << std::endl;
+      if (editor.dragMode == DragMode::MoveLineEndpointStart || editor.dragMode == DragMode::MoveLineEndpointEnd) {
+        std::cout << "Dragging Line Endpoint. Selected Line: " << editor.selectedObject << std::endl;
+      } else if (editor.dragMode == DragMode::MoveFreePoint) {
+        std::cout << "Dragging Free Point. Selected Point: " << editor.selectedObject << std::endl;
+      }
+
+    } else {
+      deselectAllAndClearInteractionState(editor);
+      editor.selectedObject = nullptr;
+      editor.potentialSelectionBoxStart_sfml = worldPos_sfml;
+      editor.isDrawingSelectionBox = false;
+      return;
+    }
+    return;
+  }
+
+  editor.lastMousePos_sfml = worldPos_sfml;
 }

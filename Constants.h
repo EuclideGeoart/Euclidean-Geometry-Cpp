@@ -156,7 +156,7 @@ const sf::Color CIRCLE_OUTLINE_COLOR =
 const float CIRCLE_OUTLINE_THICKNESS = 2.0f;    // Example: Default outline thickness for circles
 const float CIRCLE_PERIMETER_TOLERANCE = 5.0f;  // Tolerance for clicking circle perimeter (pixels
                                                 // or world units depending on use)
-const float MIN_CIRCLE_RADIUS = 1e-10f;           // Minimum radius (Microscopic support)
+const float MIN_CIRCLE_RADIUS = 1e-18f;           // Minimum radius (Microscopic support)
 const bool ALWAYS_SHOW_CIRCLE_CENTERS = true;   // Always show circle centers
 
 // Missing constants needed for selection box
@@ -277,5 +277,5 @@ const float MAX_CENTER_POINT_VISUAL_RADIUS = 10.0f;  // Maximum size for center 
 // Debug flags
 
 const double MIN_DISTANCE_SQUARED_LINE_CREATION =
-    1e-20;  // Microscopic support
+    1e-36;  // Microscopic support
 }  // namespace Constants
