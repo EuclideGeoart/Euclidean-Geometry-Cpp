@@ -156,7 +156,7 @@ const sf::Color CIRCLE_OUTLINE_COLOR =
 const float CIRCLE_OUTLINE_THICKNESS = 2.0f;    // Example: Default outline thickness for circles
 const float CIRCLE_PERIMETER_TOLERANCE = 5.0f;  // Tolerance for clicking circle perimeter (pixels
                                                 // or world units depending on use)
-const float MIN_CIRCLE_RADIUS = 5.0f;           // Minimum radius for a circle
+const float MIN_CIRCLE_RADIUS = 1e-10f;           // Minimum radius (Microscopic support)
 const bool ALWAYS_SHOW_CIRCLE_CENTERS = true;   // Always show circle centers
 
 // Missing constants needed for selection box
@@ -261,9 +261,6 @@ inline const float CIRCLE_INTERACTION_RADIUS = 5.0f;  // Tolerance for clicking 
 // --- Zoom Constants ---
 extern float CURRENT_ZOOM;  // This should not be a global constant, but tracked
                             // by GeometryEditor or view state
-// REMOVE or COMMENT OUT the old MIN_ZOOM and MAX_ZOOM:
-// inline float MIN_ZOOM = 5.0f; // Minimum zoom level -- OLD, PROBLEMATIC
-// inline float MAX_ZOOM = 500.0f; // Maximum zoom level -- OLD, PROBLEMATIC
 
 // REPLACE WITH THESE:
 inline constexpr float VIEW_MIN_ZOOM_LEVEL =
@@ -274,12 +271,11 @@ inline constexpr float MOUSE_WHEEL_ZOOM_FACTOR =
     1.1f;  // Factor for each scroll tick (was ZOOM_FACTOR)
 
 const float MIN_CENTER_POINT_VISUAL_RADIUS = 3.0f;  // Minimum size for center point visual
-const float MAX_CENTER_POINT_VISUAL_RADIUS =
-    10.0f;  // Maximum size for center point visual
+const float MAX_CENTER_POINT_VISUAL_RADIUS = 10.0f;  // Maximum size for center point visual
             // Default length for constructing lines like perpendiculars
 
 // Debug flags
 
 const double MIN_DISTANCE_SQUARED_LINE_CREATION =
-    1.0;  // Or a smaller value like 1.0e-6 if very close points are allowed
+    1e-20;  // Microscopic support
 }  // namespace Constants

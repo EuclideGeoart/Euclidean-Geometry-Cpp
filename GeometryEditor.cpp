@@ -77,7 +77,7 @@
 float Constants::CURRENT_ZOOM = 1.0f;
 // Constructor
 GeometryEditor::GeometryEditor()
-    : settings(0, 0, 8),
+    : settings(0, 0, 0),
       window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.8f, sf::VideoMode::getDesktopMode().height * 0.8f), "Geometry Editor",
              sf::Style::Default, settings),
       // Initialize drawing view: Width = 30 units (approx), centered at (0,0)
@@ -88,8 +88,7 @@ GeometryEditor::GeometryEditor()
       gui(),
       grid(Constants::GRID_SIZE, true),
       commandManager(),
-      objectIdCounter(0),
-      m_colorPicker(sf::Vector2f(10, 100))
+      objectIdCounter(0)
 // Other members like vectors, bools, pointers are default-initialized or
 // initialized in-class (in .h)
 {
@@ -893,17 +892,15 @@ void GeometryEditor::createCircle(const Point_2 &center, double radius, const sf
 
 // --- Centralized Point Factory ---
 std::shared_ptr<Point> GeometryEditor::createPoint(const Point_2 &cgalPos) {
-    auto newPoint = std::make_shared<Point>(cgalPos, Constants::CURRENT_ZOOM, m_currentDrawingColor);
-    
-    // 1. Assign Label
+  unsigned int id = objectIdCounter++;
+  auto newPoint = std::make_shared<Point>(cgalPos, Constants::CURRENT_ZOOM, currentColor, id);
+  newPoint->setRadius(currentPointSize); // Apply current point size
+  if (showGlobalLabels) {
     std::string label = LabelManager::getNextLabel(points);
     newPoint->setLabel(label);
-    newPoint->setShowLabel(true);
-    
-    // 2. Register Global
-    points.push_back(newPoint);
-    
-    return newPoint;
+  }
+  points.push_back(newPoint);
+  return newPoint;
 }
 
 std::shared_ptr<Point> GeometryEditor::createPoint(const sf::Vector2f &sfmlPos) {

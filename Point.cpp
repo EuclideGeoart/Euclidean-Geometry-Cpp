@@ -720,3 +720,15 @@ void Point::update() {
     }
   }
 }
+
+void Point::setRadius(float screenRadius) {
+  m_desiredScreenRadius = screenRadius;
+  // Update m_radius based on current zoom (if accessible) or just let updateZoomFactor handle it later?
+  // Ideally we want immediate feedback.
+  if (Constants::CURRENT_ZOOM > 0) {
+      m_radius = m_desiredScreenRadius / Constants::CURRENT_ZOOM;
+  } else {
+      m_radius = m_desiredScreenRadius; 
+  }
+  updateSFMLShape();
+}
