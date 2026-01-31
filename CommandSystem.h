@@ -485,7 +485,7 @@ class TranslateCommand : public Command {
   void execute() override {
     for (auto *obj : m_objects) {
       if (obj && obj->isValid()) {
-        obj->translate(m_delta);
+        obj->move(m_delta);
       }
     }
   }
@@ -494,7 +494,7 @@ class TranslateCommand : public Command {
     Vector_2 negDelta(-m_delta.x(), -m_delta.y());
     for (auto *obj : m_objects) {
       if (obj && obj->isValid()) {
-        obj->translate(negDelta);
+        obj->move(negDelta);
       }
     }
   }

@@ -88,7 +88,7 @@ void RegularPolygon::updateSFMLShapeInternal() {
   }
 
   m_sfmlShape.setFillColor(m_color);
-  m_sfmlShape.setOutlineThickness(1.5f);
+  m_sfmlShape.setOutlineThickness(m_thickness);
   m_sfmlShape.setOutlineColor(sf::Color::Black);
 }
 
@@ -215,7 +215,7 @@ std::vector<sf::Vector2f> RegularPolygon::getVerticesSFML() const {
 }
 
 void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) const {
-  const float handleRadius = 4.0f * scale;
+  const float handleRadius = m_vertexHandleSize * scale;
   
   // Draw center point (creation point 0)
   {

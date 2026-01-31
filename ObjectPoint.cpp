@@ -110,15 +110,24 @@ ObjectPoint::ObjectPoint(std::shared_ptr<Circle> hostCircle, double angleRad,
 // factory that _does_ the registration
 std::shared_ptr<ObjectPoint> ObjectPoint::create(std::shared_ptr<Line> hostLine,
                                                  double relativePosition, const sf::Color &color) {
-  auto self = std::shared_ptr<ObjectPoint>(new ObjectPoint(hostLine, relativePosition, color));
-  // now safe to do shared_from_this()
-  hostLine->addChildPoint(self);
-  try {
-    self->updatePositionFromHost();
-  } catch (...) {
-    // handle errors
+  if (!hostLine || !hostLine->isValid()) {
+    std::cerr << "ObjectPoint::create - Invalid host line" << std::endl;
+    return nullptr;
   }
-  return self;
+  
+  try {
+    auto self = std::shared_ptr<ObjectPoint>(new ObjectPoint(hostLine, relativePosition, color));
+    // now safe to do shared_from_this()
+    hostLine->addChildPoint(self);
+    self->updatePositionFromHost();
+    return self;
+  } catch (const std::exception& e) {
+    std::cerr << "ObjectPoint::create - Exception: " << e.what() << std::endl;
+    return nullptr;
+  } catch (...) {
+    std::cerr << "ObjectPoint::create - Unknown exception" << std::endl;
+    return nullptr;
+  }
 }
 std::shared_ptr<ObjectPoint> ObjectPoint::create(std::shared_ptr<Circle> hostCircle,
                                                  double angleRad, const sf::Color &color) {

@@ -122,6 +122,11 @@ public:
   void setIsVertexAnchor(bool isAnchor) { m_isVertexAnchor = isAnchor; }
   bool isVertexAnchor() const { return m_isVertexAnchor; }
 
+  // Shape edge attachment accessors
+  bool isShapeEdgeAttachment() const { return m_isShapeEdgeAttachment; }
+  size_t getEdgeIndex() const { return m_edgeIndex; }
+  double getEdgeRelativePosition() const { return m_edgeRelativePos; }
+
 protected:
   void updateSFMLShape() override;
   void updateSFMLShape(const sf::Vector2f &position) override;

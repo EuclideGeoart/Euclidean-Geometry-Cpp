@@ -17,15 +17,21 @@
 #include "Polygon.h"
 #include "RegularPolygon.h"
 #include "Triangle.h"
+#include "Angle.h"
+#include "ConstructionObjects.h"
+#include "TransformationObjects.h"
 #include "ObjectPoint.h"
 #include "Constants.h"
+#include "Intersection.h"
 
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include "SVGWriter.h"
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 // Include nlohmann/json - user must download this
 // Download from: https://github.com/nlohmann/json/releases/latest
@@ -89,6 +95,20 @@ void ProjectSerializer::calculateBounds(const GeometryEditor& editor,
     for (const auto& pt : editor.points) {
         if (pt && pt->isValid()) {
             Point_2 pos = pt->getCGALPosition();
+            double x = CGAL::to_double(pos.x());
+            double y = CGAL::to_double(pos.y());
+            minX = std::min(minX, x);
+            minY = std::min(minY, y);
+            maxX = std::max(maxX, x);
+            maxY = std::max(maxY, y);
+            hasObjects = true;
+        }
+    }
+
+    // Check all ObjectPoints
+    for (const auto& op : editor.ObjectPoints) {
+        if (op && op->isValid()) {
+            Point_2 pos = op->getCGALPosition();
             double x = CGAL::to_double(pos.x());
             double y = CGAL::to_double(pos.y());
             minX = std::min(minX, x);
@@ -197,6 +217,15 @@ void ProjectSerializer::calculateBounds(const GeometryEditor& editor,
             hasObjects = true;
         }
     }
+
+    // Include axes in bounds when visible
+    if (editor.areAxesVisible()) {
+        minX = std::min(minX, 0.0);
+        maxX = std::max(maxX, 0.0);
+        minY = std::min(minY, 0.0);
+        maxY = std::max(maxY, 0.0);
+        hasObjects = true;
+    }
     
     // Default bounds if no objects
     if (!hasObjects) {
@@ -220,6 +249,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         json project;
         project["version"] = "1.0";
         project["objects"] = json::object();
+        project["settings"] = json::object();
+        project["settings"]["axesVisible"] = editor.areAxesVisible();
 
         // Save Points
         json pointsArray = json::array();
@@ -231,6 +262,52 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 ptJson["x"] = CGAL::to_double(pos.x());
                 ptJson["y"] = CGAL::to_double(pos.y());
                 ptJson["color"] = colorToHex(pt->getColor());
+                ptJson["label"] = pt->getLabel();
+                ptJson["showLabel"] = pt->getShowLabel();
+                sf::Vector2f offset = pt->getLabelOffset();
+                ptJson["labelOffset"] = { offset.x, offset.y };
+
+                // Transformation-derived points
+                if (auto refL = std::dynamic_pointer_cast<ReflectLine>(pt)) {
+                    json t;
+                    t["type"] = "ReflectLine";
+                    if (auto src = refL->getSourcePoint()) t["sourceId"] = src->getID();
+                    if (auto ln = refL->getReflectLine()) t["lineId"] = ln->getID();
+                    ptJson["transform"] = t;
+                } else if (auto refP = std::dynamic_pointer_cast<ReflectPoint>(pt)) {
+                    json t;
+                    t["type"] = "ReflectPoint";
+                    if (auto src = refP->getSourcePoint()) t["sourceId"] = src->getID();
+                    if (auto c = refP->getCenterPoint()) t["centerId"] = c->getID();
+                    ptJson["transform"] = t;
+                } else if (auto refC = std::dynamic_pointer_cast<ReflectCircle>(pt)) {
+                    json t;
+                    t["type"] = "ReflectCircle";
+                    if (auto src = refC->getSourcePoint()) t["sourceId"] = src->getID();
+                    if (auto c = refC->getCircle()) t["circleId"] = c->getID();
+                    ptJson["transform"] = t;
+                } else if (auto rot = std::dynamic_pointer_cast<RotatePoint>(pt)) {
+                    json t;
+                    t["type"] = "RotatePoint";
+                    if (auto src = rot->getSourcePoint()) t["sourceId"] = src->getID();
+                    if (auto c = rot->getCenterPoint()) t["centerId"] = c->getID();
+                    t["angleDeg"] = rot->getAngleDegrees();
+                    ptJson["transform"] = t;
+                } else if (auto tr = std::dynamic_pointer_cast<TranslateVector>(pt)) {
+                    json t;
+                    t["type"] = "TranslateVector";
+                    if (auto src = tr->getSourcePoint()) t["sourceId"] = src->getID();
+                    if (auto v1 = tr->getVectorStart()) t["vecStartId"] = v1->getID();
+                    if (auto v2 = tr->getVectorEnd()) t["vecEndId"] = v2->getID();
+                    ptJson["transform"] = t;
+                } else if (auto dil = std::dynamic_pointer_cast<DilatePoint>(pt)) {
+                    json t;
+                    t["type"] = "DilatePoint";
+                    if (auto src = dil->getSourcePoint()) t["sourceId"] = src->getID();
+                    if (auto c = dil->getCenterPoint()) t["centerId"] = c->getID();
+                    t["factor"] = dil->getScaleFactor();
+                    ptJson["transform"] = t;
+                }
                 pointsArray.push_back(ptJson);
             }
         }
@@ -240,6 +317,9 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         json linesArray = json::array();
         for (const auto& ln : editor.lines) {
             if (ln && ln->isValid()) {
+                if (editor.getXAxis() && ln == editor.getXAxis()) continue;
+                if (editor.getYAxis() && ln == editor.getYAxis()) continue;
+                if (std::dynamic_pointer_cast<TangentLine>(ln)) continue;
                 json lnJson;
                 lnJson["id"] = ln->getID();
                 lnJson["isSegment"] = ln->isSegment();
@@ -446,7 +526,11 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 json opJson;
                 opJson["id"] = op->getID();
                 opJson["hostType"] = static_cast<int>(op->getHostType());
-                if (op->getHostType() == ObjectType::Circle) {
+                if (op->isShapeEdgeAttachment()) {
+                    opJson["edgeIndex"] = op->getEdgeIndex();
+                    opJson["edgeRel"] = op->getEdgeRelativePosition();
+                    opJson["t"] = op->getEdgeRelativePosition();
+                } else if (op->getHostType() == ObjectType::Circle) {
                     opJson["t"] = op->getAngleOnCircle();
                 } else {
                     opJson["t"] = op->getRelativePositionOnLine();
@@ -455,10 +539,90 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                     opJson["hostId"] = host->getID();
                 }
                 opJson["color"] = colorToHex(op->getColor());
+                opJson["visible"] = op->isVisible();
+                opJson["label"] = op->getLabel();
+                opJson["showLabel"] = op->getShowLabel();
+                sf::Vector2f offset = op->getLabelOffset();
+                opJson["labelOffset"] = { offset.x, offset.y };
                 objectPointsArray.push_back(opJson);
             }
         }
         project["objects"]["objectPoints"] = objectPointsArray;
+
+        // Save Tangent Lines
+        json tangentsArray = json::array();
+        for (const auto& ln : editor.lines) {
+            auto tangent = std::dynamic_pointer_cast<TangentLine>(ln);
+            if (tangent && tangent->isValid()) {
+                json tJson;
+                tJson["id"] = tangent->getID();
+                if (auto ext = tangent->getExternalPoint()) {
+                    tJson["externalPointID"] = ext->getID();
+                }
+                if (auto cir = tangent->getCircle()) {
+                    tJson["circleID"] = cir->getID();
+                }
+                tJson["solutionIndex"] = tangent->getSolutionIndex();
+                tJson["color"] = colorToHex(tangent->getColor());
+                tJson["thickness"] = tangent->getThickness();
+                tangentsArray.push_back(tJson);
+            }
+        }
+        project["objects"]["tangentLines"] = tangentsArray;
+
+        // Save Angles
+        json anglesArray = json::array();
+        for (const auto& angle : editor.angles) {
+            if (!angle) continue;
+            auto pA = angle->getPointA().lock();
+            auto v = angle->getVertex().lock();
+            auto pB = angle->getPointB().lock();
+            if (!pA || !v || !pB) continue;
+
+            json aJson;
+            aJson["id"] = angle->getID();
+            aJson["pointAID"] = pA->getID();
+            aJson["vertexID"] = v->getID();
+            aJson["pointBID"] = pB->getID();
+            aJson["reflex"] = angle->isReflex();
+            aJson["radius"] = angle->getRadius();
+            aJson["color"] = colorToHex(angle->getColor());
+            aJson["showLabel"] = angle->getShowLabel();
+            sf::Vector2f aOffset = angle->getLabelOffset();
+            aJson["labelOffset"] = { aOffset.x, aOffset.y };
+            anglesArray.push_back(aJson);
+        }
+        project["objects"]["angles"] = anglesArray;
+
+        // Save Intersections (constraints + points)
+        json intersectionsArray = json::array();
+        for (const auto& constraint : DynamicIntersection::getActiveIntersectionConstraints()) {
+            auto A = constraint.A.lock();
+            auto B = constraint.B.lock();
+            if (!A || !B) continue;
+
+            json cJson;
+            cJson["aId"] = A->getID();
+            cJson["bId"] = B->getID();
+            json ptsJson = json::array();
+            for (const auto& wp : constraint.resultingPoints) {
+                if (auto sp = wp.lock()) {
+                    json pJson;
+                    pJson["id"] = sp->getID();
+                    pJson["label"] = sp->getLabel();
+                    pJson["showLabel"] = sp->getShowLabel();
+                    sf::Vector2f offset = sp->getLabelOffset();
+                    pJson["labelOffset"] = { offset.x, offset.y };
+                    Point_2 pos = sp->getCGALPosition();
+                    pJson["x"] = CGAL::to_double(pos.x());
+                    pJson["y"] = CGAL::to_double(pos.y());
+                    ptsJson.push_back(pJson);
+                }
+            }
+            cJson["points"] = ptsJson;
+            intersectionsArray.push_back(cJson);
+        }
+        project["objects"]["intersections"] = intersectionsArray;
 
         // Write to file
         std::ofstream file(filepath);
@@ -497,6 +661,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
         // 1. Clear existing scene
         editor.clearScene();
+        DynamicIntersection::clearAllIntersectionConstraints(editor);
 
         // =========================================================
         // STEP 1: DETECT STRUCTURE (Hybrid Fix)
@@ -506,16 +671,26 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         
         std::cout << "Loading Mode: " << (j.contains("objects") ? "Nested (Old)" : "Flat (New)") << std::endl;
 
+        bool axesVisible = true;
+        if (j.contains("settings") && j["settings"].contains("axesVisible")) {
+            axesVisible = j["settings"]["axesVisible"].get<bool>();
+        }
+
         // Maps for reconstructing relationships (ID -> Object)
         std::unordered_map<int, std::shared_ptr<Point>> pointMap;
         std::unordered_map<int, std::shared_ptr<GeometricObject>> objectMap;
         int maxId = 0;
+        std::vector<json> deferredTransformPoints;
 
         // =========================================================
         // PASS 1: LOAD POINTS
         // =========================================================
         if (data.contains("points")) {
             for (const auto& jPoint : data["points"]) {
+                if (jPoint.contains("transform")) {
+                    deferredTransformPoints.push_back(jPoint);
+                    continue;
+                }
                 double x = jPoint.value("x", 0.0);
                 double y = jPoint.value("y", 0.0);
                 int id = jPoint.value("id", -1);
@@ -523,7 +698,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 sf::Color color = sf::Color::Black;
                 if (jPoint.contains("color")) {
                     if (jPoint["color"].is_string()) {
-                         // color = hexToColor(jPoint["color"]); // Use if you have hex strings
+                         color = hexToColor(jPoint["color"]);
                     } else {
                         auto c = jPoint["color"];
                         color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
@@ -531,6 +706,11 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 }
 
                 auto newPoint = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+                if (jPoint.contains("label")) newPoint->setLabel(jPoint.value("label", ""));
+                if (jPoint.contains("showLabel")) newPoint->setShowLabel(jPoint.value("showLabel", true));
+                if (jPoint.contains("labelOffset") && jPoint["labelOffset"].is_array() && jPoint["labelOffset"].size() >= 2) {
+                    newPoint->setLabelOffset(sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
+                }
                 editor.points.push_back(newPoint);
 
                 if (id != -1) {
@@ -556,9 +736,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 bool isSegment = jLine.value("isSegment", false);
                 
                 sf::Color color = sf::Color::Black;
-                if (jLine.contains("color") && !jLine["color"].is_string()) {
-                     auto c = jLine["color"];
-                     color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                if (jLine.contains("color")) {
+                    if (jLine["color"].is_string()) {
+                        color = hexToColor(jLine["color"]);
+                    } else {
+                        auto c = jLine["color"];
+                        color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                    }
                 }
 
                 if (pointMap.count(startId) && pointMap.count(endId)) {
@@ -591,9 +775,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 int id = jCircle.value("id", -1);
                 
                 sf::Color color = sf::Color::Black; 
-                if (jCircle.contains("color") && !jCircle["color"].is_string()) {
-                     auto c = jCircle["color"];
-                     color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                if (jCircle.contains("color")) {
+                     if (jCircle["color"].is_string()) {
+                         color = hexToColor(jCircle["color"]);
+                     } else {
+                         auto c = jCircle["color"];
+                         color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                     }
                 }
 
                 if (pointMap.count(centerId)) {
@@ -609,7 +797,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                         color
                     );
                     // Manually set ID if constructor doesn't take it
-                    // newCircle->setID(id); 
+                    if (id != -1) {
+                        newCircle->setID(id);
+                    }
 
                     editor.circles.push_back(newCircle);
                     if (id != -1) {
@@ -638,9 +828,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 }
                 
                 sf::Color color = sf::Color::Black;
-                if (polyJson.contains("color") && !polyJson["color"].is_string()) {
-                     auto c = polyJson["color"];
-                     color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                if (polyJson.contains("color")) {
+                     if (polyJson["color"].is_string()) {
+                         color = hexToColor(polyJson["color"]);
+                     } else {
+                         auto c = polyJson["color"];
+                         color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                     }
                 }
                 
                 int id = polyJson.value("id", -1);
@@ -682,9 +876,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     }
 
                     sf::Color color = sf::Color::Black;
-                    if (rectJson.contains("color") && !rectJson["color"].is_string()) {
-                        auto c = rectJson["color"];
-                        color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                    if (rectJson.contains("color")) {
+                        if (rectJson["color"].is_string()) {
+                            color = hexToColor(rectJson["color"]);
+                        } else {
+                            auto c = rectJson["color"];
+                            color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                        }
                     }
                     
                     int id = rectJson.value("id", -1);
@@ -725,9 +923,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     }
 
                     sf::Color color = sf::Color::Black;
-                    if (triJson.contains("color") && !triJson["color"].is_string()) {
-                        auto c = triJson["color"];
-                        color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                    if (triJson.contains("color")) {
+                        if (triJson["color"].is_string()) {
+                            color = hexToColor(triJson["color"]);
+                        } else {
+                            auto c = triJson["color"];
+                            color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                        }
                     }
                     
                     int id = triJson.value("id", -1);
@@ -752,18 +954,21 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 int id = rpolyJson.value("id", -1);
                 
                 sf::Color color = sf::Color::Black;
-                if (rpolyJson.contains("color") && !rpolyJson["color"].is_string()) {
-                    auto c = rpolyJson["color"];
-                    color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                if (rpolyJson.contains("color")) {
+                    if (rpolyJson["color"].is_string()) {
+                        color = hexToColor(rpolyJson["color"]);
+                    } else {
+                        auto c = rpolyJson["color"];
+                        color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                    }
                 }
-
                 if (!verticesJson.empty()) {
                     // Reconstruct Center and FirstVertex
                     double cx = 0, cy = 0;
                     double fx=0, fy=0;
 
                     // Parse first vertex
-                   if (verticesJson[0].is_array()) { 
+                   if (verticesJson[0].is_array()) {
     // Force .get<double>() here too to be safe
     fx = verticesJson[0][0].get<double>(); 
     fy = verticesJson[0][1].get<double>(); 
@@ -792,7 +997,275 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         }
 
         // =========================================================
-        // PASS 8: RESTORE LINE CONSTRAINTS
+        // PASS 7.5: LOAD TRANSFORMATION POINTS
+        // =========================================================
+        for (const auto& jPoint : deferredTransformPoints) {
+            int id = jPoint.value("id", -1);
+            sf::Color color = sf::Color::Black;
+            if (jPoint.contains("color")) {
+                if (jPoint["color"].is_string()) {
+                    color = hexToColor(jPoint["color"]);
+                } else {
+                    auto c = jPoint["color"];
+                    color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                }
+            }
+
+            if (!jPoint.contains("transform")) continue;
+            const auto& t = jPoint["transform"];
+            std::string type = t.value("type", "");
+
+            std::shared_ptr<Point> newPoint;
+            if (type == "ReflectLine") {
+                int srcId = t.value("sourceId", -1);
+                int lineId = t.value("lineId", -1);
+                if (pointMap.count(srcId) && objectMap.count(lineId)) {
+                    auto linePtr = std::dynamic_pointer_cast<Line>(objectMap[lineId]);
+                    if (linePtr) newPoint = std::make_shared<ReflectLine>(pointMap[srcId], linePtr, color);
+                }
+            } else if (type == "ReflectPoint") {
+                int srcId = t.value("sourceId", -1);
+                int centerId = t.value("centerId", -1);
+                if (pointMap.count(srcId) && pointMap.count(centerId)) {
+                    newPoint = std::make_shared<ReflectPoint>(pointMap[srcId], pointMap[centerId], color);
+                }
+            } else if (type == "ReflectCircle") {
+                int srcId = t.value("sourceId", -1);
+                int circleId = t.value("circleId", -1);
+                if (pointMap.count(srcId) && objectMap.count(circleId)) {
+                    auto circlePtr = std::dynamic_pointer_cast<Circle>(objectMap[circleId]);
+                    if (circlePtr) newPoint = std::make_shared<ReflectCircle>(pointMap[srcId], circlePtr, color);
+                }
+            } else if (type == "RotatePoint") {
+                int srcId = t.value("sourceId", -1);
+                int centerId = t.value("centerId", -1);
+                double angleDeg = t.value("angleDeg", 0.0);
+                if (pointMap.count(srcId) && pointMap.count(centerId)) {
+                    newPoint = std::make_shared<RotatePoint>(pointMap[srcId], pointMap[centerId], angleDeg, color);
+                }
+            } else if (type == "TranslateVector") {
+                int srcId = t.value("sourceId", -1);
+                int vStartId = t.value("vecStartId", -1);
+                int vEndId = t.value("vecEndId", -1);
+                if (pointMap.count(srcId) && pointMap.count(vStartId) && pointMap.count(vEndId)) {
+                    newPoint = std::make_shared<TranslateVector>(pointMap[srcId], pointMap[vStartId], pointMap[vEndId], color);
+                }
+            } else if (type == "DilatePoint") {
+                int srcId = t.value("sourceId", -1);
+                int centerId = t.value("centerId", -1);
+                double factor = t.value("factor", 1.0);
+                if (pointMap.count(srcId) && pointMap.count(centerId)) {
+                    newPoint = std::make_shared<DilatePoint>(pointMap[srcId], pointMap[centerId], factor, color);
+                }
+            }
+
+            if (newPoint) {
+                if (id != -1) newPoint->setID(id);
+                if (jPoint.contains("label")) newPoint->setLabel(jPoint.value("label", ""));
+                if (jPoint.contains("showLabel")) newPoint->setShowLabel(jPoint.value("showLabel", true));
+                if (jPoint.contains("labelOffset") && jPoint["labelOffset"].is_array() && jPoint["labelOffset"].size() >= 2) {
+                    newPoint->setLabelOffset(sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
+                }
+
+                editor.points.push_back(newPoint);
+                if (id != -1) {
+                    pointMap[id] = newPoint;
+                    objectMap[id] = newPoint;
+                    if (id > maxId) maxId = id;
+                }
+            }
+        }
+
+        // =========================================================
+        // PASS 8: LOAD OBJECTPOINTS
+        // =========================================================
+        if (data.contains("objectPoints")) {
+            for (const auto& opJson : data["objectPoints"]) {
+                int id = opJson.value("id", -1);
+                int hostId = opJson.value("hostId", -1);
+                int hostTypeInt = opJson.value("hostType", static_cast<int>(ObjectType::None));
+                double t = opJson.value("t", 0.0);
+                size_t edgeIndex = static_cast<size_t>(opJson.value("edgeIndex", 0));
+                double edgeRel = opJson.value("edgeRel", t);
+                bool visible = opJson.value("visible", true);
+
+                sf::Color color = sf::Color::Black;
+                if (opJson.contains("color")) {
+                    if (opJson["color"].is_string()) {
+                        color = hexToColor(opJson["color"]);
+                    } else {
+                        auto c = opJson["color"];
+                        color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                    }
+                }
+
+                ObjectType hostType = static_cast<ObjectType>(hostTypeInt);
+                std::shared_ptr<ObjectPoint> newObjPoint = nullptr;
+
+                if (hostType == ObjectType::Line && objectMap.count(hostId)) {
+                    auto hostLine = std::dynamic_pointer_cast<Line>(objectMap[hostId]);
+                    if (hostLine) {
+                        newObjPoint = ObjectPoint::create(hostLine, t, color);
+                    }
+                } else if (hostType == ObjectType::Circle && objectMap.count(hostId)) {
+                    auto hostCircle = std::dynamic_pointer_cast<Circle>(objectMap[hostId]);
+                    if (hostCircle) {
+                        newObjPoint = ObjectPoint::create(hostCircle, t, color);
+                    }
+                } else if ((hostType == ObjectType::Rectangle || hostType == ObjectType::Triangle ||
+                            hostType == ObjectType::Polygon || hostType == ObjectType::RegularPolygon) &&
+                           objectMap.count(hostId)) {
+                    auto hostShape = objectMap[hostId];
+                    if (hostShape) {
+                        newObjPoint = ObjectPoint::createOnShapeEdge(hostShape, edgeIndex, edgeRel, color);
+                    }
+                }
+
+                if (newObjPoint) {
+                    if (id != -1) newObjPoint->setID(id);
+                    newObjPoint->setVisible(visible);
+                    if (opJson.contains("label")) newObjPoint->setLabel(opJson.value("label", ""));
+                    if (opJson.contains("showLabel")) newObjPoint->setShowLabel(opJson.value("showLabel", true));
+                    if (opJson.contains("labelOffset") && opJson["labelOffset"].is_array() && opJson["labelOffset"].size() >= 2) {
+                        newObjPoint->setLabelOffset(sf::Vector2f(opJson["labelOffset"][0], opJson["labelOffset"][1]));
+                    }
+
+                    editor.ObjectPoints.push_back(newObjPoint);
+                    if (id != -1) {
+                        pointMap[id] = newObjPoint;
+                        objectMap[id] = newObjPoint;
+                        if (id > maxId) maxId = id;
+                    }
+                }
+            }
+        }
+
+        // =========================================================
+        // PASS 9: LOAD TANGENT LINES
+        // =========================================================
+        if (data.contains("tangentLines")) {
+            for (const auto& tJson : data["tangentLines"]) {
+                int id = tJson.value("id", -1);
+                int externalId = tJson.value("externalPointID", -1);
+                int circleId = tJson.value("circleID", -1);
+                int solutionIndex = tJson.value("solutionIndex", 0);
+
+                if (pointMap.count(externalId) && objectMap.count(circleId)) {
+                    auto circlePtr = std::dynamic_pointer_cast<Circle>(objectMap[circleId]);
+                    if (!circlePtr) continue;
+
+                    sf::Color color = sf::Color::Black;
+                    if (tJson.contains("color")) {
+                        if (tJson["color"].is_string()) {
+                            color = hexToColor(tJson["color"]);
+                        } else {
+                            auto c = tJson["color"];
+                            color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                        }
+                    }
+
+                    auto tangent = std::make_shared<TangentLine>(pointMap[externalId], circlePtr, solutionIndex, id, color);
+                    tangent->setThickness(static_cast<float>(tJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT)));
+                    editor.lines.push_back(tangent);
+
+                    if (id != -1) {
+                        objectMap[id] = tangent;
+                        if (id > maxId) maxId = id;
+                    }
+                }
+            }
+        }
+
+        // =========================================================
+        // PASS 10: LOAD ANGLES
+        // =========================================================
+        if (data.contains("angles")) {
+            for (const auto& aJson : data["angles"]) {
+                int id = aJson.value("id", -1);
+                int aId = aJson.value("pointAID", -1);
+                int vId = aJson.value("vertexID", -1);
+                int bId = aJson.value("pointBID", -1);
+                bool reflex = aJson.value("reflex", false);
+
+                if (pointMap.count(aId) && pointMap.count(vId) && pointMap.count(bId)) {
+                    sf::Color color = sf::Color(255, 200, 0);
+                    if (aJson.contains("color")) {
+                        if (aJson["color"].is_string()) {
+                            color = hexToColor(aJson["color"]);
+                        } else {
+                            auto c = aJson["color"];
+                            color = sf::Color(c.value("r", 255), c.value("g", 200), c.value("b", 0), c.value("a", 255));
+                        }
+                    }
+
+                    auto angle = std::make_shared<Angle>(pointMap[aId], pointMap[vId], pointMap[bId], reflex, color);
+                    if (id != -1) angle->setID(id);
+
+                    if (aJson.contains("radius")) angle->setRadius(aJson.value("radius", angle->getRadius()));
+                    if (aJson.contains("showLabel")) angle->setShowLabel(aJson.value("showLabel", true));
+                    if (aJson.contains("labelOffset") && aJson["labelOffset"].is_array() && aJson["labelOffset"].size() >= 2) {
+                        angle->setLabelOffset(sf::Vector2f(aJson["labelOffset"][0], aJson["labelOffset"][1]));
+                    }
+
+                    editor.angles.push_back(angle);
+                    if (id != -1) {
+                        objectMap[id] = angle;
+                        if (id > maxId) maxId = id;
+                    }
+                }
+            }
+        }
+
+        // =========================================================
+        // PASS 11: LOAD INTERSECTION CONSTRAINTS
+        // =========================================================
+        if (data.contains("intersections")) {
+            for (const auto& cJson : data["intersections"]) {
+                int aId = cJson.value("aId", -1);
+                int bId = cJson.value("bId", -1);
+                if (!objectMap.count(aId) || !objectMap.count(bId)) continue;
+
+                auto A = objectMap[aId];
+                auto B = objectMap[bId];
+
+                std::vector<std::shared_ptr<Point>> createdPoints;
+                if (cJson.contains("points") && cJson["points"].is_array()) {
+                    for (const auto& pJson : cJson["points"]) {
+                        double x = pJson.value("x", 0.0);
+                        double y = pJson.value("y", 0.0);
+                        int id = pJson.value("id", -1);
+
+                        auto pt = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM,
+                                                          Constants::INTERSECTION_POINT_COLOR, id);
+                        pt->setIntersectionPoint(true);
+                        pt->setDependent(true);
+                        pt->setSelected(false);
+                        pt->lock();
+
+                        if (pJson.contains("label")) pt->setLabel(pJson.value("label", ""));
+                        if (pJson.contains("showLabel")) pt->setShowLabel(pJson.value("showLabel", true));
+                        if (pJson.contains("labelOffset") && pJson["labelOffset"].is_array() && pJson["labelOffset"].size() >= 2) {
+                            pt->setLabelOffset(sf::Vector2f(pJson["labelOffset"][0], pJson["labelOffset"][1]));
+                        }
+
+                        editor.points.push_back(pt);
+                        if (id != -1) {
+                            pointMap[id] = pt;
+                            objectMap[id] = pt;
+                            if (id > maxId) maxId = id;
+                        }
+                        createdPoints.push_back(pt);
+                    }
+                }
+
+                if (!createdPoints.empty()) {
+                    DynamicIntersection::registerIntersectionConstraint(A, B, createdPoints);
+                }
+            }
+        }
+
+        // =========================================================
+        // PASS 12: RESTORE LINE CONSTRAINTS
         // =========================================================
         if (data.contains("lines")) {
             for (const auto& jLine : data["lines"]) {
@@ -821,7 +1294,25 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             }
         }
 
+        // Restore axes visibility and ensure axes are present
+        if (editor.getXAxis()) {
+            editor.getXAxis()->setVisible(axesVisible);
+            if (std::find(editor.lines.begin(), editor.lines.end(), editor.getXAxis()) == editor.lines.end()) {
+                editor.lines.push_back(editor.getXAxis());
+            }
+        }
+        if (editor.getYAxis()) {
+            editor.getYAxis()->setVisible(axesVisible);
+            if (std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxis()) == editor.lines.end()) {
+                editor.lines.push_back(editor.getYAxis());
+            }
+        }
+
         // Finalize state
+        DynamicIntersection::updateAllIntersections(editor);
+        for (auto &ag : editor.angles) {
+            if (ag) ag->update();
+        }
         editor.objectIdCounter = maxId + 1;
         std::cout << "Project loaded. Counter: " << editor.objectIdCounter << std::endl;
         return true;
@@ -838,253 +1329,230 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
 bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::string& filepath) {
     try {
-        sf::Vector2f viewCenter = editor.drawingView.getCenter();
-        sf::Vector2f viewSize = editor.drawingView.getSize();
+        // STEP 1: Use current view bounds (WYSIWYG)
+        const sf::View& view = editor.getDrawingView();
+        sf::Vector2f center = view.getCenter();
+        sf::Vector2f size = view.getSize();
 
-        float left = viewCenter.x - viewSize.x / 2.0f;
-        float top = viewCenter.y - viewSize.y / 2.0f;
-        float right = left + viewSize.x;
-        float bottom = top + viewSize.y;
+        double minX = center.x - size.x / 2.0;
+        double minY = center.y - size.y / 2.0;
+        double width = size.x;
+        double height = size.y;
+        double maxX = minX + width;
+        double maxY = minY + height;
 
-        std::ofstream file(filepath);
-        if (!file.is_open()) {
-            std::cerr << "ProjectSerializer::exportSVG: Failed to open file: " << filepath << std::endl;
-            return false;
-        }
+        // Initialize SVG Writer
+        SVGWriter svg(width, height);
+        // Use world-space viewBox and flip Y with a translate+scale group
+        svg.setViewBox(minX, minY, width, height);
 
-        file << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-        file << "<svg xmlns=\"http://www.w3.org/2000/svg\" ";
-        file << "viewBox=\"" << left << " " << top << " " << viewSize.x << " " << viewSize.y << "\" ";
-        file << "width=\"" << viewSize.x << "\" height=\"" << viewSize.y << "\">\n";
-
-        file << "  <rect x=\"" << left << "\" y=\"" << top << "\" ";
-        file << "width=\"" << viewSize.x << "\" height=\"" << viewSize.y << "\" fill=\"white\"/>\n";
-
-        float gridSize = Constants::GRID_SIZE;
-        for (float x = std::floor(left / gridSize) * gridSize; x <= right; x += gridSize) {
-            file << "  <line x1=\"" << x << "\" y1=\"" << top << "\" x2=\"" << x
-                 << "\" y2=\"" << bottom << "\" stroke=\"#e0e0e0\" stroke-width=\"1\" />\n";
-        }
-        for (float y = std::floor(top / gridSize) * gridSize; y <= bottom; y += gridSize) {
-            file << "  <line x1=\"" << left << "\" y1=\"" << y << "\" x2=\"" << right
-                 << "\" y2=\"" << y << "\" stroke=\"#e0e0e0\" stroke-width=\"1\" />\n";
-        }
-
-        auto clipLineToRect = [&](const Point_2& p1, const Point_2& p2,
-                                  const sf::FloatRect& rect,
-                                  sf::Vector2f& outA, sf::Vector2f& outB) -> bool {
-            sf::Vector2f a(static_cast<float>(CGAL::to_double(p1.x())),
-                           static_cast<float>(CGAL::to_double(p1.y())));
-            sf::Vector2f b(static_cast<float>(CGAL::to_double(p2.x())),
-                           static_cast<float>(CGAL::to_double(p2.y())));
-
-            sf::Vector2f r(b.x - a.x, b.y - a.y);
-            float eps = 1e-6f;
-
-            auto cross = [](const sf::Vector2f& v1, const sf::Vector2f& v2) {
-                return v1.x * v2.y - v1.y * v2.x;
-            };
-
-            struct Hit {
-                float t;
-                sf::Vector2f p;
-            };
-
-            std::vector<Hit> hits;
-
-            auto addHit = [&](float t, const sf::Vector2f& p) {
-                for (const auto& h : hits) {
-                    float dx = h.p.x - p.x;
-                    float dy = h.p.y - p.y;
-                    if (dx * dx + dy * dy < eps * eps) {
-                        return;
-                    }
-                }
-                hits.push_back({t, p});
-            };
-
-            sf::Vector2f rectTL(rect.left, rect.top);
-            sf::Vector2f rectTR(rect.left + rect.width, rect.top);
-            sf::Vector2f rectBL(rect.left, rect.top + rect.height);
-            sf::Vector2f rectBR(rect.left + rect.width, rect.top + rect.height);
-
-            std::pair<sf::Vector2f, sf::Vector2f> edges[4] = {
-                {rectTL, rectTR},
-                {rectTR, rectBR},
-                {rectBR, rectBL},
-                {rectBL, rectTL}
-            };
-
-            for (auto& edge : edges) {
-                sf::Vector2f q = edge.first;
-                sf::Vector2f s(edge.second.x - edge.first.x, edge.second.y - edge.first.y);
-                float denom = cross(r, s);
-                if (std::abs(denom) < eps) {
-                    continue;
-                }
-                sf::Vector2f qp(q.x - a.x, q.y - a.y);
-                float t = cross(qp, s) / denom;
-                float u = cross(qp, r) / denom;
-                if (u >= -eps && u <= 1.0f + eps) {
-                    sf::Vector2f p(a.x + t * r.x, a.y + t * r.y);
-                    addHit(t, p);
-                }
+        // ========================================================================
+        // STEP 4: Write SVG header with viewBox
+        // ========================================================================
+        // Ensure aspect ratio of the output image matches the view bounds
+        double outputWidth = 800.0;
+        double outputHeight = 800.0;
+        
+        if (width > 0 && height > 0) {
+            double aspectRatio = width / height;
+            if (aspectRatio > 1.0) {
+                 outputWidth = 800.0;
+                 outputHeight = 800.0 / aspectRatio;
+            } else {
+                 outputHeight = 800.0;
+                 outputWidth = 800.0 * aspectRatio;
             }
+        }
+        svg.setOutputSize(outputWidth, outputHeight);
 
-            if (hits.size() < 2) {
-                return false;
+        // We use the View bounds directly (WYSIWYG).
+        // This part of the code is not directly used in the current SVGWriter implementation,
+        // as SVGWriter handles the header. However, the outputWidth/Height and scaling logic
+        // below are relevant.
+        // file << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+        // file << "<svg xmlns=\"http://www.w3.org/2000/svg\" ";
+        // file << "viewBox=\"" << minX << " " << minY << " " << width << " " << height << "\" ";
+        // file << "width=\"" << outputWidth << "\" height=\"" << outputHeight << "\">\n";
+        // file << "  <g>\n";
+
+        // Background
+        SVGWriter::Style bgStyle;
+        bgStyle.fill = "white";
+        bgStyle.stroke = "none";
+        // Background in world-space viewBox
+        svg.drawRect(minX, minY, width, height, bgStyle);
+
+        // ========================================================================
+        // SCALING FIX:
+        // Calculate stroke/radius in World Units corresponding to Screen Pixels.
+        // Derived from: desired_pixels * (world_width / output_width)
+        // This ensures lineweights look "normal" (e.g. 2px) regardless of zoom level.
+        // ========================================================================
+        double pixelToWorldScale = width / outputWidth;
+        
+        double strokeWidth = 2.0 * pixelToWorldScale;       // ~2 pixels thick
+        double pointRadius = 4.0 * pixelToWorldScale;       // ~4 pixels radius
+        double gridStrokeWidth = 1.0 * pixelToWorldScale;   // ~1 pixel grid
+
+        // Grid
+        // Adaptive grid size to prevent massive file size on large coordinates
+        double adaptiveGridStep = Constants::GRID_SIZE;
+        double maxDimension = std::max(width, height);
+        
+        // If view is very large, increase grid step to keep line count reasonable (~200 lines max)
+        if (maxDimension / adaptiveGridStep > 200.0) {
+            adaptiveGridStep = maxDimension / 200.0;
+        }
+
+        // Begin flipped group for all world-space geometry (Y-up)
+        svg.beginGroup("translate(0," + std::to_string(minY + maxY) + ") scale(1,-1)");
+
+        if (editor.isGridVisible()) {
+            SVGWriter::Style gridStyle;
+            gridStyle.stroke = "#e0e0e0";
+            gridStyle.strokeWidth = gridStrokeWidth; // Use the calculated adaptive grid stroke width
+
+            for (double y = std::floor(minY / adaptiveGridStep) * adaptiveGridStep; y <= maxY; y += adaptiveGridStep) {
+                svg.drawLine(minX, y, maxX, y, gridStyle);
             }
+            for (double x = std::floor(minX / adaptiveGridStep) * adaptiveGridStep; x <= maxX; x += adaptiveGridStep) {
+                svg.drawLine(x, minY, x, maxY, gridStyle);
+            }
+        }
 
-            std::sort(hits.begin(), hits.end(), [](const Hit& h1, const Hit& h2) {
-                return h1.t < h2.t;
-            });
+        // Axes
+        if (editor.areAxesVisible()) {
+            SVGWriter::Style axesStyle;
+            axesStyle.stroke = "#000000";
+            axesStyle.strokeWidth = strokeWidth;
+            svg.drawLine(minX, 0.0, maxX, 0.0, axesStyle);
+            svg.drawLine(0.0, minY, 0.0, maxY, axesStyle);
+        }
 
-            outA = hits.front().p;
-            outB = hits.back().p;
-            return true;
-        };
+        // Removed redundant definitions
 
+
+        // STEP 4: Shapes
+        // Rectangles
         for (const auto& rect : editor.rectangles) {
             if (rect && rect->isValid() && rect->isVisible()) {
                 auto vertices = rect->getInteractableVertices();
-                if (vertices.size() >= 4) {
-                    file << "  <polygon points=\"";
-                    for (size_t i = 0; i < vertices.size(); ++i) {
-                        double x = CGAL::to_double(vertices[i].x());
-                        double y = CGAL::to_double(vertices[i].y());
-                        file << x << "," << y;
-                        if (i < vertices.size() - 1) file << " ";
-                    }
-                    file << "\" fill=\"none\" stroke=\"" << colorToHex(rect->getColor());
-                    file << "\" stroke-width=\"2\"/>\n";
-                }
+                std::vector<std::pair<double, double>> points;
+                for(const auto& v : vertices) points.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
+                
+                SVGWriter::Style style;
+                style.stroke = colorToHex(rect->getColor());
+                style.strokeWidth = strokeWidth;
+                svg.drawPolygon(points, style);
+            }
+        }
+        
+        // Lines
+        for (const auto& ln : editor.lines) {
+            if (ln && ln->isValid() && ln->isVisible()) {
+                Point_2 start = ln->getStartPoint();
+                Point_2 end = ln->getEndPoint();
+                
+                SVGWriter::Style style;
+                style.stroke = colorToHex(ln->getColor());
+                style.strokeWidth = strokeWidth;
+                
+                // Handle infinite lines / rays by clipping to view bounds?
+                // For now exporting segments as is.
+                svg.drawLine(CGAL::to_double(start.x()), CGAL::to_double(start.y()),
+                             CGAL::to_double(end.x()), CGAL::to_double(end.y()), style);
             }
         }
 
+        // Circles
+        for (const auto& ci : editor.circles) {
+             if (ci && ci->isValid() && ci->isVisible()) {
+                Point_2 center = ci->getCGALPosition();
+                SVGWriter::Style style;
+                style.stroke = colorToHex(ci->getColor());
+                style.strokeWidth = strokeWidth;
+                svg.drawCircle(CGAL::to_double(center.x()), CGAL::to_double(center.y()), ci->getRadius(), style);
+             }
+        }
+        
+        // Polygons
         for (const auto& poly : editor.polygons) {
             if (poly && poly->isValid() && poly->isVisible()) {
                 auto vertices = poly->getInteractableVertices();
-                if (!vertices.empty()) {
-                    file << "  <polygon points=\"";
-                    for (size_t i = 0; i < vertices.size(); ++i) {
-                        double x = CGAL::to_double(vertices[i].x());
-                        double y = CGAL::to_double(vertices[i].y());
-                        file << x << "," << y;
-                        if (i < vertices.size() - 1) file << " ";
-                    }
-                    file << "\" fill=\"none\" stroke=\"" << colorToHex(poly->getColor());
-                    file << "\" stroke-width=\"2\"/>\n";
-                }
+                std::vector<std::pair<double, double>> points;
+                for(const auto& v : vertices) points.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
+                
+                SVGWriter::Style style;
+                style.stroke = colorToHex(poly->getColor());
+                style.strokeWidth = strokeWidth;
+                svg.drawPolygon(points, style);
             }
         }
 
-        for (const auto& tri : editor.triangles) {
+        // Triangles
+         for (const auto& tri : editor.triangles) {
             if (tri && tri->isValid() && tri->isVisible()) {
                 auto vertices = tri->getInteractableVertices();
-                if (vertices.size() >= 3) {
-                    file << "  <polygon points=\"";
-                    for (size_t i = 0; i < 3; ++i) {
-                        double x = CGAL::to_double(vertices[i].x());
-                        double y = CGAL::to_double(vertices[i].y());
-                        file << x << "," << y;
-                        if (i < 2) file << " ";
-                    }
-                    file << "\" fill=\"none\" stroke=\"" << colorToHex(tri->getColor());
-                    file << "\" stroke-width=\"2\"/>\n";
-                }
+                std::vector<std::pair<double, double>> points;
+                for(const auto& v : vertices) points.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
+                
+                SVGWriter::Style style;
+                style.stroke = colorToHex(tri->getColor());
+                style.strokeWidth = strokeWidth;
+                svg.drawPolygon(points, style);
             }
         }
 
-        for (const auto& rpoly : editor.regularPolygons) {
-            if (rpoly && rpoly->isValid() && rpoly->isVisible()) {
-                auto vertices = rpoly->getInteractableVertices();
-                if (!vertices.empty()) {
-                    file << "  <polygon points=\"";
-                    for (size_t i = 0; i < vertices.size(); ++i) {
-                        double x = CGAL::to_double(vertices[i].x());
-                        double y = CGAL::to_double(vertices[i].y());
-                        file << x << "," << y;
-                        if (i < vertices.size() - 1) file << " ";
-                    }
-                    file << "\" fill=\"none\" stroke=\"" << colorToHex(rpoly->getColor());
-                    file << "\" stroke-width=\"2\"/>\n";
-                }
+        // Regular Polygons
+         for (const auto& rp : editor.regularPolygons) {
+            if (rp && rp->isValid() && rp->isVisible()) {
+                auto vertices = rp->getInteractableVertices();
+                std::vector<std::pair<double, double>> points;
+                for(const auto& v : vertices) points.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
+                
+                SVGWriter::Style style;
+                style.stroke = colorToHex(rp->getColor());
+                style.strokeWidth = strokeWidth;
+                svg.drawPolygon(points, style);
             }
         }
 
-        for (const auto& ci : editor.circles) {
-            if (ci && ci->isValid() && ci->isVisible()) {
-                Point_2 center = ci->getCGALPosition();
-                double cx = CGAL::to_double(center.x());
-                double cy = CGAL::to_double(center.y());
-                double r = ci->getRadius();
-
-                file << "  <circle cx=\"" << cx << "\" cy=\"" << cy << "\" r=\"" << r;
-                file << "\" fill=\"none\" stroke=\"" << colorToHex(ci->getColor());
-                file << "\" stroke-width=\"2\"/>\n";
-            }
-        }
-
-        sf::FloatRect viewRect(left, top, viewSize.x, viewSize.y);
-        for (const auto& ln : editor.lines) {
-            if (ln && ln->isValid() && ln->isVisible()) {
-                if (ln->isSegment()) {
-                    Point_2 start = ln->getStartPoint();
-                    Point_2 end = ln->getEndPoint();
-
-                    double x1 = CGAL::to_double(start.x());
-                    double y1 = CGAL::to_double(start.y());
-                    double x2 = CGAL::to_double(end.x());
-                    double y2 = CGAL::to_double(end.y());
-
-                    file << "  <line x1=\"" << x1 << "\" y1=\"" << y1;
-                    file << "\" x2=\"" << x2 << "\" y2=\"" << y2;
-                    file << "\" stroke=\"" << colorToHex(ln->getColor());
-                    file << "\" stroke-width=\"2\"/>\n";
-                } else {
-                    sf::Vector2f a, b;
-                    Point_2 p1 = ln->getStartPoint();
-                    Point_2 p2 = ln->getEndPoint();
-                    if (clipLineToRect(p1, p2, viewRect, a, b)) {
-                        file << "  <line x1=\"" << a.x << "\" y1=\"" << a.y;
-                        file << "\" x2=\"" << b.x << "\" y2=\"" << b.y;
-                        file << "\" stroke=\"" << colorToHex(ln->getColor());
-                        file << "\" stroke-width=\"2\"/>\n";
-                    }
-                }
-            }
-        }
-
+        // Points (Draw on top)
         for (const auto& pt : editor.points) {
             if (pt && pt->isValid() && pt->isVisible()) {
                 Point_2 pos = pt->getCGALPosition();
-                double x = CGAL::to_double(pos.x());
-                double y = CGAL::to_double(pos.y());
-
-                file << "  <circle cx=\"" << x << "\" cy=\"" << y << "\" r=\"4";
-                file << "\" fill=\"" << colorToHex(pt->getColor()) << "\"/>\n";
+                SVGWriter::Style style;
+                style.fill = colorToHex(pt->getColor());
+                style.stroke = "none";
+                svg.drawCircle(CGAL::to_double(pos.x()), CGAL::to_double(pos.y()), pointRadius, style);
+            }
+        }
+        
+        for (const auto& pt : editor.ObjectPoints) {
+            if (pt && pt->isValid() && pt->isVisible()) {
+                Point_2 pos = pt->getCGALPosition();
+                SVGWriter::Style style;
+                style.fill = colorToHex(pt->getColor());
+                style.stroke = "none";
+                svg.drawCircle(CGAL::to_double(pos.x()), CGAL::to_double(pos.y()), pointRadius, style);
             }
         }
 
-        for (const auto& op : editor.ObjectPoints) {
-            if (op && op->isValid() && op->isVisible()) {
-                Point_2 pos = op->getCGALPosition();
-                double x = CGAL::to_double(pos.x());
-                double y = CGAL::to_double(pos.y());
+        // End flipped group
+        svg.endGroup();
 
-                file << "  <circle cx=\"" << x << "\" cy=\"" << y << "\" r=\"4";
-                file << "\" fill=\"" << colorToHex(op->getColor()) << "\"/>\n";
-            }
+        // Save file
+        if (svg.save(filepath)) {
+            std::cout << "SVG exported successfully (Professional Writer): " << filepath << std::endl;
+            return true;
+        } else {
+             std::cerr << "ProjectSerializer::exportSVG: Failed to save file." << std::endl;
+             return false;
         }
-
-        file << "</svg>\n";
-        file.close();
-
-        std::cout << "SVG exported successfully to: " << filepath << std::endl;
-        return true;
 
     } catch (const std::exception& e) {
         std::cerr << "ProjectSerializer::exportSVG: Exception: " << e.what() << std::endl;
         return false;
     }
 }
+// End exportSVG

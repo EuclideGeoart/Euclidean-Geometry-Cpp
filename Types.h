@@ -39,3 +39,10 @@ inline FT safe_zero_ft() { return FT(0); }
 
 // Helper function to create a "safe" one FT
 inline FT safe_one_ft() { return FT(1); }
+
+// Line decoration symbols
+enum class DecorationType {
+    None,
+    Tick1, Tick2, Tick3,    // For Equality (e.g., AB = CD)
+    Arrow1, Arrow2, Arrow3  // For Parallelism (e.g., AB || CD)
+};

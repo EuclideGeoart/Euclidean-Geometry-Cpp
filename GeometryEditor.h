@@ -108,6 +108,9 @@ class GeometryEditor {
   void changeSelectedObjectColor(sf::Color newColor);
 
   float currentThickness = Constants::LINE_THICKNESS_DEFAULT;
+  float currentPointSize = 4.0f;
+  float guiFontSize = 13.0f;        // Font size for ImGui interface
+  float drawingFontSize = 18.0f;    // Font size for drawable object labels
   
   GUI& getGUI() { return gui; }
 
@@ -144,6 +147,7 @@ class GeometryEditor {
   bool isDraggingLabel = false;
   GeometricObject *labelDragObject = nullptr;
   sf::Vector2f labelDragGrabOffset = sf::Vector2f(0.f, 0.f);
+  int labelDragVertexIndex = -1;  // For shapes with multiple vertex labels (Rectangle, etc.)
     
   // Edge hover tracking for universal snapping
   std::optional<EdgeHitResult> m_hoveredEdge;  // Currently hovered edge (if any)
@@ -510,7 +514,6 @@ class GeometryEditor {
 
  public:
   // Current visual properties state
-  float currentPointSize = 5.0f; // Default point size
   sf::Color currentColor = sf::Color::Black;
   sf::Color backgroundColor = Constants::BACKGROUND_COLOR;
 

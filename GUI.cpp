@@ -1,20 +1,23 @@
 #include "GUI.h"
 
+#include <imgui-SFML.h>
+#include <imgui.h>
+
 #include <SFML/Graphics/Color.hpp>
 #include <algorithm>  // For std::clamp
 #include <cmath>
-#include <iostream>   // For std::cerr
-#include <string>     // Include very early for any string operations
+#include <iostream>  // For std::cerr
+#include <string>    // Include very early for any string operations
 
 #include "Angle.h"
 #include "CharTraitsFix.h"  // Include very early
 #include "Constants.h"      // For Constants::BUTTON_TEXT_SIZE, etc.
 #include "FileDialogs.h"
 #include "GeometryEditor.h"  // Include the full definition of GeometryEditor
+#include "VertexLabelManager.h"  // For font size control
 #include "LineToolMode.h"    // Include this to access LineToolMode enum and globals
 #include "ObjectType.h"      // Include the definition for ObjectType enum
-#include <imgui.h>
-#include <imgui-SFML.h>
+
 
 float g_transformRotationDegrees = 45.0f;
 float g_transformDilationFactor = 2.0f;
@@ -23,14 +26,11 @@ float g_angleInputDegrees = 60.0f;
 static bool s_showTransformTools = false;
 
 static bool isTransformButtonLabel(const std::string& label) {
-  return label == "RflLine" || label == "RflPt" || label == "Invert" ||
-         label == "Rotate" || label == "Translate" || label == "Dilate" ||
+  return label == "RflLine" || label == "RflPt" || label == "Invert" || label == "Rotate" || label == "Translate" || label == "Dilate" ||
          label == "Rot+" || label == "Rot-" || label == "Dil+" || label == "Dil-";
 }
 
-static ImVec4 toImVec4(const sf::Color& color) {
-  return ImVec4(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f);
-}
+static ImVec4 toImVec4(const sf::Color& color) { return ImVec4(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f); }
 
 static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, bool messageActive) {
   ImGuiIO& io = ImGui::GetIO();
@@ -39,17 +39,16 @@ static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, boo
   // Top-right: static keybinds (use semi-opaque grey background so white text is visible)
   ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - padding, padding + 20.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
   ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.18f, 0.18f, 0.18f, 0.85f));
-  ImGuiWindowFlags keyFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                              ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                              ImGuiWindowFlags_NoInputs;
+  ImGuiWindowFlags keyFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                              ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
   if (ImGui::Begin("KeysOverlay", nullptr, keyFlags)) {
-    ImGui::TextColored(ImVec4(1,1,1,1), "Alt: Snap to Point");
-    ImGui::TextColored(ImVec4(1,1,1,1), "Shift: Snap to Grid");
-    ImGui::TextColored(ImVec4(1,1,1,1), "Ctrl: Multi-Select");
-    ImGui::TextColored(ImVec4(1,1,1,1), "F+/-: Scale UI");
-    ImGui::TextColored(ImVec4(1,1,1,1), "Del: Delete Object");
-    ImGui::TextColored(ImVec4(1,1,1,1), "H: Toggle Labels");
-    ImGui::TextColored(ImVec4(1,1,1,1), "R: Select point and click R to change the label");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "Alt: Snap to Point");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "Shift: Snap to Grid");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "Ctrl: Multi-Select");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "F+/-: Scale UI");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "Del: Delete Object");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "H: Toggle Labels");
+    ImGui::TextColored(ImVec4(1, 1, 1, 1), "R: Select point and click R to change the label");
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -65,9 +64,8 @@ static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, boo
   if (!msg.empty()) {
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, padding + 20.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.5f, 0.5f, 0.5f, 0.9f));
-    ImGuiWindowFlags hintFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                                 ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-                                 ImGuiWindowFlags_NoInputs;
+    ImGuiWindowFlags hintFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
     if (ImGui::Begin("HintOverlay", nullptr, hintFlags)) {
       ImGui::TextColored(toImVec4(Constants::TOOL_HINT_COLOR), "%s", msg.c_str());
     }
@@ -75,7 +73,6 @@ static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, boo
     ImGui::PopStyleColor();
   }
 }
-
 
 bool ColorPicker::handleEvent(const sf::Event& event, const sf::Vector2f& mousePos) {
   if (!m_isOpen) return false;
@@ -466,7 +463,7 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   // Axes toggle
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Axes", Constants::BUTTON_INACTIVE_COLOR,
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
-  buttons.back().setActive(true); // Axes visible by default
+  buttons.back().setActive(true);  // Axes visible by default
   currentX += buttonWidth + spacing;
 
   // Reset view button
@@ -602,9 +599,13 @@ bool GUI::handleSliderInteraction(const sf::Vector2i& mousePos, GeometryEditor& 
     int snappedValue = static_cast<int>(std::round(1.0f + t * 9.0f));
     snappedValue = std::clamp(snappedValue, 1, 10);
     editor.currentThickness = static_cast<float>(snappedValue);
-    if (editor.selectedObject &&
-        (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
-      editor.selectedObject->setThickness(editor.currentThickness);
+    if (editor.selectedObject) {
+      auto type = editor.selectedObject->getType();
+      if (type == ObjectType::Line || type == ObjectType::LineSegment || type == ObjectType::Ray || type == ObjectType::Vector ||
+          type == ObjectType::Circle || type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable ||
+          type == ObjectType::Triangle || type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
+        editor.selectedObject->setThickness(editor.currentThickness);
+      }
     }
     return true;
   }
@@ -664,208 +665,210 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
 
   // Sidebar Tool Panel
   const float windowHeight = static_cast<float>(editor.window.getSize().y);
-  
+
   // Set position always, but allow size to be changed by user
-  ImGui::SetNextWindowPos(ImVec2(0, 18), ImGuiCond_Always); 
+  ImGui::SetNextWindowPos(ImVec2(0, 18), ImGuiCond_Always);
   ImGui::SetNextWindowSizeConstraints(ImVec2(150, windowHeight - 18), ImVec2(800, windowHeight - 18));
   ImGui::SetNextWindowSize(ImVec2(m_sidebarWidth, windowHeight - 18), ImGuiCond_FirstUseEver);
 
   ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
 
   if (ImGui::Begin("Tools", nullptr, flags)) {
-    m_sidebarWidth = ImGui::GetWindowWidth(); // Update tracked width
-    
+    m_sidebarWidth = ImGui::GetWindowWidth();  // Update tracked width
+
     ImGui::Text("Mode: %s", editor.getCurrentToolName().c_str());
     ImGui::Separator();
 
-  // Tool Button Helper
-  auto DrawToolButton = [&](const char* label, ObjectType toolType, const char* hint, std::function<void()> onActivate = nullptr) {
-    bool isActive = (editor.getCurrentTool() == toolType);
-    if (isActive) {
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.8f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.3f, 0.9f, 1.0f));
-    }
-    if (ImGui::Button(label, ImVec2(-1, 0))) {
-      editor.setCurrentTool(toolType);
-      editor.clearSelection();
-      if (hint && *hint) editor.setToolHint(hint);
-      if (onActivate) onActivate();
-    }
-    if (isActive) ImGui::PopStyleColor(2);
-  };
+    // Tool Button Helper
+    auto DrawToolButton = [&](const char* label, ObjectType toolType, const char* hint, std::function<void()> onActivate = nullptr) {
+      bool isActive = (editor.getCurrentTool() == toolType);
+      if (isActive) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.8f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.3f, 0.9f, 1.0f));
+      }
+      if (ImGui::Button(label, ImVec2(-1, 0))) {
+        editor.setCurrentTool(toolType);
+        editor.clearSelection();
+        if (hint && *hint) editor.setToolHint(hint);
+        if (onActivate) onActivate();
+      }
+      if (isActive) ImGui::PopStyleColor(2);
+    };
 
-  static int s_regularPolygonSidesInput = 6;
+    static int s_regularPolygonSidesInput = 6;
 
-  // --- RESTORED VIEW & PROJECT SECTION ---
-  if (ImGui::CollapsingHeader("View & Project", ImGuiTreeNodeFlags_DefaultOpen)) {
-    bool grid = editor.isGridVisible();
-    if (ImGui::Checkbox("Show Grid", &grid)) editor.toggleGrid();
-    ImGui::SameLine();
-    bool axes = editor.areAxesVisible();
-    if (ImGui::Checkbox("Show Axes", &axes)) editor.toggleAxes();
+    // --- RESTORED VIEW & PROJECT SECTION ---
+    if (ImGui::CollapsingHeader("View & Project", ImGuiTreeNodeFlags_DefaultOpen)) {
+      bool grid = editor.isGridVisible();
+      if (ImGui::Checkbox("Show Grid", &grid)) editor.toggleGrid();
+      ImGui::SameLine();
+      bool axes = editor.areAxesVisible();
+      if (ImGui::Checkbox("Show Axes", &axes)) editor.toggleAxes();
 
-    if (ImGui::Button("Reset View", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
+      if (ImGui::Button("Reset View", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
         editor.resetView();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Export SVG", ImVec2(-1, 0))) {
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Export SVG", ImVec2(-1, 0))) {
         std::string path = FileDialogs::SaveFile("Scalable Vector Graphics (*.svg)\0*.svg\0", "svg");
         if (!path.empty()) {
-            editor.exportSVG(path);
-            editor.setGUIMessage("Exported to SVG");
+          editor.exportSVG(path);
+          editor.setGUIMessage("Exported to SVG");
         }
-    }
-    
-    if (ImGui::Button("Save As...", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
+      }
+
+      if (ImGui::Button("Save As...", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
         std::string path = FileDialogs::SaveFile("JSON Project (*.json)\0*.json\0", "json");
         if (!path.empty()) editor.saveProject(path);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Load Project", ImVec2(-1, 0))) {
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Load Project", ImVec2(-1, 0))) {
         std::string path = FileDialogs::OpenFile("JSON Project (*.json)\0*.json\0");
         if (!path.empty()) editor.loadProject(path);
+      }
     }
-  }
 
-  // --- ANGLE PROPERTIES (ONLY IF ANGLE SELECTED) ---
-  if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
-    if (ImGui::CollapsingHeader("Angle Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+    // --- ANGLE PROPERTIES (ONLY IF ANGLE SELECTED) ---
+    if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
+      if (ImGui::CollapsingHeader("Angle Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto angle = std::dynamic_pointer_cast<Angle>(editor.findSharedPtr(editor.selectedObject));
         if (angle) {
-            bool reflex = angle->isReflex();
-            if (ImGui::Checkbox("Show Reflex Angle (0-360\xC2\xB0)", &reflex)) {
-                angle->setReflex(reflex);
-            }
+          bool reflex = angle->isReflex();
+          if (ImGui::Checkbox("Show Reflex Angle (0-360\xC2\xB0)", &reflex)) {
+            angle->setReflex(reflex);
+          }
         }
+      }
     }
-  }
 
-  // --- VECTOR PROPERTIES (ONLY IF VECTOR SELECTED) ---
-  if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Vector) {
-    if (ImGui::CollapsingHeader("Vector Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+    // --- VECTOR PROPERTIES (ONLY IF VECTOR SELECTED) ---
+    if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Vector) {
+      if (ImGui::CollapsingHeader("Vector Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto vecLine = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(editor.selectedObject));
         if (vecLine && vecLine->isValid()) {
-             Point_2 p1 = vecLine->getStartPoint();
-             Point_2 p2 = vecLine->getEndPoint();
-             double dx = CGAL::to_double(p2.x() - p1.x());
-             double dy = CGAL::to_double(p2.y() - p1.y());
-             double mag = std::sqrt(dx*dx + dy*dy);
-             double angleRad = std::atan2(dy, dx);
-             double angleDeg = angleRad * 180.0 / M_PI;
-             if (angleDeg < 0) angleDeg += 360.0;
-             
-             ImGui::Text("Magnitude: %.2f", mag);
-             ImGui::Text("Angle: %.2f\xC2\xB0", angleDeg);
-             ImGui::Text("Components: (%.2f, %.2f)", dx, dy);
-        }
-    }
-  }
+          Point_2 p1 = vecLine->getStartPoint();
+          Point_2 p2 = vecLine->getEndPoint();
+          double dx = CGAL::to_double(p2.x() - p1.x());
+          double dy = CGAL::to_double(p2.y() - p1.y());
+          double mag = std::sqrt(dx * dx + dy * dy);
+          double angleRad = std::atan2(dy, dx);
+          double angleDeg = angleRad * 180.0 / M_PI;
+          if (angleDeg < 0) angleDeg += 360.0;
 
-  if (ImGui::CollapsingHeader("Construction", ImGuiTreeNodeFlags_DefaultOpen)) {
-    DrawToolButton("Move/Select", ObjectType::None, "Click to select. Drag to move. Ctrl+Drag to snap.");
-    DrawToolButton("Point", ObjectType::Point, "Click to create a point.");
-    DrawToolButton("Line", ObjectType::Line, "Click start point, then click end point (Ctrl to snap).");
-    DrawToolButton("Segment", ObjectType::LineSegment, "Click start point, then click end point (Ctrl to snap).");
-    DrawToolButton("Circle", ObjectType::Circle, "Click center, then drag radius.");
-    DrawToolButton("ObjPoint", ObjectType::ObjectPoint, "Click on a line or circle to attach a point.");
-    DrawToolButton("Intersection", ObjectType::Intersection, "Click two objects to find their intersection.");
-    DrawToolButton("Midpoint", ObjectType::Midpoint, "Select two points (or a line) to find the middle.");
-    DrawToolButton("Compass", ObjectType::Compass, "Select segment/2 points for radius, then a center point.");
-    DrawToolButton("Parallel", ObjectType::ParallelLine, "Click a reference line, then place the parallel line.", [](){ resetParallelLineState(); });
-    DrawToolButton("Perpendicular", ObjectType::PerpendicularLine, "Click a reference line, then place the perpendicular line.", [](){ resetPerpLineState(); });
-    DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector, "Pick two points or one segment.", [&](){
+          ImGui::Text("Magnitude: %.2f", mag);
+          ImGui::Text("Angle: %.2f\xC2\xB0", angleDeg);
+          ImGui::Text("Components: (%.2f, %.2f)", dx, dy);
+        }
+      }
+    }
+
+    if (ImGui::CollapsingHeader("Construction", ImGuiTreeNodeFlags_DefaultOpen)) {
+      DrawToolButton("Move/Select", ObjectType::None, "Click to select. Drag to move. Ctrl+Drag to snap.");
+      DrawToolButton("Point", ObjectType::Point, "Click to create a point.");
+      DrawToolButton("Line", ObjectType::Line, "Click start point, then click end point (Ctrl to snap).");
+      DrawToolButton("Segment", ObjectType::LineSegment, "Click start point, then click end point (Ctrl to snap).");
+      DrawToolButton("Circle", ObjectType::Circle, "Click center, then drag radius.");
+      DrawToolButton("ObjPoint", ObjectType::ObjectPoint, "Click on a line or circle to attach a point.");
+      DrawToolButton("Intersection", ObjectType::Intersection, "Click two objects to find their intersection.");
+      DrawToolButton("Midpoint", ObjectType::Midpoint, "Select two points (or a line) to find the middle.");
+      DrawToolButton("Compass", ObjectType::Compass, "Select segment/2 points for radius, then a center point.");
+      DrawToolButton("Parallel", ObjectType::ParallelLine, "Click a reference line, then place the parallel line.",
+                     []() { resetParallelLineState(); });
+      DrawToolButton("Perpendicular", ObjectType::PerpendicularLine, "Click a reference line, then place the perpendicular line.",
+                     []() { resetPerpLineState(); });
+      DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector, "Pick two points or one segment.", [&]() {
         editor.isCreatingPerpendicularBisector = false;
         editor.perpBisectorP1 = nullptr;
         editor.perpBisectorP2 = nullptr;
         editor.perpBisectorLineRef = nullptr;
-    });
-    DrawToolButton("Angle Bisector", ObjectType::AngleBisector, "Select A, vertex B, C or two lines.", [&](){
+      });
+      DrawToolButton("Angle Bisector", ObjectType::AngleBisector, "Select A, vertex B, C or two lines.", [&]() {
         editor.isCreatingAngleBisector = false;
         editor.angleBisectorPoints.clear();
         editor.angleBisectorLine1 = nullptr;
         editor.angleBisectorLine2 = nullptr;
-    });
-    DrawToolButton("Tangent", ObjectType::TangentLine, "Select a point then a circle.", [&](){
+      });
+      DrawToolButton("Tangent", ObjectType::TangentLine, "Select a point then a circle.", [&]() {
         editor.isCreatingTangent = false;
         editor.tangentAnchorPoint = nullptr;
         editor.tangentCircle = nullptr;
-    });
-    DrawToolButton("Detach", ObjectType::Detach, "Click a shared line endpoint to detach it.");
-    DrawToolButton("Hide/Show", ObjectType::Hide, "Click objects to hide them. Click ghosts (force visible) to unhide.");
-  }
-
-
-  if (ImGui::CollapsingHeader("Shapes", ImGuiTreeNodeFlags_DefaultOpen)) {
-    DrawToolButton("Rectangle", ObjectType::Rectangle, "Click corner, then drag to opposite corner.");
-    DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable, "Click first corner, drag side, then drag width.");
-    DrawToolButton("Triangle", ObjectType::Triangle, "Click 3 points to create a triangle.");
-    DrawToolButton("Polygon", ObjectType::Polygon, "Click vertices. Press Enter to finish.");
-    DrawToolButton("Regular Polygon", ObjectType::RegularPolygon, "Click center, then drag for size/rotation.", [&](){
-      editor.showRegularPolygonSidesPopup = true;
-    });
-
-    if (editor.showRegularPolygonSidesPopup) {
-      ImGui::OpenPopup("Regular Polygon Sides");
-      editor.showRegularPolygonSidesPopup = false;
-      s_regularPolygonSidesInput = std::max(3, editor.regularPolygonNumSides);
+      });
+      DrawToolButton("Detach", ObjectType::Detach, "Click a shared line endpoint to detach it.");
+      DrawToolButton("Hide/Show", ObjectType::Hide, "Click objects to hide them. Click ghosts (force visible) to unhide.");
     }
 
-    if (ImGui::BeginPopupModal("Regular Polygon Sides", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-      ImGui::Text("Number of sides (>=3):");
-      ImGui::InputInt("##regular_polygon_sides", &s_regularPolygonSidesInput);
-      s_regularPolygonSidesInput = std::max(3, s_regularPolygonSidesInput);
-      if (ImGui::Button("OK", ImVec2(120, 0))) {
-        editor.regularPolygonNumSides = std::max(3, s_regularPolygonSidesInput);
-        ImGui::CloseCurrentPopup();
+    if (ImGui::CollapsingHeader("Shapes", ImGuiTreeNodeFlags_DefaultOpen)) {
+      DrawToolButton("Rectangle", ObjectType::Rectangle, "Click corner, then drag to opposite corner.");
+      DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable, "Click first corner, drag side, then drag width.");
+      DrawToolButton("Triangle", ObjectType::Triangle, "Click 3 points to create a triangle.");
+      DrawToolButton("Polygon", ObjectType::Polygon, "Click vertices. Press Enter to finish.");
+      DrawToolButton("Regular Polygon", ObjectType::RegularPolygon, "Click center, then drag for size/rotation.",
+                     [&]() { editor.showRegularPolygonSidesPopup = true; });
+
+      if (editor.showRegularPolygonSidesPopup) {
+        ImGui::OpenPopup("Regular Polygon Sides");
+        editor.showRegularPolygonSidesPopup = false;
+        s_regularPolygonSidesInput = std::max(3, editor.regularPolygonNumSides);
       }
-      ImGui::SameLine();
-      if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-        ImGui::CloseCurrentPopup();
+
+      if (ImGui::BeginPopupModal("Regular Polygon Sides", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Number of sides (>=3):");
+        ImGui::InputInt("##regular_polygon_sides", &s_regularPolygonSidesInput);
+        s_regularPolygonSidesInput = std::max(3, s_regularPolygonSidesInput);
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+          editor.regularPolygonNumSides = std::max(3, s_regularPolygonSidesInput);
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
       }
-      ImGui::EndPopup();
+
+      // --- New Tools ---
+      DrawToolButton("Ray", ObjectType::Ray, "Click start, then direction point.");
+      DrawToolButton("Vector", ObjectType::Vector, "Click start, then end point.");
+      DrawToolButton("Semicircle", ObjectType::Semicircle, "Click center, then two points for diameter.");
+      DrawToolButton("Circle3P", ObjectType::Circle3P, "Click three points to define the circle.");
+      DrawToolButton("AngleGiven", ObjectType::AngleGiven, "Click vertex, then set angle.");
     }
 
-    // --- New Tools ---
-    DrawToolButton("Ray", ObjectType::Ray, "Click start, then direction point.");
-    DrawToolButton("Vector", ObjectType::Vector, "Click start, then end point.");
-    DrawToolButton("Semicircle", ObjectType::Semicircle, "Click center, then two points for diameter.");
-    DrawToolButton("Circle3P", ObjectType::Circle3P, "Click three points to define the circle.");
-    DrawToolButton("AngleGiven", ObjectType::AngleGiven, "Click vertex, then set angle.");
-  }
+    if (ImGui::CollapsingHeader("Measure", ImGuiTreeNodeFlags_DefaultOpen)) {
+      DrawToolButton("Angle", ObjectType::Angle, "Click Point A, Vertex, then Point B.");
+    }
 
-  if (ImGui::CollapsingHeader("Measure", ImGuiTreeNodeFlags_DefaultOpen)) {
-    DrawToolButton("Angle", ObjectType::Angle, "Click Point A, Vertex, then Point B.");
-  }
+    if (ImGui::CollapsingHeader("Transformations", ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::InputFloat("Rotation (deg)", &g_transformRotationDegrees, 1.0f, 5.0f, "%.1f");
+      ImGui::InputFloat("Dilation factor", &g_transformDilationFactor, 0.1f, 0.5f, "%.2f");
 
-  if (ImGui::CollapsingHeader("Transformations", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::InputFloat("Rotation (deg)", &g_transformRotationDegrees, 1.0f, 5.0f, "%.1f");
-    ImGui::InputFloat("Dilation factor", &g_transformDilationFactor, 0.1f, 0.5f, "%.2f");
-    
-    DrawToolButton("Reflect about Line", ObjectType::ReflectAboutLine, "Select source point, then a line.");
-    DrawToolButton("Reflect about Point", ObjectType::ReflectAboutPoint, "Select source point, then a center point.");
-    DrawToolButton("Invert (Circle)", ObjectType::ReflectAboutCircle, "Select source point, then a circle.");
-    DrawToolButton("Rotate around Point", ObjectType::RotateAroundPoint, "Select source point, then pivot point.");
-    DrawToolButton("Translate by Vector", ObjectType::TranslateByVector, "Select source point, then vector start and end points.");
-    DrawToolButton("Dilate from Point", ObjectType::DilateFromPoint, "Select source point, then dilation center.");
-  }
+      DrawToolButton("Reflect about Line", ObjectType::ReflectAboutLine, "Select source (Hold K for whole shape), then a line.");
+      DrawToolButton("Reflect about Point", ObjectType::ReflectAboutPoint, "Select source (Hold K for whole shape), then a center point.");
+      DrawToolButton("Invert (Circle)", ObjectType::ReflectAboutCircle, "Select source (Hold K for whole shape), then a circle.");
+      DrawToolButton("Rotate around Point", ObjectType::RotateAroundPoint, "Select source (Hold K for whole shape), then pivot point.");
+      DrawToolButton("Translate by Vector", ObjectType::TranslateByVector, "Select source (Hold K for whole shape), then vector start and end points.");
+      DrawToolButton("Dilate from Point", ObjectType::DilateFromPoint, "Select source (Hold K for whole shape), then dilation center.");
+    }
 
-  if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-    // Colors
-    ImGui::Text("Color");
-    ImVec4 currentColor = toImVec4(editor.getCurrentColor());
-    if (ImGui::ColorButton("##current_color", currentColor, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoDragDrop, ImVec2(ImGui::GetContentRegionAvail().x, 25))) {
+    if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+      // Colors
+      ImGui::Text("Color");
+      ImVec4 currentColor = toImVec4(editor.getCurrentColor());
+      if (ImGui::ColorButton("##current_color", currentColor,
+                             ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoDragDrop,
+                             ImVec2(ImGui::GetContentRegionAvail().x, 25))) {
         ImGui::OpenPopup("ColorPickerPopup");
-    }
-    
-    // Quick Palette
-    // Helper lambda for multi-selection color application
-    auto applyColorToSelection = [&](const sf::Color& newColor) {
+      }
+
+      // Quick Palette
+      // Helper lambda for multi-selection color application
+      auto applyColorToSelection = [&](const sf::Color& newColor) {
         auto applyToContainer = [&](auto& container) {
-            for (auto& obj : container) {
-                if (obj && obj->isSelected()) {
-                    obj->setColor(newColor);
-                }
+          for (auto& obj : container) {
+            if (obj && obj->isSelected()) {
+              obj->setColor(newColor);
             }
+          }
         };
 
         applyToContainer(editor.points);
@@ -877,66 +880,106 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         applyToContainer(editor.regularPolygons);
         applyToContainer(editor.triangles);
         applyToContainer(editor.angles);
-        
+
         // Also update the currently selected object pointer if it exists (redundant if in container, but safe)
         if (editor.selectedObject) editor.selectedObject->setColor(newColor);
-    };
+      };
 
-    const ImVec4 palette[] = {
-        ImVec4(1, 1, 1, 1),       ImVec4(1, 0, 0, 1),       ImVec4(0, 1, 0, 1),       ImVec4(0, 0, 1, 1),
-        ImVec4(1, 1, 0, 1),       ImVec4(0, 1, 1, 1),       ImVec4(1, 0, 1, 1),       ImVec4(0.5f, 0.5f, 0.5f, 1),
-        ImVec4(1.0f, 0.65f, 0.0f, 1), ImVec4(0.0f, 0.5f, 0.5f, 1), ImVec4(0.5f, 0.0f, 0.5f, 1), ImVec4(1.0f, 0.75f, 0.8f, 1), ImVec4(0.2f, 0.2f, 0.2f, 1), ImVec4(0, 0, 0, 1)
-    };
-    for (int i = 0; i < 14; ++i) { // Updated count to 14
-      if (i > 0 && i % 7 != 0) ImGui::SameLine();
-      ImGui::PushID(i);
-      if (ImGui::ColorButton("##pal", palette[i])) {
-         sf::Color c(static_cast<sf::Uint8>(palette[i].x * 255), static_cast<sf::Uint8>(palette[i].y * 255), static_cast<sf::Uint8>(palette[i].z * 255), 255);
-         editor.setCurrentColor(c);
-         applyColorToSelection(c);
+      const ImVec4 palette[] = {ImVec4(1, 1, 1, 1),           ImVec4(1, 0, 0, 1),          ImVec4(0, 1, 0, 1),          ImVec4(0, 0, 1, 1),
+                                ImVec4(1, 1, 0, 1),           ImVec4(0, 1, 1, 1),          ImVec4(1, 0, 1, 1),          ImVec4(0.5f, 0.5f, 0.5f, 1),
+                                ImVec4(1.0f, 0.65f, 0.0f, 1), ImVec4(0.0f, 0.5f, 0.5f, 1), ImVec4(0.5f, 0.0f, 0.5f, 1), ImVec4(1.0f, 0.75f, 0.8f, 1),
+                                ImVec4(0.2f, 0.2f, 0.2f, 1),  ImVec4(0, 0, 0, 1)};
+      for (int i = 0; i < 14; ++i) {  // Updated count to 14
+        if (i > 0 && i % 7 != 0) ImGui::SameLine();
+        ImGui::PushID(i);
+        if (ImGui::ColorButton("##pal", palette[i])) {
+          sf::Color c(static_cast<sf::Uint8>(palette[i].x * 255), static_cast<sf::Uint8>(palette[i].y * 255),
+                      static_cast<sf::Uint8>(palette[i].z * 255), 255);
+          editor.setCurrentColor(c);
+          applyColorToSelection(c);
+        }
+        ImGui::PopID();
       }
-      ImGui::PopID();
-    }
-    
-    // Embedded Color Picker
-    static float colorBuf[4] = {0,0,0,1};
-    // Sync picker with current color if selection changes (optional, but good UX)
-    // For now, just keep it independent or it might fight with multiple selections having different colors.
-    
-    ImGui::ColorEdit4("Custom", colorBuf, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_DisplayRGB); 
-    if (ImGui::IsItemEdited()) {
-         sf::Color c(static_cast<sf::Uint8>(colorBuf[0] * 255), static_cast<sf::Uint8>(colorBuf[1] * 255), static_cast<sf::Uint8>(colorBuf[2] * 255), static_cast<sf::Uint8>(colorBuf[3] * 255));
-         editor.setCurrentColor(c);
-         applyColorToSelection(c);
-    }
 
-    ImGui::Separator();
-    
-    // Thickness
-    int thickness = static_cast<int>(editor.currentThickness);
-    if (ImGui::SliderInt("Thickness", &thickness, 1, 10)) {
+      // Embedded Color Picker
+      static float colorBuf[4] = {0, 0, 0, 1};
+      // Sync picker with current color if selection changes (optional, but good UX)
+      // For now, just keep it independent or it might fight with multiple selections having different colors.
+
+      ImGui::ColorEdit4("Custom", colorBuf, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_DisplayRGB);
+      if (ImGui::IsItemEdited()) {
+        sf::Color c(static_cast<sf::Uint8>(colorBuf[0] * 255), static_cast<sf::Uint8>(colorBuf[1] * 255), static_cast<sf::Uint8>(colorBuf[2] * 255),
+                    static_cast<sf::Uint8>(colorBuf[3] * 255));
+        editor.setCurrentColor(c);
+        applyColorToSelection(c);
+      }
+
+      ImGui::Separator();
+
+      // Thickness
+      int thickness = static_cast<int>(editor.currentThickness);
+      if (ImGui::SliderInt("Thickness", &thickness, 1, 10)) {
         editor.currentThickness = static_cast<float>(thickness);
-        if (editor.selectedObject && (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+        if (editor.selectedObject) {
+          auto type = editor.selectedObject->getType();
+          if (type == ObjectType::Line || type == ObjectType::LineSegment || type == ObjectType::Ray || type == ObjectType::Vector ||
+              type == ObjectType::Circle || type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable ||
+              type == ObjectType::Triangle || type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
             editor.selectedObject->setThickness(editor.currentThickness);
+          }
         }
-    }
-    
-    // Point Size
-    if (ImGui::SliderFloat("Point Size", &editor.currentPointSize, 2.0f, 20.0f, "%.1f")) {
-        if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
-            auto pt = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(editor.selectedObject));
-            if(pt) pt->setRadius(editor.currentPointSize);
-        }
-    }
+      }
 
-    ImGui::Separator();
-    ImGui::Text("Canvas");
-    static float bgBuf[3] = { (float)editor.backgroundColor.r / 255.f, (float)editor.backgroundColor.g / 255.f, (float)editor.backgroundColor.b / 255.f };
-    if (ImGui::ColorEdit3("Background", bgBuf)) {
-        editor.backgroundColor = sf::Color(static_cast<sf::Uint8>(bgBuf[0] * 255), static_cast<sf::Uint8>(bgBuf[1] * 255), static_cast<sf::Uint8>(bgBuf[2] * 255));
+      // Point Size
+      if (ImGui::SliderFloat("Point Size", &editor.currentPointSize, 2.0f, 20.0f, "%.0f")) {
+        // Manually snap the value to the nearest integer (interval of 1)
+        editor.currentPointSize = std::floor(editor.currentPointSize + 0.5f);
+        
+        if (editor.selectedObject) {
+          auto type = editor.selectedObject->getType();
+          // Apply to free points
+          if (type == ObjectType::Point) {
+            auto pt = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(editor.selectedObject));
+            if (pt) pt->setRadius(editor.currentPointSize);
+          }
+          // Apply to shapes with vertex handles
+          else if (type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable ||
+                   type == ObjectType::Triangle || type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
+            editor.selectedObject->setVertexHandleSize(editor.currentPointSize);
+          }
+        }
+      }
+
+      // Line Decoration (Ticks & Arrows)
+      if (editor.selectedObject &&
+          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+           editor.selectedObject->getType() == ObjectType::Ray)) {
+        const char* decorations[] = {"None", "|", "||", "|||", ">", ">>", ">>>"};
+        int currentDecoration = static_cast<int>(editor.selectedObject->getDecoration());
+        if (ImGui::Combo("Decoration", &currentDecoration, decorations, IM_ARRAYSIZE(decorations))) {
+          editor.selectedObject->setDecoration(static_cast<DecorationType>(currentDecoration));
+        }
+      }
+
+      ImGui::Separator();
+      ImGui::Text("Canvas");
+      static float bgBuf[3] = {(float)editor.backgroundColor.r / 255.f, (float)editor.backgroundColor.g / 255.f,
+                               (float)editor.backgroundColor.b / 255.f};
+      if (ImGui::ColorEdit3("Background", bgBuf)) {
+        editor.backgroundColor =
+            sf::Color(static_cast<sf::Uint8>(bgBuf[0] * 255), static_cast<sf::Uint8>(bgBuf[1] * 255), static_cast<sf::Uint8>(bgBuf[2] * 255));
+      }
+
+      ImGui::Separator();
+      ImGui::Text("Font Sizes");
+      if (ImGui::SliderFloat("GUI Font", &editor.guiFontSize, 8.0f, 24.0f, "%.0f")) {
+        ImGui::GetIO().FontGlobalScale = editor.guiFontSize / 13.0f;
+      }
+      if (ImGui::SliderFloat("Drawing Labels", &editor.drawingFontSize, 8.0f, 48.0f, "%.0f")) {
+        VertexLabelManager::instance().setFontSize(static_cast<unsigned int>(editor.drawingFontSize));
+      }
     }
-    }
-  }   
+  }
 
   if (g_showAngleInputPopup) {
     ImGui::OpenPopup("Enter Angle");
@@ -969,8 +1012,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
           angle->setVisible(true);
           angle->update();
           editor.angles.push_back(angle);
-          editor.commandManager.pushHistoryOnly(
-              std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
+          editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
         }
       }
 

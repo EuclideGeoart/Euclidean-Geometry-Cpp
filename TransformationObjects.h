@@ -21,8 +21,7 @@ class ReflectLine : public Point {
   }
 
   void update() override {
-    if (!sourcePoint || !reflectLine || !sourcePoint->isValid() || !reflectLine->isValid() ||
-        !sourcePoint->isVisible() || !reflectLine->isVisible()) {
+    if (!sourcePoint || !reflectLine || !sourcePoint->isValid() || !reflectLine->isValid()) {
       setVisible(false);
       return;
     }
@@ -48,6 +47,9 @@ class ReflectLine : public Point {
     Point::update();
   }
 
+  std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
+  std::shared_ptr<Line> getReflectLine() const { return reflectLine; }
+
  private:
   std::shared_ptr<Point> sourcePoint;
   std::shared_ptr<Line> reflectLine;
@@ -66,7 +68,7 @@ class ReflectPoint : public Point {
 
   void update() override {
     if (!sourcePoint || !centerPoint || !sourcePoint->isValid() || !centerPoint->isValid() ||
-        !sourcePoint->isVisible() || !centerPoint->isVisible()) {
+        !centerPoint->isVisible()) {
       setVisible(false);
       return;
     }
@@ -79,6 +81,9 @@ class ReflectPoint : public Point {
     setVisible(true);
     Point::update();
   }
+
+  std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
+  std::shared_ptr<Point> getCenterPoint() const { return centerPoint; }
 
  private:
   std::shared_ptr<Point> sourcePoint;
@@ -98,7 +103,7 @@ class ReflectCircle : public Point {
 
   void update() override {
     if (!sourcePoint || !reflectCircle || !sourcePoint->isValid() || !reflectCircle->isValid() ||
-        !sourcePoint->isVisible() || !reflectCircle->isVisible()) {
+        !reflectCircle->isVisible()) {
       setVisible(false);
       return;
     }
@@ -122,6 +127,9 @@ class ReflectCircle : public Point {
     Point::update();
   }
 
+  std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
+  std::shared_ptr<Circle> getCircle() const { return reflectCircle; }
+
  private:
   std::shared_ptr<Point> sourcePoint;
   std::shared_ptr<Circle> reflectCircle;
@@ -141,7 +149,7 @@ class RotatePoint : public Point {
 
   void update() override {
     if (!sourcePoint || !centerPoint || !sourcePoint->isValid() || !centerPoint->isValid() ||
-        !sourcePoint->isVisible() || !centerPoint->isVisible()) {
+        !centerPoint->isVisible()) {
       setVisible(false);
       return;
     }
@@ -166,6 +174,10 @@ class RotatePoint : public Point {
     Point::update();
   }
 
+  std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
+  std::shared_ptr<Point> getCenterPoint() const { return centerPoint; }
+  double getAngleDegrees() const { return angleDeg; }
+
  private:
   std::shared_ptr<Point> sourcePoint;
   std::shared_ptr<Point> centerPoint;
@@ -186,7 +198,7 @@ class TranslateVector : public Point {
 
   void update() override {
     if (!sourcePoint || !vectorStart || !vectorEnd || !sourcePoint->isValid() || !vectorStart->isValid() ||
-        !vectorEnd->isValid() || !sourcePoint->isVisible() || !vectorStart->isVisible() || !vectorEnd->isVisible()) {
+        !vectorEnd->isValid() || !vectorStart->isVisible() || !vectorEnd->isVisible()) {
       setVisible(false);
       return;
     }
@@ -202,6 +214,10 @@ class TranslateVector : public Point {
     setVisible(true);
     Point::update();
   }
+
+  std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
+  std::shared_ptr<Point> getVectorStart() const { return vectorStart; }
+  std::shared_ptr<Point> getVectorEnd() const { return vectorEnd; }
 
  private:
   std::shared_ptr<Point> sourcePoint;
@@ -223,7 +239,7 @@ class DilatePoint : public Point {
 
   void update() override {
     if (!sourcePoint || !centerPoint || !sourcePoint->isValid() || !centerPoint->isValid() ||
-        !sourcePoint->isVisible() || !centerPoint->isVisible()) {
+        !centerPoint->isVisible()) {
       setVisible(false);
       return;
     }
@@ -237,6 +253,10 @@ class DilatePoint : public Point {
     setVisible(true);
     Point::update();
   }
+
+  std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
+  std::shared_ptr<Point> getCenterPoint() const { return centerPoint; }
+  double getScaleFactor() const { return scaleFactor; }
 
  private:
   std::shared_ptr<Point> sourcePoint;

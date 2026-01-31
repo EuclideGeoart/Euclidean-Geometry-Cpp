@@ -268,6 +268,10 @@ class TangentLine : public Line {
     }
   }
 
+  std::shared_ptr<Point> getExternalPoint() const { return externalPoint; }
+  std::shared_ptr<Circle> getCircle() const { return circle; }
+  int getSolutionIndex() const { return solutionIndex; }
+
  private:
   static std::shared_ptr<Point> makePlaceholderPoint() {
     return std::make_shared<Point>(Point_2(0, 0), 1.0f, Constants::POINT_DEFAULT_COLOR,

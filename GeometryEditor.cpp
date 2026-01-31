@@ -428,6 +428,17 @@ void GeometryEditor::updateConstraintsOnly() {
       }
     }
 
+    // Update dependent points (transformations, intersections, etc.)
+    for (auto &pt : points) {
+      if (!pt || !pt->isValid()) continue;
+      if (pt->isDependent() || pt->isIntersectionPoint() || pt->getType() == ObjectType::IntersectionPoint) {
+        pt->update();
+      }
+    }
+
+    // Keep intersections synced during drag
+    DynamicIntersection::updateAllIntersections(*this);
+
     // Note: We don't call updateSFMLShape() here to avoid expensive visual
     // updates Visual updates happen automatically when positions change via
     // setCGALPosition
@@ -594,7 +605,9 @@ void GeometryEditor::render() {
     
     for (const auto &pt : points) drawLabel(pt);
     for (const auto &op : ObjectPoints) drawLabel(op);
-    for (const auto &rect : rectangles) drawLabel(rect);
+    for (const auto& rect : rectangles) {
+    rect->drawLabel(window, drawingView);
+}
     for (const auto &reg : regularPolygons) drawLabel(reg);
     for (const auto &tri : triangles) drawLabel(tri);
     for (const auto &poly : polygons) drawLabel(poly);
@@ -745,8 +758,9 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
     }
   }
 
-  // 3. Check Lines
-  if (typeAllowed(ObjectType::Line) || typeAllowed(ObjectType::LineSegment)) {
+  // 3. Check Lines (including Ray/Vector)
+  if (typeAllowed(ObjectType::Line) || typeAllowed(ObjectType::LineSegment) ||
+      typeAllowed(ObjectType::Ray) || typeAllowed(ObjectType::Vector)) {
     for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
       if (isValidCandidate(it->get()) &&
           (*it)->contains(worldPos_sfml, tolerance)) {

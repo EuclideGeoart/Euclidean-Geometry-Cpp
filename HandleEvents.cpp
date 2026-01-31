@@ -612,6 +612,78 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       sf::Vector2f labelTopLeft = mouseScreenPos - editor.labelDragGrabOffset;
       sf::Vector2f newOffset = labelTopLeft - pointScreenPos;
       pt->setLabelOffset(newOffset);
+    } else if (auto* rect = dynamic_cast<Rectangle*>(editor.labelDragObject)) {
+      if (editor.labelDragVertexIndex >= 0 && editor.labelDragVertexIndex < 4) {
+        auto verts = rect->getVerticesSFML();
+        if (editor.labelDragVertexIndex < static_cast<int>(verts.size())) {
+          sf::Vector2f worldPos = verts[editor.labelDragVertexIndex];
+          sf::Vector2i vertexScreen = editor.window.mapCoordsToPixel(worldPos, editor.drawingView);
+          sf::Vector2f vertexScreenPos(static_cast<float>(vertexScreen.x), static_cast<float>(vertexScreen.y));
+          sf::Vector2f labelPos = mouseScreenPos - editor.labelDragGrabOffset;
+          sf::Vector2f newOffset = labelPos - vertexScreenPos;
+          rect->setVertexLabelOffset(editor.labelDragVertexIndex, newOffset);
+        }
+      }
+    } else if (auto* angle = dynamic_cast<Angle*>(editor.labelDragObject)) {
+      // Calculate angle label's default position (without offset)
+      auto pointA = angle->getPointA().lock();
+      auto vertex = angle->getVertex().lock();
+      auto pointB = angle->getPointB().lock();
+      
+      if (pointA && vertex && pointB) {
+        Point_2 v = vertex->getCGALPosition();
+        Point_2 a = pointA->getCGALPosition();
+        Point_2 b = pointB->getCGALPosition();
+        
+        double vx = CGAL::to_double(v.x());
+        double vy = CGAL::to_double(v.y());
+        double ax = CGAL::to_double(a.x());
+        double ay = CGAL::to_double(a.y());
+        double bx = CGAL::to_double(b.x());
+        double by = CGAL::to_double(b.y());
+        
+        double angle1 = std::atan2(ay - vy, ax - vx);
+        double angle2 = std::atan2(by - vy, bx - vx);
+        
+        double sweep = angle2 - angle1;
+        if (angle->isReflex()) {
+          if (sweep >= 0) sweep -= 2.0 * 3.14159265358979323846;
+          else sweep += 2.0 * 3.14159265358979323846;
+        } else {
+          if (sweep < 0) sweep += 2.0 * 3.14159265358979323846;
+        }
+        
+        double midAngle = angle1 + sweep * 0.5;
+        double textRadius = angle->getRadius() + 12.0;
+        
+        // Calculate default label position in world coordinates
+        sf::Vector2f labelWorldPos(
+          static_cast<float>(vx + textRadius * std::cos(midAngle)),
+          static_cast<float>(vy + textRadius * std::sin(midAngle))
+        );
+        
+        // Convert to screen coordinates
+        sf::Vector2i labelScreen = editor.window.mapCoordsToPixel(labelWorldPos, editor.drawingView);
+        sf::Vector2f labelDefaultScreenPos(static_cast<float>(labelScreen.x), static_cast<float>(labelScreen.y));
+        
+        // Calculate new offset
+        sf::Vector2f labelPos = mouseScreenPos - editor.labelDragGrabOffset;
+        sf::Vector2f newOffset = labelPos - labelDefaultScreenPos;
+        
+        // Optional: Constrain label movement to circular boundary around vertex
+        // Maximum distance = 2 * visual radius (or any desired radius)
+        double maxDistance = angle->getRadius() * 3.0; // Allow more freedom
+        double offsetMagnitude = std::sqrt(newOffset.x * newOffset.x + newOffset.y * newOffset.y);
+        
+        if (offsetMagnitude > maxDistance) {
+          // Clamp to circular boundary
+          float scaleFactor = static_cast<float>(maxDistance / offsetMagnitude);
+          newOffset.x *= scaleFactor;
+          newOffset.y *= scaleFactor;
+        }
+        
+        angle->setLabelOffset(newOffset);
+      }
     }
     return;
   }
@@ -1227,7 +1299,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       }
 
       for (auto& pt : uniquePoints) {
-        pt->translate(delta);
+        pt->move(delta);
       }
 
       for (auto* obj : editor.selectedObjects) {
@@ -1473,6 +1545,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           if (dynamic_cast<ObjectPoint*>(startPoint) || dynamic_cast<ObjectPoint*>(endPoint)) {
             return;
           }
+          if ((startPoint && startPoint->isDependent()) || (endPoint && endPoint->isDependent())) {
+             return;
+          }
 
           selectedLine->setIsUnderDirectManipulation(true);
 
@@ -1515,6 +1590,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           if (editor.dragMode == DragMode::MoveLineEndpointStart) {
             Point* startPoint = selectedLine->getStartPointObject();
             if (startPoint) {
+              if (startPoint->isDependent()) return;
               // ✅ ENABLE REAL-TIME UPDATES
               startPoint->setDeferConstraintUpdates(false);  // Real-time updates
               startPoint->setCGALPosition(targetPos);
@@ -1527,6 +1603,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           } else {  // MoveLineEndpointEnd
             Point* endPoint = selectedLine->getEndPointObject();
             if (endPoint) {
+              if (endPoint->isDependent()) return;
               // ✅ ENABLE REAL-TIME UPDATES
               endPoint->setDeferConstraintUpdates(false);  // Real-time updates
               endPoint->setCGALPosition(targetPos);
@@ -1590,22 +1667,22 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
             case ObjectType::Rectangle:
             case ObjectType::RectangleRotatable: {
               auto* rect = static_cast<Rectangle*>(editor.selectedObject);
-              rect->translate(delta_cgal);
+              rect->move(delta_cgal);
               break;
             }
             case ObjectType::Polygon: {
               auto* poly = static_cast<Polygon*>(editor.selectedObject);
-              poly->translate(delta_cgal);
+              poly->move(delta_cgal);
               break;
             }
             case ObjectType::RegularPolygon: {
               auto* reg = static_cast<RegularPolygon*>(editor.selectedObject);
-              reg->translate(delta_cgal);
+              reg->move(delta_cgal);
               break;
             }
             case ObjectType::Triangle: {
               auto* tri = static_cast<Triangle*>(editor.selectedObject);
-              tri->translate(delta_cgal);
+              tri->move(delta_cgal);
               break;
             }
             default:
@@ -1622,17 +1699,17 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           Vector_2 delta_cgal = editor.toCGALVector(delta_sfml);
 
           if (selectedCircle->isSemicircle()) {
-            selectedCircle->translate(delta_cgal);
+            selectedCircle->move(delta_cgal);
           } else {
             Point* centerPoint = selectedCircle->getCenterPointObject();
             Point* radiusPoint = selectedCircle->getRadiusPointObject();
 
             // Move BOTH to achieve rigid body translation
             if (centerPoint) {
-              centerPoint->translate(delta_cgal);
+              centerPoint->move(delta_cgal);
             }
             if (radiusPoint) {
-              radiusPoint->translate(delta_cgal);
+              radiusPoint->move(delta_cgal);
             }
           }
 
