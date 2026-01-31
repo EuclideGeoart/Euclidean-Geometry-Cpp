@@ -63,6 +63,13 @@ void updateAllIntersections(GeometryEditor &editor);
 void removeConstraintsInvolving(const GeometricObject *obj, GeometryEditor &editor);
 void removeIntersectionsInvolving(const std::shared_ptr<Line> &line, GeometryEditor &editor);
 
+// Save/load helpers
+std::vector<IntersectionConstraint> getActiveIntersectionConstraints();
+void clearAllIntersectionConstraints(GeometryEditor &editor);
+void registerIntersectionConstraint(const std::shared_ptr<GeometricObject> &A,
+                                    const std::shared_ptr<GeometricObject> &B,
+                                    const std::vector<std::shared_ptr<Point>> &points);
+
 // Generic intersection creation for arbitrary shapes
 std::vector<std::shared_ptr<Point>> createGenericIntersection(
   const std::shared_ptr<GeometricObject> &A,

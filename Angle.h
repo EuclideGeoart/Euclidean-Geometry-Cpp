@@ -35,6 +35,15 @@ class Angle : public GeometricObject {
   void setRadius(double radius);
   double getRadius() const { return m_arcRadius; }
   void drawVertexHandles(sf::RenderWindow &window, float scale) const;
+  
+  // Label offset support (for movable angle labels)
+  void setLabelOffset(const sf::Vector2f& offset) { m_labelOffset = offset; }
+  sf::Vector2f getLabelOffset() const { return m_labelOffset; }
+  
+  // Access to weak_ptr points (for serialization)
+  std::weak_ptr<Point> getPointA() const { return m_pointA; }
+  std::weak_ptr<Point> getVertex() const { return m_vertex; }
+  std::weak_ptr<Point> getPointB() const { return m_pointB; }
 
  private:
   void updateSFMLShape();
@@ -68,6 +77,9 @@ class Angle : public GeometricObject {
   
   // Fill support
   sf::VertexArray m_fillFan{sf::TriangleFan};
+  
+  // Label offset (for draggable labels)
+  sf::Vector2f m_labelOffset = {10.0f, -10.0f}; // Default: Top-Right (screen pixels)
 
   static sf::Font s_font;
   static bool s_fontLoaded;

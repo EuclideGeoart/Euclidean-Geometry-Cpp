@@ -29,6 +29,14 @@ void GeometricObject::setLocked(bool locked) { m_locked = locked; }
 
 bool GeometricObject::isLocked() const { return m_locked; }
 
+void GeometricObject::move(const Vector_2 &delta) {
+  // Prevent manual movement of dependent or locked objects
+  if (isDependent() || isLocked()) {
+    return;
+  }
+  translate(delta);
+}
+
 // --- Hosted ObjectPoint Management ---
 
 void GeometricObject::addChildPoint(std::shared_ptr<ObjectPoint> point) {

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <SFML/Graphics.hpp>
@@ -30,9 +31,16 @@
 #include "VertexLabelManager.h"
 #include "ProjectionUtils.h"
 
+
 extern float g_transformRotationDegrees;
 extern float g_transformDilationFactor;
 extern bool g_showAngleInputPopup;
+
+// --- Helper: Midpoint & Compass State ---
+static std::vector<GeometricObject*> tempSelectedObjects;
+static std::optional<EdgeHitResult> g_transformEdgeSelection;
+
+static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared_ptr<Rectangle>& rect);
 
 // Forward declarations for helpers defined in HandleEvents.cpp
 void deselectAllAndClearInteractionState(GeometryEditor& editor);
@@ -237,6 +245,106 @@ static std::string getPrimeLabel(const std::string& oldLabel) {
   return oldLabel.empty() ? std::string() : (oldLabel + "'");
 }
 
+// --- Helper for Shape Edge Transformations ---
+static std::shared_ptr<Point> getPointForShapeVertex(GeometryEditor& editor, std::shared_ptr<GeometricObject> shape, size_t index) {
+  if (!shape) return nullptr;
+  if (auto rect = std::dynamic_pointer_cast<Rectangle>(shape)) {
+    if (index == 0) return rect->getCorner1Point();
+    if (index == 2) return rect->getCorner2Point();
+    
+    // For auxiliary corners, ensure they exist
+    if (index == 1) {
+      if (rect->getCornerBPoint()) return rect->getCornerBPoint();
+      // Force creation if missing
+      auto p1 = rect->getCorner1Point();
+      auto p2 = rect->getCorner2Point();
+      if (!p1 || !p2) return nullptr;
+      
+      // We need to trigger syncDependentCorners to calculate positions, but we need points relative to that geometry
+      // Create independent points first and let sync update them
+      auto cb = std::make_shared<Point>(Point_2(0,0), 1.0f);
+      auto cd = rect->getCornerDPoint();
+      if (!cd) cd = std::make_shared<Point>(Point_2(0,0), 1.0f);
+      
+      rect->setDependentCornerPoints(cb, cd);
+      cb->setVisible(false); cb->setDependent(true); cb->setShowLabel(false);
+      if (!rect->getCornerDPoint()) { cd->setVisible(false); cd->setDependent(true); cd->setShowLabel(false); }
+      
+      return cb;
+    }
+    if (index == 3) {
+      if (rect->getCornerDPoint()) return rect->getCornerDPoint();
+      // Force creation
+      auto p1 = rect->getCorner1Point();
+      if (!p1) return nullptr;
+      
+      auto cd = std::make_shared<Point>(Point_2(0,0), 1.0f);
+      auto cb = rect->getCornerBPoint();
+      if (!cb) cb = std::make_shared<Point>(Point_2(0,0), 1.0f);
+      
+      rect->setDependentCornerPoints(cb, cd);
+      cd->setVisible(false); cd->setDependent(true); cd->setShowLabel(false);
+      if (!rect->getCornerBPoint()) { cb->setVisible(false); cb->setDependent(true); cb->setShowLabel(false); }
+      
+      return cd;
+    }
+  }
+  if (auto tri = std::dynamic_pointer_cast<Triangle>(shape)) return tri->getVertexPoint(index);
+  if (auto poly = std::dynamic_pointer_cast<Polygon>(shape)) return poly->getVertexPoint(index);
+
+  // Fallback for types without Point vertices (e.g., RegularPolygon)
+  auto verts = shape->getInteractableVertices();
+  if (index >= verts.size()) return nullptr;
+
+  // Search if an ObjectPoint already exists for this exact vertex
+  for (auto& op : editor.ObjectPoints) {
+    if (op && op->getHostObject() == shape.get() && op->isShapeEdgeAttachment() && 
+        op->getEdgeIndex() == index && std::abs(op->getEdgeRelativePosition()) < 0.0001) {
+      return op;
+    }
+  }
+
+  // Create a new invisible dependent ObjectPoint at the vertex
+  auto op = ObjectPoint::createOnShapeEdge(shape, index, 0.0);
+  if (op) {
+    op->setVisible(false);
+    op->setShowLabel(false);
+    op->setDependent(true);
+    op->setCreatedWithShape(true);
+    editor.ObjectPoints.push_back(op);
+    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(op)));
+    return op;
+  }
+  return nullptr;
+}
+
+static std::shared_ptr<Line> getOrCreateHelperLineForEdge(GeometryEditor& editor, std::shared_ptr<GeometricObject> shape, size_t edgeIndex) {
+  if (!shape) return nullptr;
+  size_t n = shape->getEdges().size();
+  if (n == 0) return nullptr;
+
+  auto p1 = getPointForShapeVertex(editor, shape, edgeIndex);
+  auto p2 = getPointForShapeVertex(editor, shape, (edgeIndex + 1) % n);
+  if (!p1 || !p2) return nullptr;
+
+  // Try to find an existing line representing this edge
+  for (auto& ln : editor.lines) {
+    if (!ln) continue;
+    auto s = ln->getStartPointObjectShared();
+    auto e = ln->getEndPointObjectShared();
+    if ((s == p1 && e == p2) || (s == p2 && e == p1)) return ln;
+  }
+
+  // Create a hidden helper line
+  auto newLine = std::make_shared<Line>(p1, p2, true, shape->getColor());
+  newLine->setVisible(false);
+  newLine->setLocked(true);
+  newLine->setThickness(1.0f);
+  editor.lines.push_back(newLine);
+  editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+  return newLine;
+}
+
 static std::shared_ptr<Point> createTransformedPoint(
     GeometryEditor& editor,
     const std::shared_ptr<Point>& source,
@@ -330,6 +438,7 @@ bool handleCompassCreation(GeometryEditor& editor,
   }
 
   if (newCircle) {
+    newCircle->setThickness(editor.currentThickness);
     editor.circles.push_back(newCircle);
     newCircle->setSelected(true);
     editor.commandManager.pushHistoryOnly(
@@ -356,6 +465,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       if (obj) obj->setSelected(false);
     }
     tempSelectedObjects.clear();
+    g_transformEdgeSelection.reset();
   };
 
   auto registerPoint = [&](const std::shared_ptr<Point>& newPoint) {
@@ -366,6 +476,66 @@ bool handleTransformationCreation(GeometryEditor& editor,
     newPoint->setSelected(true);
   };
 
+  auto registerHiddenObjectPoint = [&](const std::shared_ptr<ObjectPoint>& newPoint) {
+    if (!newPoint) return;
+    newPoint->setVisible(false);
+    newPoint->setShowLabel(false);
+    newPoint->setDependent(true);
+    newPoint->setCreatedWithShape(true);
+    editor.ObjectPoints.push_back(newPoint);
+    editor.commandManager.pushHistoryOnly(
+        std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+  };
+
+  auto tryTransformShapeEdge = [&](ObjectType activeTool,
+                                   const std::shared_ptr<GeometricObject>& sourceShape,
+                                   const std::shared_ptr<Point>& pivot,
+                                   const std::shared_ptr<Line>& lineObj,
+                                   const std::shared_ptr<Circle>& circleObj,
+                                   const std::shared_ptr<Point>& vecStart,
+                                   const std::shared_ptr<Point>& vecEnd) -> bool {
+    if (!g_transformEdgeSelection || !sourceShape) return false;
+    if (g_transformEdgeSelection->host != sourceShape.get()) return false;
+
+    size_t edgeIndex = g_transformEdgeSelection->edgeIndex;
+    auto edgeStart = ObjectPoint::createOnShapeEdge(sourceShape, edgeIndex, 0.0);
+    auto edgeEnd = ObjectPoint::createOnShapeEdge(sourceShape, edgeIndex, 1.0);
+    if (!edgeStart || !edgeEnd) return false;
+
+    registerHiddenObjectPoint(edgeStart);
+    registerHiddenObjectPoint(edgeEnd);
+
+    auto p1t = createTransformedPoint(editor, edgeStart, activeTool, pivot, lineObj, circleObj, vecStart, vecEnd);
+    if (p1t) {
+      p1t->setColor(editor.getCurrentColor());
+      registerPoint(p1t);
+    }
+
+    auto p2t = createTransformedPoint(editor, edgeEnd, activeTool, pivot, lineObj, circleObj, vecStart, vecEnd);
+    if (!p1t || !p2t) {
+      editor.setGUIMessage("Error: Invalid edge transformation selection.");
+      // If p1t was registered but p2t failed, we might want to undo/remove p1t, but simple error return is safer for now.
+      // Ideally we'd wrap this in a transaction, but existing flow is simple.
+      clearSelection();
+      return true;
+    }
+    
+    if (p2t) {
+      p2t->setColor(editor.getCurrentColor());
+      registerPoint(p2t);
+    }
+
+    auto newLine = std::make_shared<Line>(p1t, p2t, true, editor.getCurrentColor());
+    newLine->setThickness(editor.currentThickness);
+    newLine->setLocked(true);
+    editor.lines.push_back(newLine);
+    editor.commandManager.pushHistoryOnly(
+        std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+    editor.setGUIMessage("Transformed edge created.");
+    clearSelection();
+    return true;
+  };
+
   ObjectType tool = editor.m_currentToolType;
 
   // Step 1: Source object
@@ -373,9 +543,28 @@ bool handleTransformationCreation(GeometryEditor& editor,
     GeometricObject* hitObj = editor.lookForObjectAt(
         worldPos_sfml, tolerance,
         {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint, ObjectType::Line,
-         ObjectType::LineSegment, ObjectType::Circle, ObjectType::Polygon});
+         ObjectType::LineSegment, ObjectType::Circle, ObjectType::Polygon, ObjectType::Rectangle,
+         ObjectType::Triangle, ObjectType::RegularPolygon});
     if (!hitObj) return false;
 
+    g_transformEdgeSelection.reset();
+    // Prioritize edge selection for shapes that support it, unless Alt is held
+    if (hitObj->getType() == ObjectType::Rectangle || hitObj->getType() == ObjectType::Triangle ||
+        hitObj->getType() == ObjectType::Polygon || hitObj->getType() == ObjectType::RegularPolygon) {
+      bool forceWholeShape = sf::Keyboard::isKeyPressed(sf::Keyboard::K);
+      if (!forceWholeShape) {
+        if (auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance)) {
+          if (edgeHit->host == hitObj) {
+            g_transformEdgeSelection = edgeHit;
+            tempSelectedObjects.push_back(hitObj);
+            hitObj->setSelected(true);
+            editor.setGUIMessage("Edge selected. Now select transformation operator. (Hold K for whole shape)");
+            return true;
+          }
+        }
+      }
+    }
+    // If no edge was hit, select the whole shape or object
     tempSelectedObjects.push_back(hitObj);
     hitObj->setSelected(true);
 
@@ -403,28 +592,12 @@ bool handleTransformationCreation(GeometryEditor& editor,
   }
 
   // Translate requires 2-step vector selection
-  if (tool == ObjectType::TranslateByVector) {
-    if (tempSelectedObjects.size() == 1) {
-      GeometricObject* vecStartRaw = editor.lookForObjectAt(
-          worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
-      if (!vecStartRaw) return false;
-      tempSelectedObjects.push_back(vecStartRaw);
-      vecStartRaw->setSelected(true);
-      editor.setGUIMessage("Translate: Select vector end point.");
-      return true;
-    }
-
-    GeometricObject* vecEndRaw = editor.lookForObjectAt(
-        worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
-    if (!vecEndRaw) return false;
-    tempSelectedObjects.push_back(vecEndRaw);
-
-    auto v1 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[1]));
-    auto v2 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[2]));
-    if (!v1 || !v2) {
-      clearSelection();
-      editor.setGUIMessage("Error: Invalid translation vector.");
-      return false;
+  auto applyVectorTranslation = [&](const std::shared_ptr<Point>& v1, const std::shared_ptr<Point>& v2) -> bool {
+    if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::Triangle ||
+        sourceShared->getType() == ObjectType::Polygon || sourceShared->getType() == ObjectType::RegularPolygon) {
+      if (tryTransformShapeEdge(tool, sourceShared, nullptr, nullptr, nullptr, v1, v2)) {
+        return true;
+      }
     }
 
     auto sourcePoint = std::dynamic_pointer_cast<Point>(sourceShared);
@@ -441,7 +614,6 @@ bool handleTransformationCreation(GeometryEditor& editor,
       return true;
     }
 
-    // Translate non-point sources by decomposing to points
     if (sourceShared->getType() == ObjectType::Line || sourceShared->getType() == ObjectType::LineSegment) {
       auto line = std::dynamic_pointer_cast<Line>(sourceShared);
       if (!line) {
@@ -463,7 +635,9 @@ bool handleTransformationCreation(GeometryEditor& editor,
       registerPoint(p1t);
       registerPoint(p2t);
 
-      auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), line->getColor());
+      auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), editor.getCurrentColor());
+      newLine->setThickness(line->getThickness());
+      newLine->setLocked(true);
       editor.lines.push_back(newLine);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
@@ -488,13 +662,76 @@ bool handleTransformationCreation(GeometryEditor& editor,
         return false;
       }
       registerPoint(newCenter);
-      auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, circle->getRadius(), circle->getColor());
+      auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, circle->getRadius(), editor.getCurrentColor());
+      newCircle->setThickness(circle->getThickness());
+      newCircle->setLocked(true);
       editor.circles.push_back(newCircle);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
       editor.setGUIMessage("Translated circle created.");
       clearSelection();
       return true;
+    }
+
+    if (sourceShared->getType() == ObjectType::Rectangle) {
+      auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
+      auto V0 = getPointForShapeVertex(editor, rect, 0);
+      auto V1 = getPointForShapeVertex(editor, rect, 1);
+      auto V3 = getPointForShapeVertex(editor, rect, 3);
+      
+      auto V0t = createTransformedPoint(editor, V0, tool, nullptr, nullptr, nullptr, v1, v2);
+      auto V1t = createTransformedPoint(editor, V1, tool, nullptr, nullptr, nullptr, v1, v2);
+      auto V3t = createTransformedPoint(editor, V3, tool, nullptr, nullptr, nullptr, v1, v2);
+      
+      if (V0t && V1t && V3t) {
+        registerPoint(V0t); registerPoint(V1t); registerPoint(V3t);
+        double h = std::sqrt(CGAL::to_double(CGAL::squared_distance(V0t->getCGALPosition(), V3t->getCGALPosition())));
+        auto newRect = std::make_shared<Rectangle>(V0t, V1t, h, editor.getCurrentColor(), editor.objectIdCounter++);
+        newRect->setThickness(rect->getThickness());
+        newRect->setLocked(true);
+        applyRectangleVertexLabels(editor, newRect);
+        editor.rectangles.push_back(newRect);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRect)));
+        editor.setGUIMessage("Translated rectangle created.");
+        clearSelection();
+        return true;
+      }
+    }
+
+    if (sourceShared->getType() == ObjectType::Triangle) {
+      auto tri = std::dynamic_pointer_cast<Triangle>(sourceShared);
+      std::vector<std::shared_ptr<Point>> newPts;
+      for (size_t i = 0; i < 3; ++i) {
+        auto vt = createTransformedPoint(editor, tri->getVertexPoint(i), tool, nullptr, nullptr, nullptr, v1, v2);
+        if (vt) { registerPoint(vt); newPts.push_back(vt); }
+      }
+      if (newPts.size() == 3) {
+        auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], editor.getCurrentColor(), editor.objectIdCounter++);
+        newTri->setThickness(tri->getThickness());
+        newTri->setLocked(true);
+        editor.triangles.push_back(newTri);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
+        editor.setGUIMessage("Translated triangle created.");
+        clearSelection();
+        return true;
+      }
+    }
+
+    if (sourceShared->getType() == ObjectType::RegularPolygon) {
+      auto rpoly = std::dynamic_pointer_cast<RegularPolygon>(sourceShared);
+      auto ct = createTransformedPoint(editor, rpoly->getCenterPoint(), tool, nullptr, nullptr, nullptr, v1, v2);
+      auto vt = createTransformedPoint(editor, rpoly->getFirstVertexPoint(), tool, nullptr, nullptr, nullptr, v1, v2);
+      if (ct && vt) {
+        registerPoint(ct); registerPoint(vt);
+        auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), editor.getCurrentColor(), editor.objectIdCounter++);
+        newRPoly->setThickness(rpoly->getThickness());
+        newRPoly->setLocked(true);
+        editor.regularPolygons.push_back(newRPoly);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
+        editor.setGUIMessage("Translated regular polygon created.");
+        clearSelection();
+        return true;
+      }
     }
 
     if (sourceShared->getType() == ObjectType::Polygon) {
@@ -517,7 +754,9 @@ bool handleTransformationCreation(GeometryEditor& editor,
         registerPoint(vt);
         newVerts.push_back(vt);
       }
-      auto newPoly = std::make_shared<Polygon>(newVerts, poly->getColor());
+      auto newPoly = std::make_shared<Polygon>(newVerts, editor.getCurrentColor());
+      newPoly->setThickness(poly->getThickness());
+      newPoly->setLocked(true);
       editor.polygons.push_back(newPoly);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
@@ -525,7 +764,50 @@ bool handleTransformationCreation(GeometryEditor& editor,
       clearSelection();
       return true;
     }
+    return false;
+  };
+
+  if (tool == ObjectType::TranslateByVector) {
+    if (tempSelectedObjects.size() == 1) {
+      // NEW: Check for EXISTING VECTOR OBJECT
+      GeometricObject* vecObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Vector});
+      if (vecObj && vecObj->getType() == ObjectType::Vector) {
+        auto vecLine = dynamic_cast<Line*>(vecObj);
+        if (vecLine) {
+           auto v1 = vecLine->getStartPointObjectShared();
+           auto v2 = vecLine->getEndPointObjectShared();
+           if (v1 && v2) {
+             return applyVectorTranslation(v1, v2);
+           }
+        }
+      }
+
+      GeometricObject* vecStartRaw = editor.lookForObjectAt(
+          worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+      if (!vecStartRaw) return false;
+      tempSelectedObjects.push_back(vecStartRaw);
+      vecStartRaw->setSelected(true);
+      editor.setGUIMessage("Translate: Select vector end point.");
+      return true;
+    }
+
+    GeometricObject* vecEndRaw = editor.lookForObjectAt(
+        worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    if (!vecEndRaw) return false;
+    tempSelectedObjects.push_back(vecEndRaw);
+
+    auto v1 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[1]));
+    auto v2 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[2]));
+    if (!v1 || !v2) {
+      clearSelection();
+      editor.setGUIMessage("Error: Invalid translation vector.");
+      return false;
+    }
+
+    return applyVectorTranslation(v1, v2);
   }
+
+
 
   // Step 2: Operator object
   std::shared_ptr<Point> pivotPoint;
@@ -533,9 +815,20 @@ bool handleTransformationCreation(GeometryEditor& editor,
   std::shared_ptr<Circle> circleObj;
 
   if (tool == ObjectType::ReflectAboutLine) {
-    GeometricObject* hitLine = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment});
-    if (!hitLine) return false;
-    lineObj = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitLine));
+    std::vector<ObjectType> axisTypes = {ObjectType::Line, ObjectType::LineSegment, ObjectType::Rectangle, 
+                                        ObjectType::Triangle, ObjectType::Polygon, ObjectType::RegularPolygon};
+    GeometricObject* hitAxis = editor.lookForObjectAt(worldPos_sfml, tolerance, axisTypes);
+    if (!hitAxis) return false;
+    
+    if (hitAxis->getType() == ObjectType::Line || hitAxis->getType() == ObjectType::LineSegment) {
+      lineObj = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitAxis));
+    } else {
+      // It's a shape. Try to get an edge.
+      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+      if (edgeHit && edgeHit->host == hitAxis) {
+        lineObj = getOrCreateHelperLineForEdge(editor, editor.findSharedPtr(hitAxis), edgeHit->edgeIndex);
+      }
+    }
   } else if (tool == ObjectType::ReflectAboutCircle) {
     GeometricObject* hitCircle = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Circle});
     if (!hitCircle) return false;
@@ -545,6 +838,13 @@ bool handleTransformationCreation(GeometryEditor& editor,
         worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
     if (!hitPoint) return false;
     pivotPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitPoint));
+  }
+
+  if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::Triangle ||
+      sourceShared->getType() == ObjectType::Polygon || sourceShared->getType() == ObjectType::RegularPolygon) {
+    if (tryTransformShapeEdge(tool, sourceShared, pivotPoint, lineObj, circleObj, nullptr, nullptr)) {
+      return true;
+    }
   }
 
   auto sourcePoint = std::dynamic_pointer_cast<Point>(sourceShared);
@@ -588,6 +888,8 @@ bool handleTransformationCreation(GeometryEditor& editor,
     registerPoint(p1t);
     registerPoint(p2t);
     auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), line->getColor());
+    newLine->setThickness(line->getThickness());
+    newLine->setLocked(true);
     editor.lines.push_back(newLine);
     editor.commandManager.pushHistoryOnly(
         std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
@@ -623,12 +925,78 @@ bool handleTransformationCreation(GeometryEditor& editor,
       newRadius = circle->getRadius() * g_transformDilationFactor;
     }
     auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, newRadius, circle->getColor());
+    newCircle->setLocked(true);
     editor.circles.push_back(newCircle);
     editor.commandManager.pushHistoryOnly(
         std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
     editor.setGUIMessage("Transformed circle created.");
     clearSelection();
     return true;
+  }
+
+  if (sourceShared->getType() == ObjectType::Rectangle) {
+    auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
+    // Rectangle vertices are usually 0,1,2,3 in order around perimeter
+    auto V0 = getPointForShapeVertex(editor, rect, 0);
+    auto V1 = getPointForShapeVertex(editor, rect, 1);
+    auto V3 = getPointForShapeVertex(editor, rect, 3);
+    
+    auto V0t = createTransformedPoint(editor, V0, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+    auto V1t = createTransformedPoint(editor, V1, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+    auto V3t = createTransformedPoint(editor, V3, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+    
+    if (V0t && V1t && V3t) {
+      registerPoint(V0t); registerPoint(V1t); registerPoint(V3t);
+      // V0->V1 is the base (width side), V0->V3 is the height side
+      double h = std::sqrt(CGAL::to_double(CGAL::squared_distance(V0t->getCGALPosition(), V3t->getCGALPosition())));
+      
+      // Construct using the new base (V0t, V1t) and height h
+      auto newRect = std::make_shared<Rectangle>(V0t, V1t, h, rect->getColor(), editor.objectIdCounter++);
+      newRect->setThickness(rect->getThickness());
+      newRect->setLocked(true);
+      applyRectangleVertexLabels(editor, newRect);
+      editor.rectangles.push_back(newRect);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRect)));
+      editor.setGUIMessage("Transformed rectangle created.");
+      clearSelection();
+      return true;
+    }
+  }
+
+  if (sourceShared->getType() == ObjectType::Triangle) {
+    auto tri = std::dynamic_pointer_cast<Triangle>(sourceShared);
+    std::vector<std::shared_ptr<Point>> newPts;
+    for (size_t i = 0; i < 3; ++i) {
+      auto vt = createTransformedPoint(editor, tri->getVertexPoint(i), tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+      if (vt) { registerPoint(vt); newPts.push_back(vt); }
+    }
+    if (newPts.size() == 3) {
+      auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], tri->getColor(), editor.objectIdCounter++);
+      newTri->setThickness(tri->getThickness());
+      newTri->setLocked(true);
+      editor.triangles.push_back(newTri);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
+      editor.setGUIMessage("Transformed triangle created.");
+      clearSelection();
+      return true;
+    }
+  }
+
+  if (sourceShared->getType() == ObjectType::RegularPolygon) {
+    auto rpoly = std::dynamic_pointer_cast<RegularPolygon>(sourceShared);
+    auto ct = createTransformedPoint(editor, rpoly->getCenterPoint(), tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+    auto vt = createTransformedPoint(editor, rpoly->getFirstVertexPoint(), tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+    if (ct && vt) {
+      registerPoint(ct); registerPoint(vt);
+      auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), rpoly->getColor(), editor.objectIdCounter++);
+      newRPoly->setThickness(rpoly->getThickness());
+      newRPoly->setLocked(true);
+      editor.regularPolygons.push_back(newRPoly);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
+      editor.setGUIMessage("Transformed regular polygon created.");
+      clearSelection();
+      return true;
+    }
   }
 
   if (sourceShared->getType() == ObjectType::Polygon) {
@@ -652,6 +1020,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       newVerts.push_back(vt);
     }
     auto newPoly = std::make_shared<Polygon>(newVerts, poly->getColor());
+    newPoly->setLocked(true);
     editor.polygons.push_back(newPoly);
     editor.commandManager.pushHistoryOnly(
         std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
@@ -666,7 +1035,6 @@ bool handleTransformationCreation(GeometryEditor& editor,
 }
 
 // --- Helper: Midpoint & Compass State ---
-static std::vector<GeometricObject*> tempSelectedObjects;
 
 // --- Helper: Midpoint Tool Logic ---
 static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* clickedObj) {
@@ -852,64 +1220,37 @@ static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared
   auto c1 = rect->getCorner1Point();
   auto c2 = rect->getCorner2Point();
 
-  if (rect->isRotatable()) {
-    auto verts = rect->getVertices();
-    if (verts.size() != 4) return;
+  auto hidePointLabel = [](const std::shared_ptr<Point>& p) {
+    if (!p) return;
+    p->setShowLabel(false);
+  };
 
-    if (c1) {
-      c1->setLabel("A");
-      c1->setShowLabel(true);
-    }
-    if (c2) {
-      c2->setLabel("B");
-      c2->setShowLabel(true);
-    }
-
-    auto cPoint = editor.createPoint(verts[2]);
-    auto dPoint = editor.createPoint(verts[3]);
-    if (cPoint) {
-      cPoint->setLabel("C");
-      cPoint->setShowLabel(true);
-      cPoint->setDependent(true);
-      cPoint->setCreatedWithShape(true);
-    }
-    if (dPoint) {
-      dPoint->setLabel("D");
-      dPoint->setShowLabel(true);
-      dPoint->setDependent(true);
-      dPoint->setCreatedWithShape(true);
-    }
-    rect->setDependentCornerPoints(cPoint, dPoint);
-    return;
-  }
+  auto createInvisibleLabelDependent = [&](const Point_2& pos) -> std::shared_ptr<Point> {
+    auto p = editor.createPoint(pos);
+    if (!p) return nullptr;
+    p->setShowLabel(false);
+    p->setVisible(true);
+    p->setDependent(true);
+    p->setCreatedWithShape(true);
+    return p;
+  };
 
   auto verts = rect->getVertices();
   if (verts.size() != 4) return;
 
-  if (c1) {
-    c1->setLabel("A");
-    c1->setShowLabel(true);
-  }
-  if (c2) {
-    c2->setLabel("C");
-    c2->setShowLabel(true);
-  }
+  // Hide labels on main points to avoid duplication with Rectangle::drawLabel
+  hidePointLabel(c1);
+  hidePointLabel(c2);
 
-  auto bPoint = editor.createPoint(verts[1]);
-  auto dPoint = editor.createPoint(verts[3]);
-  if (bPoint) {
-    bPoint->setLabel("B");
-    bPoint->setShowLabel(true);
-    bPoint->setDependent(true);
-    bPoint->setCreatedWithShape(true);
+  if (rect->isRotatable()) {
+    auto cPoint = createInvisibleLabelDependent(verts[2]);
+    auto dPoint = createInvisibleLabelDependent(verts[3]);
+    rect->setDependentCornerPoints(cPoint, dPoint);
+  } else {
+    auto bPoint = createInvisibleLabelDependent(verts[1]);
+    auto dPoint = createInvisibleLabelDependent(verts[3]);
+    rect->setDependentCornerPoints(bPoint, dPoint);
   }
-  if (dPoint) {
-    dPoint->setLabel("D");
-    dPoint->setShowLabel(true);
-    dPoint->setDependent(true);
-    dPoint->setCreatedWithShape(true);
-  }
-  rect->setDependentCornerPoints(bPoint, dPoint);
 }
 
 void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
@@ -1245,6 +1586,7 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
           std::cerr << "Error: Failed to create valid " << (isSegment ? "segment" : "line") << std::endl;
         } else {
           newLine->registerWithEndpoints();
+          newLine->setThickness(editor.currentThickness);
           editor.lines.push_back(newLine);
           editor.commandManager.pushHistoryOnly(
               std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
@@ -1579,6 +1921,7 @@ void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseBu
                                               editor.objectIdCounter++);
         if (newLine && newLine->isValid()) {
           newLine->registerWithEndpoints();
+          newLine->setThickness(editor.currentThickness);
           editor.lines.push_back(newLine);
           editor.commandManager.pushHistoryOnly(
               std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
@@ -1805,6 +2148,7 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
                                               editor.objectIdCounter++);
         if (newLine && newLine->isValid()) {
           newLine->registerWithEndpoints();
+          newLine->setThickness(editor.currentThickness);
           editor.lines.push_back(newLine);
           editor.commandManager.pushHistoryOnly(
               std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
@@ -1857,6 +2201,7 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
 
     auto bisector = std::make_shared<PerpendicularBisector>(a, b, editor.objectIdCounter++);
     if (bisector && bisector->isValid()) {
+      bisector->setThickness(editor.currentThickness);
       editor.lines.push_back(bisector);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
@@ -1958,6 +2303,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
     }
     auto bisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++);
     if (bisector && bisector->isValid()) {
+      bisector->setThickness(editor.currentThickness);
       editor.lines.push_back(bisector);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
@@ -1984,6 +2330,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
           auto externalBisector = std::make_shared<Line>(newP1, newP2, false, Constants::CONSTRUCTION_LINE_COLOR, editor.objectIdCounter++);
           if (externalBisector && externalBisector->isValid()) {
             externalBisector->setAsConstructionLine();
+            externalBisector->setThickness(editor.currentThickness);
             editor.lines.push_back(externalBisector);
             editor.commandManager.pushHistoryOnly(
                 std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(externalBisector)));
@@ -2059,6 +2406,7 @@ void handleTangentCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
     auto tangent = std::make_shared<TangentLine>(editor.tangentAnchorPoint, editor.tangentCircle, solutionIndex,
                                                  editor.objectIdCounter++);
     if (tangent && tangent->isValid()) {
+      tangent->setThickness(editor.currentThickness);
       editor.lines.push_back(tangent);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(tangent)));
@@ -2364,9 +2712,27 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
     float tolerance = getDynamicSelectionTolerance(editor);
 
+    size_t pointsCountBefore = editor.points.size();
+    size_t objectPointsCountBefore = editor.ObjectPoints.size();
     std::shared_ptr<Point> smartPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
 
     Point_2 cgalWorldPos = smartPoint ? smartPoint->getCGALPosition() : editor.toCGALPoint(worldPos_sfml);
+
+    if (editor.isCreatingRotatableRectangle && editor.dragMode == DragMode::RotatedRectHeight && smartPoint) {
+      bool createdNewPoint = false;
+      if (editor.points.size() > pointsCountBefore && !editor.points.empty()) {
+        createdNewPoint = (editor.points.back() == smartPoint);
+      } else if (editor.ObjectPoints.size() > objectPointsCountBefore && !editor.ObjectPoints.empty()) {
+        createdNewPoint = (editor.ObjectPoints.back() == smartPoint);
+      }
+
+      if (createdNewPoint) {
+        smartPoint->setShowLabel(false);
+        smartPoint->setVisible(false);
+        smartPoint->setDependent(true);
+        smartPoint->setCreatedWithShape(true);
+      }
+    }
 
     if (!editor.isCreatingRotatableRectangle) {
       editor.rectangleCorner1 = cgalWorldPos;
@@ -2428,6 +2794,7 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
             std::make_shared<Rectangle>(corner1, corner2, baseLen, editor.getCurrentColor(), editor.objectIdCounter++);
         newRectangle->setHeight(signedHeight);
         applyRectangleVertexLabels(editor, newRectangle);
+        newRectangle->setThickness(editor.currentThickness);
         editor.rectangles.push_back(newRectangle);
         editor.commandManager.pushHistoryOnly(
             std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
@@ -2481,6 +2848,7 @@ void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
           }
         }
         auto newPoly = std::make_shared<Polygon>(finalPoints, editor.getCurrentColor(), editor.objectIdCounter++);
+        newPoly->setThickness(editor.currentThickness);
         editor.polygons.push_back(newPoly);
         editor.commandManager.pushHistoryOnly(
             std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
@@ -2532,6 +2900,7 @@ void handleRegularPolygonCreation(GeometryEditor& editor, const sf::Event::Mouse
             editor.regularPolygonCenterPoint ? editor.regularPolygonCenterPoint : editor.createPoint(editor.regularPolygonCenter),
             editor.regularPolygonFirstVertexPoint ? editor.regularPolygonFirstVertexPoint : editor.createPoint(editor.regularPolygonFirstVertex),
             editor.regularPolygonNumSides, editor.getCurrentColor(), editor.objectIdCounter++);
+        newRegPoly->setThickness(editor.currentThickness);
         editor.regularPolygons.push_back(newRegPoly);
         editor.commandManager.pushHistoryOnly(
             std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRegPoly)));
@@ -2575,6 +2944,7 @@ void handleTriangleCreation(GeometryEditor& editor, const sf::Event::MouseButton
         auto p3 = editor.triangleVertexPoints[2] ? editor.triangleVertexPoints[2] : editor.createPoint(editor.triangleVertices[2]);
 
         auto newTriangle = std::make_shared<Triangle>(p1, p2, p3, editor.getCurrentColor(), editor.objectIdCounter++);
+        newTriangle->setThickness(editor.currentThickness);
         editor.triangles.push_back(newTriangle);
         editor.commandManager.pushHistoryOnly(
             std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTriangle)));
@@ -2629,6 +2999,7 @@ static void handleCircleCreation(GeometryEditor& editor,
 
     sf::Color selectedColor = editor.getCurrentColor();
     editor.previewCircle = Circle::create(centerPoint.get(), nullptr, 0.0, selectedColor);
+    if (editor.previewCircle) editor.previewCircle->setThickness(editor.currentThickness);
     std::cout << "Preview circle created at address: " << editor.previewCircle.get() << std::endl;
     std::cout << "Creating circle with center at (" << CGAL::to_double(center.x()) << ", " << CGAL::to_double(center.y()) << ") and radius 0"
               << std::endl;
@@ -2655,6 +3026,7 @@ static void handleCircleCreation(GeometryEditor& editor,
         sf::Color selectedColor = editor.previewCircle ? editor.previewCircle->getColor() : editor.getCurrentColor();
         auto finalCircle = Circle::create(centerPoint, radiusPoint, radius, selectedColor);
         if (finalCircle && finalCircle->isValid()) {
+          finalCircle->setThickness(editor.currentThickness);
           editor.circles.push_back(finalCircle);
           editor.commandManager.pushHistoryOnly(
               std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(finalCircle)));
@@ -2970,7 +3342,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       sf::Text text;
       text.setFont(*labelFont);
       text.setString(label);
-      text.setCharacterSize(Constants::GRID_LABEL_FONT_SIZE);
+      text.setCharacterSize(VertexLabelManager::instance().getFontSize());
       text.setPosition(labelPos);
 
       sf::FloatRect bounds = text.getGlobalBounds();
@@ -3006,6 +3378,123 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
     if (tryLabelDrag(editor.points)) return;
     if (tryLabelDrag(editor.ObjectPoints)) return;
+
+    // Rectangle vertex label dragging
+    for (const auto& rect : editor.rectangles) {
+      if (!rect || !rect->isVisible()) continue;
+      auto verts = rect->getVerticesSFML();
+      const char* labels[] = {"A", "B", "C", "D"};
+      
+      for (size_t i = 0; i < verts.size() && i < 4; ++i) {
+        sf::Vector2f worldPos = verts[i];
+        sf::Vector2i screenPos = editor.window.mapCoordsToPixel(worldPos, editor.drawingView);
+        sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+        labelPos += rect->getVertexLabelOffset(i);
+        
+        sf::Text text;
+        text.setFont(Button::getFont());
+        text.setString(labels[i]);
+        text.setCharacterSize(VertexLabelManager::instance().getFontSize());
+        text.setPosition(labelPos);
+        
+        sf::FloatRect bounds = text.getGlobalBounds();
+        if (bounds.contains(mouseScreenPos)) {
+          deselectAllAndClearInteractionState(editor);
+          editor.selectedObject = rect.get();
+          editor.selectedObjects.clear();
+          editor.selectedObjects.push_back(rect.get());
+          rect->setSelected(true);
+          
+          editor.isDraggingLabel = true;
+          editor.labelDragObject = rect.get();
+          editor.labelDragVertexIndex = static_cast<int>(i);
+          editor.labelDragGrabOffset = mouseScreenPos - labelPos;
+          editor.isDragging = false;
+          editor.dragMode = DragMode::None;
+          editor.m_selectedEndpoint = EndpointSelection::None;
+          return;
+        }
+      }
+    }
+    
+    // Angle label dragging
+    for (const auto& angle : editor.angles) {
+      if (!angle || !angle->isValid() || !angle->isVisible()) continue;
+      
+      // Calculate label position (similar to Angle::draw() updateSFMLShape())
+      auto pointA = angle->getPointA().lock();
+      auto vertex = angle->getVertex().lock();
+      auto pointB = angle->getPointB().lock();
+      
+      if (!pointA || !vertex || !pointB) continue;
+      
+      Point_2 vertexCGAL = vertex->getCGALPosition();
+      sf::Vector2f vertexSFML = Point::cgalToSFML(vertexCGAL);
+      
+      // Get angle arc parameters (need to calculate midAngle)
+      Point_2 a = pointA->getCGALPosition();
+      Point_2 v = vertexCGAL;
+      Point_2 b = pointB->getCGALPosition();
+      
+      double vx = CGAL::to_double(v.x());
+      double vy = CGAL::to_double(v.y());
+      double ax = CGAL::to_double(a.x());
+      double ay = CGAL::to_double(a.y());
+      double bx = CGAL::to_double(b.x());
+      double by = CGAL::to_double(b.y());
+      
+      double angle1 = std::atan2(ay - vy, ax - vx);
+      double angle2 = std::atan2(by - vy, bx - vx);
+      
+      double sweep = angle2 - angle1;
+      if (angle->isReflex()) {
+        if (sweep >= 0) sweep -= 2.0 * 3.14159265358979323846;
+        else sweep += 2.0 * 3.14159265358979323846;
+      } else {
+        if (sweep < 0) sweep += 2.0 * 3.14159265358979323846;
+      }
+      
+      double midAngle = angle1 + sweep * 0.5;
+      double textRadius = angle->getRadius() + 12.0;
+      
+      // Calculate label position in world coordinates
+      sf::Vector2f labelWorldPos(
+        static_cast<float>(vx + textRadius * std::cos(midAngle)),
+        static_cast<float>(vy + textRadius * std::sin(midAngle))
+      );
+      
+      // Convert to screen coordinates
+      sf::Vector2i labelScreen = editor.window.mapCoordsToPixel(labelWorldPos, editor.drawingView);
+      sf::Vector2f labelPos(static_cast<float>(labelScreen.x), static_cast<float>(labelScreen.y));
+      
+      // Apply label offset
+      labelPos += angle->getLabelOffset();
+      
+      // Create text to get bounds
+      std::string degreeStr = std::to_string(static_cast<int>(std::round(angle->getCurrentDegrees()))) + "°";
+      sf::Text text;
+      text.setFont(Button::getFont());
+      text.setString(degreeStr);
+      text.setCharacterSize(VertexLabelManager::instance().getFontSize());
+      text.setPosition(labelPos);
+      
+      sf::FloatRect bounds = text.getGlobalBounds();
+      if (bounds.contains(mouseScreenPos)) {
+        deselectAllAndClearInteractionState(editor);
+        editor.selectedObject = angle.get();
+        editor.selectedObjects.clear();
+        editor.selectedObjects.push_back(angle.get());
+        angle->setSelected(true);
+        
+        editor.isDraggingLabel = true;
+        editor.labelDragObject = angle.get();
+        editor.labelDragGrabOffset = mouseScreenPos - labelPos;
+        editor.isDragging = false;
+        editor.dragMode = DragMode::None;
+        editor.m_selectedEndpoint = EndpointSelection::None;
+        return;
+      }
+    }
   }
 
   if (mouseEvent.button == sf::Mouse::Right && sf::Keyboard::isKeyPressed(sf::Keyboard::LControl)) {
@@ -3431,6 +3920,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
                 auto newRay = std::make_shared<Line>(rayStart, clickedPoint, false, editor.getCurrentColor());
                 newRay->setLineType(Line::LineType::Ray);
                 newRay->setVisible(true);
+                newRay->setThickness(editor.currentThickness);
                 editor.lines.push_back(newRay);
                 editor.commandManager.pushHistoryOnly(
                     std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRay)));
@@ -3465,6 +3955,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
                 auto newVec = std::make_shared<Line>(vecStart, clickedPoint, true, editor.getCurrentColor());
                 newVec->setLineType(Line::LineType::Vector);
                 newVec->setVisible(true);
+                newVec->setThickness(editor.currentThickness);
                 editor.lines.push_back(newVec);
                 editor.commandManager.pushHistoryOnly(
                     std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newVec)));
@@ -3517,6 +4008,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
                 newSemi->setSemicircleBasis(start, end);
                 
                 newSemi->setVisible(true);
+                newSemi->setThickness(editor.currentThickness);
                 editor.circles.push_back(newSemi);
                 editor.commandManager.pushHistoryOnly(
                     std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newSemi)));
@@ -3855,12 +4347,19 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       editor.lastMousePos_sfml = worldPos_sfml;
       editor.dragStart_sfml = worldPos_sfml;
 
-      std::cout << "DEBUG: Before MoveShapeVertex check - potentialDragMode=" << static_cast<int>(potentialDragMode)
-                << " (6=MoveShapeVertex)" << std::endl;
+      if (editor.selectedObject && editor.selectedObject->isLocked()) {
+        editor.dragMode = DragMode::None;
+        editor.m_selectedEndpoint = EndpointSelection::None;
+        editor.isDragging = false;
+        editor.lastMousePos_sfml = worldPos_sfml;
+        editor.dragStart_sfml = worldPos_sfml;
+        return;
+      }
+
       if (potentialDragMode == DragMode::MoveShapeVertex) {
         editor.activeVertexIndex = potentialVertexIndex;
         editor.activeVertexShape = potentialSelection;
-        std::cout << "DEBUG handleMousePress: Set activeVertexShape=" << editor.activeVertexShape
+        std::cout << "DEBUG objectFoundLabel: Set activeVertexShape=" << editor.activeVertexShape
                   << " activeVertexIndex=" << editor.activeVertexIndex << std::endl;
         if (auto* rect = dynamic_cast<Rectangle*>(potentialSelection)) {
           rect->setActiveVertex(potentialVertexIndex);
@@ -3985,8 +4484,5 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       editor.isDrawingSelectionBox = false;
       return;
     }
-    return;
   }
-
-  editor.lastMousePos_sfml = worldPos_sfml;
 }

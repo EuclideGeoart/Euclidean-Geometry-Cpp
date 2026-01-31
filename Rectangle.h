@@ -53,7 +53,7 @@ class Rectangle : public GeometricObject {
 
   // GeometricObject interface
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
-  //virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
+  virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   virtual void update() override;
   virtual void setColor(const sf::Color &color) override;
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
@@ -98,6 +98,10 @@ class Rectangle : public GeometricObject {
   int getHoveredVertex() const { return m_hoveredVertex; }
   int getActiveVertex() const { return m_activeVertex; }
 
+  // Label offset support for vertex labels
+  void setVertexLabelOffset(size_t vertexIndex, const sf::Vector2f& offset);
+  sf::Vector2f getVertexLabelOffset(size_t vertexIndex) const;
+
   // Rectangle-specific setters
   void setCorners(const Point_2 &corner1, const Point_2 &corner2);
   void setRotation(double angleRadians);
@@ -117,6 +121,7 @@ class Rectangle : public GeometricObject {
   sf::RectangleShape m_sfmlShape;  // SFML shape for rendering
   int m_hoveredVertex = -1;
   int m_activeVertex = -1;
+  std::vector<sf::Vector2f> m_vertexLabelOffsets;  // Per-vertex label offsets (screen pixels)
 
   // Helper methods
   void updateSFMLShape();

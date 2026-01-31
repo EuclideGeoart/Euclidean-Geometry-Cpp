@@ -68,7 +68,7 @@ std::string VertexLabelManager::renameLabel(const std::string& oldLabel, const s
   return registerLabel(newLabel);
 }
 
-void VertexLabelManager::drawLabel(sf::RenderWindow& window, const sf::Vector2f& pos, const std::string& label) const {
+void VertexLabelManager::drawLabel(sf::RenderWindow& window, const sf::Vector2f& pos, const std::string& label, unsigned int fontSize) const {
   if (!m_visible || label.empty()) return;
   
   // Ensure font is loaded (const_cast for lazy init)
@@ -78,10 +78,13 @@ void VertexLabelManager::drawLabel(sf::RenderWindow& window, const sf::Vector2f&
     }
   }
   
+  // Use provided fontSize, or fall back to instance fontSize if default (18)
+  unsigned int actualSize = (fontSize == 18) ? m_fontSize : fontSize;
+  
   sf::Text text;
   text.setFont(m_font);
   text.setString(label);
-  text.setCharacterSize(12);
+  text.setCharacterSize(actualSize);
   text.setFillColor(sf::Color::Black);
   
   // Position label with offset (slightly above and to the right of vertex)

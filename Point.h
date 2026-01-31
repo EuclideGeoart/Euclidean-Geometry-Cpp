@@ -68,7 +68,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
 
   // Lock status
   void setLocked(bool lockStatus) { m_isLocked = lockStatus; }
-  bool isLocked() const;
+  bool isLocked() const override;
 
   void setVisible(bool v) override { m_visible = v; }
   bool isVisible() const override { return m_visible; }
@@ -190,7 +190,7 @@ public:
     void setLabelOffset(const sf::Vector2f& offset) { m_labelOffset = offset; }
     sf::Vector2f getLabelOffset() const { return m_labelOffset; }
     void setDependent(bool dependent) { m_isDependent = dependent; }
-    bool isDependent() const { return m_isDependent; }
+    bool isDependent() const override { return m_isDependent; }
     void setCreatedWithShape(bool created) { m_createdWithShape = created; }
     bool isCreatedWithShape() const { return m_createdWithShape; }
 };

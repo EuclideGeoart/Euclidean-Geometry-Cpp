@@ -7,8 +7,9 @@
 #include "CGALSafeUtils.h"
 #include "Constants.h"
 #include "Line.h"
-#include "QuickProfiler.h">
+#include "QuickProfiler.h"
 #include "Transforms.h"                                        // For toSFMLVector, toCGALPoint
+#include "VertexLabelManager.h"                                // For font size
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // For Point_2
 #include <CGAL/number_utils.h>                                 // For CGAL::to_double
 #include <cmath>                                               // For std::sqr
@@ -191,32 +192,41 @@ Point_2 Point::sfmlToCGAL(
 
 void Point::setCGALPosition(const Point_2 &newPos) {
   QUICK_PROFILE("Point::setCGALPosition");
-  if (Constants::DEBUG_POINT_UPDATE) {
-    std::cout << "Point " << this << " setCGALPosition: New CGAL Pos: ("
-              << CGAL::to_double(newPos.x()) << ", " << CGAL::to_double(newPos.y())
-              << "), Finite: " << (CGAL::is_finite(newPos.x()) && CGAL::is_finite(newPos.y()))
-              << std::endl;
-  }
+  
+  try {
+    if (Constants::DEBUG_POINT_UPDATE) {
+      std::cout << "Point " << this << " setCGALPosition: New CGAL Pos: ("
+                << CGAL::to_double(newPos.x()) << ", " << CGAL::to_double(newPos.y())
+                << "), Finite: " << (CGAL::is_finite(newPos.x()) && CGAL::is_finite(newPos.y()))
+                << std::endl;
+    }
 
-  if (!CGAL::is_finite(newPos.x()) || !CGAL::is_finite(newPos.y())) {
-    std::cerr << "Point " << this
-              << " setCGALPosition: Attempted to set non-finite CGAL position. "
-                 "Marking invalid."
-              << std::endl;
-    m_isValid = false;
+    if (!CGAL::is_finite(newPos.x()) || !CGAL::is_finite(newPos.y())) {
+      std::cerr << "Point " << this
+                << " setCGALPosition: Attempted to set non-finite CGAL position. "
+                   "Marking invalid."
+                << std::endl;
+      m_isValid = false;
+      m_cgalPosition = newPos;
+      updateSFMLShape();
+      return;
+    }
+
     m_cgalPosition = newPos;
-    updateSFMLShape();
-    return;
-  }
+    m_isValid = true;
+    updateSFMLShape();  // Always update visual immediately
 
-  m_cgalPosition = newPos;
-  m_isValid = true;
-  updateSFMLShape();  // Always update visual immediately
-
-  // PERFORMANCE FIX: Only update constraints if not deferred
-  if (!m_deferConstraintUpdates) {
-    QUICK_PROFILE("Point::updateConnectedLines");
-    updateConnectedLines();
+    // PERFORMANCE FIX: Only update constraints if not deferred
+    if (!m_deferConstraintUpdates) {
+      QUICK_PROFILE("Point::updateConnectedLines");
+      updateConnectedLines();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Point::setCGALPosition - Exception: " << e.what() << std::endl;
+    m_isValid = false;
+  } catch (...) {
+    std::cerr << "Point::setCGALPosition - Unknown exception" << std::endl;
+    m_isValid = false;
   }
 }
 void Point::updateSFMLShape() {
@@ -479,7 +489,7 @@ void Point::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const
   sf::Text text;
   text.setFont(*Point::commonFont);
   text.setString(m_label);
-  text.setCharacterSize(Constants::GRID_LABEL_FONT_SIZE); // Dynamic font size
+  text.setCharacterSize(VertexLabelManager::instance().getFontSize()); // Use global font size
   text.setFillColor(Constants::AXIS_LABEL_COLOR);
   
   // 3. Position (Screen Space)

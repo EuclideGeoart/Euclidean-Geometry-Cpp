@@ -73,7 +73,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
 
   // Lock/state
   void setLocked(bool locked) { m_isLocked = locked; }
-  bool isLocked() const { return m_isLocked; }
+  bool isLocked() const override { return m_isLocked; }
 
   // Semicircle support
   void setSemicircle(bool isSemi) { m_isSemicircle = isSemi; }

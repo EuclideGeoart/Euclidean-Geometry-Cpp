@@ -32,6 +32,7 @@ class GeometricObject {
 
   // Object properties
   virtual unsigned int getID() const { return m_id; }
+  void setID(unsigned int id) { m_id = id; }
   virtual ObjectType getType() const { return m_type; }
 
   // Geometry operations
@@ -48,6 +49,7 @@ class GeometricObject {
   virtual void setPosition(const sf::Vector2f &newSfmlPos) = 0;
   virtual void setColor(const sf::Color &color);
   virtual void translate(const Vector_2 &offset) { (void)offset; }  // No default implementation
+  void move(const Vector_2 &delta);
   
   // Point/Edge provider interface for generic anchor point detection
   // Shapes override these to expose their vertices and edges to all tools
@@ -79,9 +81,16 @@ class GeometricObject {
   virtual void setThickness(float thickness) { m_thickness = thickness; }
   virtual float getThickness() const { return m_thickness; }
 
+  // Vertex handle size (used by shapes with draggable vertices)
+  virtual void setVertexHandleSize(float size) { m_vertexHandleSize = size; }
+  virtual float getVertexHandleSize() const { return m_vertexHandleSize; }
+
   // Locking
   void setLocked(bool locked);
-  bool isLocked() const;
+  virtual bool isLocked() const;
+  virtual bool isDependent() const { return false; }
+  void setDecoration(DecorationType t) { m_decoration = t; }
+  DecorationType getDecoration() const { return m_decoration; }
 
   // Added validation method that can be overridden by derived classes
   virtual bool isValid() const {
@@ -113,6 +122,8 @@ class GeometricObject {
   bool m_showLabel = true;
   sf::Vector2f m_labelOffset = {0.f, 0.f};
   float m_thickness = Constants::LINE_THICKNESS_DEFAULT;
+  float m_vertexHandleSize = 4.0f;  // Default vertex handle size
+  DecorationType m_decoration = DecorationType::None;
 };
 
 #endif  // GEOMETRIC_OBJECT_H

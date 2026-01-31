@@ -96,14 +96,17 @@ void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) cons
     sf::Color outlineColor = m_outlineColor;
     
     // Pixel-perfect thickness (Integers for sharpness)
-    float pixelThickness = Constants::LINE_THICKNESS_DEFAULT;
+    // Pixel-perfect thickness (Integers for sharpness)
+    float baseThickness = m_thickness;
     if (isSelected()) {
         outlineColor = Constants::SELECTION_COLOR;
-        pixelThickness = 4.0f;
+        baseThickness += 2.0f;
     } else if (isHovered()) {
         outlineColor = Constants::HOVER_COLOR;
-        pixelThickness = 3.0f;
+        baseThickness += 1.0f;
     }
+    float pixelThickness = std::round(baseThickness);
+    if (pixelThickness < 1.0f) pixelThickness = 1.0f;
 
     if (!m_visible && forceVisible) {
         fillColor.a = 50;

@@ -462,7 +462,7 @@ private:
   Object *m_parent = nullptr;
   void *m_userData = nullptr;
   std::map<std::string, std::string> m_data;
-  float m_thickness = Constants::LINE_THICKNESS;
+  // float m_thickness = Constants::LINE_THICKNESS;  // REMOVED: Use inherited m_thickness from GeometricObject
 
   // Prevent re‐entrant maintainConstraints calls
   bool m_inConstraint = false;

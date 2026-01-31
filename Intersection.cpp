@@ -16,6 +16,7 @@
 #include <CGAL/Uncertain.h>
 #include <CGAL/intersections.h>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <algorithm>
 
@@ -326,7 +327,9 @@ std::vector<std::shared_ptr<Point>> createGenericIntersection(
   for (const auto &p : intersections) {
     auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
                                             Constants::INTERSECTION_POINT_COLOR);
+    newPoint->setID(editor.objectIdCounter++);
     newPoint->setIntersectionPoint(true);
+    newPoint->setDependent(true);
     newPoint->setSelected(false);
     newPoint->lock();
     newPoint->setVisible(true);
@@ -339,6 +342,26 @@ std::vector<std::shared_ptr<Point>> createGenericIntersection(
 
   activeConstraints.push_back(std::move(constraint));
   return result;
+}
+
+std::vector<IntersectionConstraint> getActiveIntersectionConstraints() {
+  return activeConstraints;
+}
+
+void clearAllIntersectionConstraints(GeometryEditor &editor) {
+  (void)editor;
+  activeConstraints.clear();
+}
+
+void registerIntersectionConstraint(const std::shared_ptr<GeometricObject> &A,
+                                    const std::shared_ptr<GeometricObject> &B,
+                                    const std::vector<std::shared_ptr<Point>> &points) {
+  IntersectionConstraint constraint{A, B, {}};
+  constraint.resultingPoints.reserve(points.size());
+  for (const auto &pt : points) {
+    if (pt) constraint.resultingPoints.push_back(pt);
+  }
+  activeConstraints.push_back(std::move(constraint));
 }
 
 std::shared_ptr<Point> createLineLineIntersection(const std::shared_ptr<Line> &line1,
@@ -416,48 +439,64 @@ void updateAllIntersections(GeometryEditor &editor) {
 
         const size_t existingCount = existing.size();
         const size_t newCount = newIntersections.size();
-        const size_t commonCount = std::min(existingCount, newCount);
 
-        for (size_t i = 0; i < commonCount; ++i) {
-          auto &pt = existing[i];
-          if (!pt) {
-            continue;
+        std::vector<bool> used(existingCount, false);
+        std::vector<std::shared_ptr<Point>> updated;
+        updated.reserve(std::max(existingCount, newCount));
+
+        // Match new intersections to existing points by proximity
+        for (const auto &p : newIntersections) {
+          double bestDist = std::numeric_limits<double>::max();
+          size_t bestIdx = existingCount;
+
+          for (size_t i = 0; i < existingCount; ++i) {
+            if (used[i] || !existing[i]) continue;
+            double dist = CGAL::to_double(CGAL::squared_distance(existing[i]->getCGALPosition(), p));
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestIdx = i;
+            }
           }
-          pt->setVisible(true);
-          pt->setIsValid(true);
-          pt->setIntersectionPoint(true);
-          pt->setSelected(false);
-          pt->lock();
-          pt->setCGALPosition(newIntersections[i]);
-          pt->update();
-          pt->updateConnectedLines();
-        }
 
-        if (existingCount < newCount) {
-          for (size_t i = existingCount; i < newCount; ++i) {
-            auto newPoint = std::make_shared<Point>(newIntersections[i], Constants::CURRENT_ZOOM,
+          if (bestIdx < existingCount) {
+            auto &pt = existing[bestIdx];
+            used[bestIdx] = true;
+            pt->setVisible(true);
+            pt->setIsValid(true);
+            pt->setIntersectionPoint(true);
+            pt->setSelected(false);
+            pt->lock();
+            pt->setCGALPosition(p);
+            pt->update();
+            pt->updateConnectedLines();
+            updated.push_back(pt);
+          } else {
+            auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
                                                     Constants::INTERSECTION_POINT_COLOR);
+            newPoint->setID(editor.objectIdCounter++);
             newPoint->setIntersectionPoint(true);
+            newPoint->setDependent(true);
             newPoint->setSelected(false);
             newPoint->lock();
             newPoint->setVisible(true);
             newPoint->setCGALPosition(newPoint->getCGALPosition());
             newPoint->update();
             editor.points.push_back(newPoint);
-            existing.push_back(newPoint);
+            updated.push_back(newPoint);
           }
-        } else if (existingCount > newCount) {
-          for (size_t i = newCount; i < existingCount; ++i) {
-            if (existing[i]) {
-              existing[i]->setVisible(false);
-              existing[i]->setIsValid(false);
-              existing[i]->updateConnectedLines();
-            }
+        }
+
+        // Hide unused existing points
+        for (size_t i = 0; i < existingCount; ++i) {
+          if (!used[i] && existing[i]) {
+            existing[i]->setVisible(false);
+            existing[i]->setIsValid(false);
+            existing[i]->updateConnectedLines();
           }
         }
 
         it->resultingPoints.clear();
-        for (const auto &pt : existing) {
+        for (const auto &pt : updated) {
           it->resultingPoints.push_back(pt);
         }
 
