@@ -753,14 +753,15 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
     // If not snapped to a point, allow snapping to lines/circles (projection)
     if (!snappedToPoint) {
-      GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle});
+      GeometricObject* nearbyObj = editor.lookForObjectAt(worldPos, snapTolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray, ObjectType::Vector, ObjectType::Circle});
 
       if (nearbyObj) {
         Point_2 cgalPos = editor.toCGALPoint(worldPos);
         Point_2 projectedPos = cgalPos; // Default to mouse position
 
         // Project onto the object
-        if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment) {
+        if (nearbyObj->getType() == ObjectType::Line || nearbyObj->getType() == ObjectType::LineSegment ||
+            nearbyObj->getType() == ObjectType::Ray || nearbyObj->getType() == ObjectType::Vector) {
           auto* line = dynamic_cast<Line*>(nearbyObj);
           if (line && line->isValid()) {
             projectedPos = projectPointOntoLine(cgalPos, line, line->isSegment());
@@ -789,7 +790,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // === LINE TOOL VERTEX/EDGE SNAP PREVIEW ===
   // When Line Tool is active, highlight nearby vertices/edges to give visual feedback
-  if (editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment) {
+  if (editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment ||
+      editor.m_currentToolType == ObjectType::Ray || editor.m_currentToolType == ObjectType::Vector) {
     float tolerance = getDynamicSelectionTolerance(editor) * 2.0f;
 
     // Clear previous hover state
@@ -937,6 +939,20 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         editor.m_perpendicularPreviewLine.reset();
       }
     }
+
+    // Handle standard line/segment preview overlay
+    if ((editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment) &&
+        editor.lineCreationPoint1 && editor.dragMode == DragMode::CreateLineP1) {
+      editor.previewLineOverlay.setPrimitiveType(sf::Lines);
+      editor.previewLineOverlay.resize(2);
+      editor.previewLineOverlay[0].position = editor.toSFMLVector(editor.lineCreationPoint1->getCGALPosition());
+      editor.previewLineOverlay[1].position = worldPos;
+      editor.previewLineOverlay[0].color = Constants::PREVIEW_COLOR;
+      editor.previewLineOverlay[1].color = Constants::PREVIEW_COLOR;
+      editor.hasPreviewLineOverlay = true;
+    } else if (editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment) {
+      editor.hasPreviewLineOverlay = false;
+    }
   }
 
   // === UNIVERSAL SMART SNAPPING ===
@@ -1063,15 +1079,33 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     editor.previewRectangle->setCorners(editor.rectangleCorner1, cgalWorldPos);
   }
 
-  // Handle preview rotatable rectangle (recreate preview with current mouse as adjacent point)
+  // Handle preview rotatable rectangle (3-step: base then height)
   if (shouldUpdatePreview && editor.isCreatingRotatableRectangle) {
     try {
-      double dx = CGAL::to_double(cgalWorldPos.x() - editor.rectangleCorner1.x());
-      double dy = CGAL::to_double(cgalWorldPos.y() - editor.rectangleCorner1.y());
-      double side = std::sqrt(dx * dx + dy * dy);
-      double width = side;  // square-like preview for clarity
-      editor.previewRectangle =
-          std::make_shared<Rectangle>(editor.rectangleCorner1, cgalWorldPos, width, editor.getCurrentColor(), editor.objectIdCounter /* temp id */);
+      if (editor.dragMode == DragMode::RotatedRectP2) {
+        double dx = CGAL::to_double(cgalWorldPos.x() - editor.rectangleCorner1.x());
+        double dy = CGAL::to_double(cgalWorldPos.y() - editor.rectangleCorner1.y());
+        double baseLen = std::sqrt(dx * dx + dy * dy);
+        editor.previewRectangle = std::make_shared<Rectangle>(
+            editor.rectangleCorner1, cgalWorldPos, baseLen,
+            editor.getCurrentColor(), editor.objectIdCounter /* temp id */);
+      } else if (editor.dragMode == DragMode::RotatedRectHeight && editor.previewRectangle) {
+        editor.previewRectangle->setCorners(editor.rectangleCorner1, editor.rectangleCorner2);
+
+        Point_2 baseStart = editor.rectangleCorner1;
+        Point_2 baseEnd = editor.rectangleCorner2;
+        double dx = CGAL::to_double(baseEnd.x() - baseStart.x());
+        double dy = CGAL::to_double(baseEnd.y() - baseStart.y());
+        double baseLen = std::sqrt(dx * dx + dy * dy);
+        if (baseLen > Constants::MIN_CIRCLE_RADIUS) {
+          double ux = -dy / baseLen;
+          double uy = dx / baseLen;
+          double vx = CGAL::to_double(cgalWorldPos.x() - baseStart.x());
+          double vy = CGAL::to_double(cgalWorldPos.y() - baseStart.y());
+          double signedHeight = vx * ux + vy * uy;
+          editor.previewRectangle->setHeight(signedHeight);
+        }
+      }
     } catch (const std::exception& e) {
       std::cerr << "Error updating rotatable rectangle preview: " << e.what() << std::endl;
       editor.previewRectangle.reset();
@@ -1135,7 +1169,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
             break;
           }
           case ObjectType::Line:
-          case ObjectType::LineSegment: {
+          case ObjectType::LineSegment:
+          case ObjectType::Ray:
+          case ObjectType::Vector: {
             auto line = static_cast<Line*>(obj);
             line->setIsUnderDirectManipulation(true);
             constrainedLinesToRestore.push_back(line);
@@ -1221,7 +1257,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       if (editor.dragMode == DragMode::MoveFreePoint && editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
         draggedPointRaw = static_cast<Point*>(editor.selectedObject);
       } else if ((editor.dragMode == DragMode::MoveLineEndpointStart || editor.dragMode == DragMode::MoveLineEndpointEnd) && editor.selectedObject &&
-                 (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+             (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+          editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
         Line* selectedLine = static_cast<Line*>(editor.selectedObject);
         draggedPointRaw =
             (editor.dragMode == DragMode::MoveLineEndpointStart) ? selectedLine->getStartPointObject() : selectedLine->getEndPointObject();
@@ -1287,7 +1324,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       // Get currently manipulated line to exclude from deferring
       Line* currentlyManipulatedLine = nullptr;
       if (editor.selectedObject &&
-          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+           editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
         currentlyManipulatedLine = static_cast<Line*>(editor.selectedObject);
       }
 
@@ -1425,7 +1463,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       } else if (editor.dragMode == DragMode::TranslateLine) {
         // Cast to Line and handle translation
         if (editor.selectedObject &&
-            (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+            (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+             editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
           Line* selectedLine = static_cast<Line*>(editor.selectedObject);
 
           Point* startPoint = selectedLine->getStartPointObject();
@@ -1469,7 +1508,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       } else if (editor.dragMode == DragMode::MoveLineEndpointStart || editor.dragMode == DragMode::MoveLineEndpointEnd) {
         // Cast to Line and handle endpoint movement
         if (editor.selectedObject &&
-            (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+            (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+             editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
           Line* selectedLine = static_cast<Line*>(editor.selectedObject);
 
           if (editor.dragMode == DragMode::MoveLineEndpointStart) {
@@ -1581,15 +1621,19 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           sf::Vector2f delta_sfml = worldPos - editor.lastMousePos_sfml;
           Vector_2 delta_cgal = editor.toCGALVector(delta_sfml);
 
-          Point* centerPoint = selectedCircle->getCenterPointObject();
-          Point* radiusPoint = selectedCircle->getRadiusPointObject();
+          if (selectedCircle->isSemicircle()) {
+            selectedCircle->translate(delta_cgal);
+          } else {
+            Point* centerPoint = selectedCircle->getCenterPointObject();
+            Point* radiusPoint = selectedCircle->getRadiusPointObject();
 
-          // Move BOTH to achieve rigid body translation
-          if (centerPoint) {
-            centerPoint->translate(delta_cgal);
-          }
-          if (radiusPoint) {
-            radiusPoint->translate(delta_cgal);
+            // Move BOTH to achieve rigid body translation
+            if (centerPoint) {
+              centerPoint->translate(delta_cgal);
+            }
+            if (radiusPoint) {
+              radiusPoint->translate(delta_cgal);
+            }
           }
 
           selectedCircle->update();  // Refresh visuals
@@ -2306,7 +2350,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
     } else {
       // Handle line translation points
       if (editor.dragMode == DragMode::TranslateLine && editor.selectedObject &&
-          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+           editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
         Line* selectedLine = static_cast<Line*>(editor.selectedObject);
         Point* startPoint = selectedLine->getStartPointObject();
         Point* endPoint = selectedLine->getEndPointObject();
@@ -2321,7 +2366,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Handle endpoint dragging
       if ((editor.dragMode == DragMode::MoveLineEndpointStart || editor.dragMode == DragMode::MoveLineEndpointEnd) && editor.selectedObject &&
-          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment)) {
+          (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
+           editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
         Line* selectedLine = static_cast<Line*>(editor.selectedObject);
         Point* startPoint = selectedLine->getStartPointObject();
         Point* endPoint = selectedLine->getEndPointObject();
@@ -2370,7 +2416,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
             }
           }
         } else if ((previousDragMode == DragMode::MoveLineEndpointStart || previousDragMode == DragMode::MoveLineEndpointEnd) && draggedObject &&
-                   (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment)) {
+             (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment ||
+              draggedObject->getType() == ObjectType::Ray || draggedObject->getType() == ObjectType::Vector)) {
           Line* selectedLine = static_cast<Line*>(draggedObject);
           draggedPointShared = (previousDragMode == DragMode::MoveLineEndpointStart) ? selectedLine->getStartPointObjectShared()
                                                                                      : selectedLine->getEndPointObjectShared();
@@ -2395,7 +2442,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
       editor.isDragging = false;  // Stop dragging state
 
       // Reset m_isUnderDirectManipulation flag for lines
-      if (draggedObject && (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment)) {
+      if (draggedObject && (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment ||
+                            draggedObject->getType() == ObjectType::Ray || draggedObject->getType() == ObjectType::Vector)) {
         if (previousDragMode == DragMode::TranslateLine || previousDragMode == DragMode::MoveLineEndpointStart ||
             previousDragMode == DragMode::MoveLineEndpointEnd) {
           static_cast<Line*>(draggedObject)->setIsUnderDirectManipulation(false);
@@ -2416,7 +2464,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Handle line translation points
       if (previousDragMode == DragMode::TranslateLine && draggedObject &&
-          (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment)) {
+          (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment ||
+           draggedObject->getType() == ObjectType::Ray || draggedObject->getType() == ObjectType::Vector)) {
         Line* selectedLine = static_cast<Line*>(draggedObject);
         Point* startPoint = selectedLine->getStartPointObject();
         Point* endPoint = selectedLine->getEndPointObject();
@@ -2431,7 +2480,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Handle endpoint dragging
       if ((previousDragMode == DragMode::MoveLineEndpointStart || previousDragMode == DragMode::MoveLineEndpointEnd) && draggedObject &&
-          (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment)) {
+          (draggedObject->getType() == ObjectType::Line || draggedObject->getType() == ObjectType::LineSegment ||
+           draggedObject->getType() == ObjectType::Ray || draggedObject->getType() == ObjectType::Vector)) {
         Line* selectedLine = static_cast<Line*>(draggedObject);
         Point* startPoint = selectedLine->getStartPointObject();
         Point* endPoint = selectedLine->getEndPointObject();

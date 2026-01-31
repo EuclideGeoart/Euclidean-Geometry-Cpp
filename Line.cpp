@@ -65,7 +65,7 @@ thread_local std::set<Line *> Line::s_updatingLines;
 Line::Line(std::shared_ptr<Point> startPoint, std::shared_ptr<Point> endPoint, bool isSegment,
            const sf::Color &color)
     : GeometricObject(isSegment ? ObjectType::LineSegment : ObjectType::Line, color),
-      m_lineType(LineType::Infinite),
+      m_lineType(isSegment ? LineType::Segment : LineType::Infinite),
       m_startPoint(startPoint),
       m_endPoint(endPoint),
       m_isSegment(isSegment),
@@ -143,7 +143,7 @@ Line::Line(std::shared_ptr<Point> startPoint, std::shared_ptr<Point> endPoint, b
 Line::Line(std::shared_ptr<Point> start, std::shared_ptr<Point> end, bool isSegment,
            const sf::Color &color, unsigned int id)
     : GeometricObject(isSegment ? ObjectType::LineSegment : ObjectType::Line, color, id),
-      m_lineType(LineType::Infinite),
+      m_lineType(isSegment ? LineType::Segment : LineType::Infinite),
       m_startPoint(start),
       m_endPoint(end),
       m_isSegment(isSegment),
@@ -663,90 +663,98 @@ void Line::setTemporaryPreviewPoints(std::shared_ptr<Point> p1, std::shared_ptr<
 // --- GeometricObject Overrides ---
 void Line::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
   try {
-    if (!m_visible && !forceVisible) return;
-
-    if ((m_startPoint && !m_startPoint->isValid()) ||
+    if ((!m_visible && !forceVisible) || (!m_startPoint || !m_startPoint->isValid()) ||
         (m_endPoint && !m_endPoint->isValid())) {
       return;
     }
-    // Set colors based on state
+
+    // --- COLOR & STATE SETUP ---
     sf::Color drawColor = m_color;
     if (m_selected) {
       drawColor = Constants::SELECTION_COLOR;
     } else if (m_hovered) {
       drawColor = Constants::HOVER_COLOR;
     }
-
-    // GHOST MODE: Apply transparency if hidden but forced visible
+    // Ghost mode transparency
     if (!m_visible && forceVisible) {
-        drawColor.a = 50;
+      drawColor.a = 50;
     }
 
-    // Determine thickness
-    float basePixelThickness = Constants::LINE_THICKNESS_DEFAULT; // e.g. 2.0 or 3.0
-    if (m_selected) basePixelThickness = 4.0f; // Thicker when selected
+    float basePixelThickness = Constants::LINE_THICKNESS_DEFAULT;
+    if (m_selected) basePixelThickness = 4.0f;
     else if (m_hovered) basePixelThickness = 3.0f;
-
-    // Convert screen pixel thickness to world units
+    
+    // Convert thickness to world units
     float worldThickness = basePixelThickness * scale;
 
-    sf::Vector2f p1;
-    sf::Vector2f p2;
+    // --- COORDINATE CALCULATION ---
+    const Point_2 startCgal = m_startPoint->getCGALPosition();
+    const Point_2 endCgal = m_endPoint->getCGALPosition();
+    sf::Vector2f p1(static_cast<float>(CGAL::to_double(startCgal.x())),
+                    static_cast<float>(CGAL::to_double(startCgal.y())));
+    sf::Vector2f p2(static_cast<float>(CGAL::to_double(endCgal.x())),
+                    static_cast<float>(CGAL::to_double(endCgal.y())));
 
-    if (m_isSegment) {
-      // Get endpoints from the shape (updated by updateSFMLShape)
-      if (m_sfmlShape.getVertexCount() < 2) return;
-      p1 = m_sfmlShape[0].position;
-      p2 = m_sfmlShape[1].position;
-    } else {
-      if (!m_startPoint || !m_endPoint) return;
-      const Point_2 startCgal = m_startPoint->getCGALPosition();
-      const Point_2 endCgal = m_endPoint->getCGALPosition();
-      p1 = sf::Vector2f(static_cast<float>(CGAL::to_double(startCgal.x())),
-                        static_cast<float>(CGAL::to_double(startCgal.y())));
-      p2 = sf::Vector2f(static_cast<float>(CGAL::to_double(endCgal.x())),
-                        static_cast<float>(CGAL::to_double(endCgal.y())));
-
-      sf::View currentView = window.getView();
-      sf::Vector2f viewSize = currentView.getSize();
-      float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
-
-      sf::Vector2f dir = p2 - p1;
-      float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-      if (len > 1e-9f) {
-        dir /= len;  // Normalize
-        float extension = viewDiagonal * 2.0f;
-        // Re-center around the view to keep coordinates stable at high zoom
-        sf::Vector2f viewCenter = currentView.getCenter();
-        sf::Vector2f toCenter = viewCenter - p1;
-        float proj = toCenter.x * dir.x + toCenter.y * dir.y;
-        sf::Vector2f mid = p1 + dir * proj;
-        p1 = mid - dir * extension;
-        p2 = mid + dir * extension;
-      }
-    }
-
-    // Draw as a thick line (Quad)
     sf::Vector2f dir = p2 - p1;
-    float length = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-    
-    if (length < 1e-9f) return; // Degenerate (ultra-small threshold for extreme zoom)
+    float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+    if (len < 1e-9f) return; // Degenerate
+    sf::Vector2f unitDir = dir / len;
 
-    sf::Vector2f normal(-dir.y / length, dir.x / length);
+    // --- TYPE-SPECIFIC DRAWING LOGIC ---
+    sf::Vector2f drawStart = p1;
+    sf::Vector2f drawEnd = p2;
+
+    ObjectType type = getType(); // Line, LineSegment, Ray, Vector
+
+    if (m_lineType == LineType::Infinite || type == ObjectType::Line) {
+        // Infinite Line: Extend both ways
+        sf::View currentView = window.getView();
+        sf::Vector2f viewSize = currentView.getSize();
+        float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
+        float extension = viewDiagonal * 2.0f;
+        drawStart = p1 - unitDir * extension;
+        drawEnd = p2 + unitDir * extension;
+    } 
+    else if (m_lineType == LineType::Ray || type == ObjectType::Ray) {
+        // Ray: Extend only from Start towards End
+        sf::View currentView = window.getView();
+        sf::Vector2f viewSize = currentView.getSize();
+        float viewDiagonal = std::sqrt(viewSize.x * viewSize.x + viewSize.y * viewSize.y);
+        float extension = viewDiagonal * 2.0f;
+        drawStart = p1; // Start is fixed
+        drawEnd = p2 + unitDir * extension; // Extend past P2
+    }
+    // Else: Segment or Vector (draw directly from p1 to p2)
+
+    // --- DRAW MAIN LINE BODY ---
+    sf::Vector2f normal(-unitDir.y, unitDir.x);
     sf::Vector2f offset = normal * (worldThickness * 0.5f);
 
     sf::VertexArray quad(sf::Quads, 4);
-    quad[0].position = p1 + offset;
-    quad[1].position = p2 + offset;
-    quad[2].position = p2 - offset;
-    quad[3].position = p1 - offset;
+    quad[0].position = drawStart + offset;
+    quad[1].position = drawEnd + offset;
+    quad[2].position = drawEnd - offset;
+    quad[3].position = drawStart - offset;
     
-    quad[0].color = drawColor;
-    quad[1].color = drawColor;
-    quad[2].color = drawColor;
-    quad[3].color = drawColor;
-    
+    for(int i=0; i<4; ++i) quad[i].color = drawColor;
     window.draw(quad);
+
+    // --- DRAW VECTOR ARROWHEAD ---
+    if (type == ObjectType::Vector) {
+        float arrowSize = 15.0f * scale; // Adjust size as needed
+        sf::Vector2f arrowTip = p2;
+        sf::Vector2f arrowBase = arrowTip - unitDir * arrowSize;
+        sf::Vector2f arrowLeft = arrowBase + normal * (arrowSize * 0.35f);
+        sf::Vector2f arrowRight = arrowBase - normal * (arrowSize * 0.35f);
+
+        sf::VertexArray arrow(sf::Triangles, 3);
+        arrow[0].position = arrowTip;
+        arrow[1].position = arrowLeft;
+        arrow[2].position = arrowRight;
+        
+        for(int i=0; i<3; ++i) arrow[i].color = drawColor;
+        window.draw(arrow);
+    }
 
   } catch (const std::exception &e) {
     std::cerr << "Exception in Line::draw: " << e.what() << std::endl;

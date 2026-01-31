@@ -2,6 +2,7 @@
 
 #include <SFML/Graphics/Color.hpp>
 #include <algorithm>  // For std::clamp
+#include <cmath>
 #include <iostream>   // For std::cerr
 #include <string>     // Include very early for any string operations
 
@@ -17,6 +18,8 @@
 
 float g_transformRotationDegrees = 45.0f;
 float g_transformDilationFactor = 2.0f;
+bool g_showAngleInputPopup = false;
+float g_angleInputDegrees = 60.0f;
 static bool s_showTransformTools = false;
 
 static bool isTransformButtonLabel(const std::string& label) {
@@ -46,7 +49,7 @@ static void drawOverlays(GeometryEditor& editor, const sf::Text& guiMessage, boo
     ImGui::TextColored(ImVec4(1,1,1,1), "F+/-: Scale UI");
     ImGui::TextColored(ImVec4(1,1,1,1), "Del: Delete Object");
     ImGui::TextColored(ImVec4(1,1,1,1), "H: Toggle Labels");
-    ImGui::TextColored(ImVec4(1,1,1,1), "Select point and click R to change its label");
+    ImGui::TextColored(ImVec4(1,1,1,1), "R: Select point and click R to change the label");
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -365,6 +368,31 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
   currentX += buttonWidth + spacing;
 
+  // Ray tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Ray", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Vector tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Vector", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Semicircle tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Semicircle", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // Circle3P tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Circle3P", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
+  // AngleGiven tool
+  buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "AngleGiven", Constants::BUTTON_DEFAULT_COLOR,
+                       Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
+  currentX += buttonWidth + spacing;
+
   // Compass tool
   buttons.emplace_back(sf::Vector2f(currentX, currentY), Constants::BUTTON_SIZE, "Compass", Constants::BUTTON_DEFAULT_COLOR,
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
@@ -666,6 +694,8 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     if (isActive) ImGui::PopStyleColor(2);
   };
 
+  static int s_regularPolygonSidesInput = 6;
+
   // --- RESTORED VIEW & PROJECT SECTION ---
   if (ImGui::CollapsingHeader("View & Project", ImGuiTreeNodeFlags_DefaultOpen)) {
     bool grid = editor.isGridVisible();
@@ -710,6 +740,27 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     }
   }
 
+  // --- VECTOR PROPERTIES (ONLY IF VECTOR SELECTED) ---
+  if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Vector) {
+    if (ImGui::CollapsingHeader("Vector Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto vecLine = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(editor.selectedObject));
+        if (vecLine && vecLine->isValid()) {
+             Point_2 p1 = vecLine->getStartPoint();
+             Point_2 p2 = vecLine->getEndPoint();
+             double dx = CGAL::to_double(p2.x() - p1.x());
+             double dy = CGAL::to_double(p2.y() - p1.y());
+             double mag = std::sqrt(dx*dx + dy*dy);
+             double angleRad = std::atan2(dy, dx);
+             double angleDeg = angleRad * 180.0 / M_PI;
+             if (angleDeg < 0) angleDeg += 360.0;
+             
+             ImGui::Text("Magnitude: %.2f", mag);
+             ImGui::Text("Angle: %.2f\xC2\xB0", angleDeg);
+             ImGui::Text("Components: (%.2f, %.2f)", dx, dy);
+        }
+    }
+  }
+
   if (ImGui::CollapsingHeader("Construction", ImGuiTreeNodeFlags_DefaultOpen)) {
     DrawToolButton("Move/Select", ObjectType::None, "Click to select. Drag to move. Ctrl+Drag to snap.");
     DrawToolButton("Point", ObjectType::Point, "Click to create a point.");
@@ -749,7 +800,37 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable, "Click first corner, drag side, then drag width.");
     DrawToolButton("Triangle", ObjectType::Triangle, "Click 3 points to create a triangle.");
     DrawToolButton("Polygon", ObjectType::Polygon, "Click vertices. Press Enter to finish.");
-    DrawToolButton("Regular Polygon", ObjectType::RegularPolygon, "Click center, then drag for size/rotation.");
+    DrawToolButton("Regular Polygon", ObjectType::RegularPolygon, "Click center, then drag for size/rotation.", [&](){
+      editor.showRegularPolygonSidesPopup = true;
+    });
+
+    if (editor.showRegularPolygonSidesPopup) {
+      ImGui::OpenPopup("Regular Polygon Sides");
+      editor.showRegularPolygonSidesPopup = false;
+      s_regularPolygonSidesInput = std::max(3, editor.regularPolygonNumSides);
+    }
+
+    if (ImGui::BeginPopupModal("Regular Polygon Sides", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+      ImGui::Text("Number of sides (>=3):");
+      ImGui::InputInt("##regular_polygon_sides", &s_regularPolygonSidesInput);
+      s_regularPolygonSidesInput = std::max(3, s_regularPolygonSidesInput);
+      if (ImGui::Button("OK", ImVec2(120, 0))) {
+        editor.regularPolygonNumSides = std::max(3, s_regularPolygonSidesInput);
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        ImGui::CloseCurrentPopup();
+      }
+      ImGui::EndPopup();
+    }
+
+    // --- New Tools ---
+    DrawToolButton("Ray", ObjectType::Ray, "Click start, then direction point.");
+    DrawToolButton("Vector", ObjectType::Vector, "Click start, then end point.");
+    DrawToolButton("Semicircle", ObjectType::Semicircle, "Click center, then two points for diameter.");
+    DrawToolButton("Circle3P", ObjectType::Circle3P, "Click three points to define the circle.");
+    DrawToolButton("AngleGiven", ObjectType::AngleGiven, "Click vertex, then set angle.");
   }
 
   if (ImGui::CollapsingHeader("Measure", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -777,31 +858,56 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     }
     
     // Quick Palette
+    // Helper lambda for multi-selection color application
+    auto applyColorToSelection = [&](const sf::Color& newColor) {
+        auto applyToContainer = [&](auto& container) {
+            for (auto& obj : container) {
+                if (obj && obj->isSelected()) {
+                    obj->setColor(newColor);
+                }
+            }
+        };
+
+        applyToContainer(editor.points);
+        applyToContainer(editor.ObjectPoints);
+        applyToContainer(editor.lines);
+        applyToContainer(editor.circles);
+        applyToContainer(editor.rectangles);
+        applyToContainer(editor.polygons);
+        applyToContainer(editor.regularPolygons);
+        applyToContainer(editor.triangles);
+        applyToContainer(editor.angles);
+        
+        // Also update the currently selected object pointer if it exists (redundant if in container, but safe)
+        if (editor.selectedObject) editor.selectedObject->setColor(newColor);
+    };
+
     const ImVec4 palette[] = {
         ImVec4(1, 1, 1, 1),       ImVec4(1, 0, 0, 1),       ImVec4(0, 1, 0, 1),       ImVec4(0, 0, 1, 1),
         ImVec4(1, 1, 0, 1),       ImVec4(0, 1, 1, 1),       ImVec4(1, 0, 1, 1),       ImVec4(0.5f, 0.5f, 0.5f, 1),
-        ImVec4(1.0f, 0.65f, 0.0f, 1), ImVec4(0.0f, 0.5f, 0.5f, 1), ImVec4(0.5f, 0.0f, 0.5f, 1), ImVec4(1.0f, 0.75f, 0.8f, 1), ImVec4(0.2f, 0.2f, 0.2f, 1)
+        ImVec4(1.0f, 0.65f, 0.0f, 1), ImVec4(0.0f, 0.5f, 0.5f, 1), ImVec4(0.5f, 0.0f, 0.5f, 1), ImVec4(1.0f, 0.75f, 0.8f, 1), ImVec4(0.2f, 0.2f, 0.2f, 1), ImVec4(0, 0, 0, 1)
     };
-    for (int i = 0; i < 13; ++i) {
+    for (int i = 0; i < 14; ++i) { // Updated count to 14
       if (i > 0 && i % 7 != 0) ImGui::SameLine();
       ImGui::PushID(i);
       if (ImGui::ColorButton("##pal", palette[i])) {
          sf::Color c(static_cast<sf::Uint8>(palette[i].x * 255), static_cast<sf::Uint8>(palette[i].y * 255), static_cast<sf::Uint8>(palette[i].z * 255), 255);
          editor.setCurrentColor(c);
-         if (editor.selectedObject) editor.selectedObject->setColor(c);
-         for(auto* obj : editor.selectedObjects) if(obj) obj->setColor(c);
+         applyColorToSelection(c);
       }
       ImGui::PopID();
     }
     
     // Embedded Color Picker
     static float colorBuf[4] = {0,0,0,1};
+    // Sync picker with current color if selection changes (optional, but good UX)
+    // For now, just keep it independent or it might fight with multiple selections having different colors.
+    
     ImGui::ColorEdit4("Custom", colorBuf, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_DisplayRGB); 
     if (ImGui::IsItemEdited()) {
          sf::Color c(static_cast<sf::Uint8>(colorBuf[0] * 255), static_cast<sf::Uint8>(colorBuf[1] * 255), static_cast<sf::Uint8>(colorBuf[2] * 255), static_cast<sf::Uint8>(colorBuf[3] * 255));
          editor.setCurrentColor(c);
-         if (editor.selectedObject) editor.selectedObject->setColor(c);
-         for(auto* obj : editor.selectedObjects) if(obj) obj->setColor(c);
+         applyColorToSelection(c);
     }
 
     ImGui::Separator();
@@ -822,8 +928,68 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
             if(pt) pt->setRadius(editor.currentPointSize);
         }
     }
+
+    ImGui::Separator();
+    ImGui::Text("Canvas");
+    static float bgBuf[3] = { (float)editor.backgroundColor.r / 255.f, (float)editor.backgroundColor.g / 255.f, (float)editor.backgroundColor.b / 255.f };
+    if (ImGui::ColorEdit3("Background", bgBuf)) {
+        editor.backgroundColor = sf::Color(static_cast<sf::Uint8>(bgBuf[0] * 255), static_cast<sf::Uint8>(bgBuf[1] * 255), static_cast<sf::Uint8>(bgBuf[2] * 255));
+    }
     }
   }   
+
+  if (g_showAngleInputPopup) {
+    ImGui::OpenPopup("Enter Angle");
+  }
+  if (ImGui::BeginPopupModal("Enter Angle", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::InputFloat("Degrees", &g_angleInputDegrees, 1.0f, 5.0f, "%.2f");
+    if (ImGui::Button("OK", ImVec2(120, 0))) {
+      if (editor.anglePointA && editor.angleVertex) {
+        Point_2 A = editor.anglePointA->getCGALPosition();
+        Point_2 B = editor.angleVertex->getCGALPosition();
+        Vector_2 BA = A - B;
+        double len = std::sqrt(CGAL::to_double(BA.squared_length()));
+        if (len > 1e-9) {
+          double radians = g_angleInputDegrees * 3.14159265359 / 180.0;
+          double cosA = std::cos(radians);
+          double sinA = std::sin(radians);
+          double vx = CGAL::to_double(BA.x());
+          double vy = CGAL::to_double(BA.y());
+          double rx = vx * cosA - vy * sinA;
+          double ry = vx * sinA + vy * cosA;
+          Point_2 C(FT(CGAL::to_double(B.x()) + rx), FT(CGAL::to_double(B.y()) + ry));
+          auto pointC = editor.createPoint(C);
+
+          auto angle = std::make_shared<Angle>(editor.anglePointA, editor.angleVertex, pointC, false, editor.getCurrentColor());
+          sf::Vector2u winSize = editor.window.getSize();
+          sf::Vector2f viewSize = editor.drawingView.getSize();
+          float zoomScale = (winSize.x > 0) ? (viewSize.x / static_cast<float>(winSize.x)) : 1.0f;
+          float idealRadius = 50.0f * zoomScale;
+          angle->setRadius(idealRadius);
+          angle->setVisible(true);
+          angle->update();
+          editor.angles.push_back(angle);
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
+        }
+      }
+
+      editor.anglePointA = nullptr;
+      editor.angleVertex = nullptr;
+      editor.anglePointB = nullptr;
+      g_showAngleInputPopup = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+      editor.anglePointA = nullptr;
+      editor.angleVertex = nullptr;
+      editor.anglePointB = nullptr;
+      g_showAngleInputPopup = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
 
   ImGui::End();
 

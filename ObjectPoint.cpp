@@ -420,12 +420,8 @@ void ObjectPoint::updateSFMLShape(const sf::Vector2f &position) {
   // Call the base class implementation first
   Point::updateSFMLShape(position);
 
-  // Then apply any ObjectPoint-specific styling
-  // For example, use a different color to distinguish ObjectPoints
-  if (!m_selected && !m_hovered) {  // Only modify if not already highlighted
-    m_sfmlShape.setFillColor(Constants::OBJECT_POINT_DEFAULT_COLOR);
-    m_sfmlShape.setOutlineColor(Constants::OBJECT_POINT_OUTLINE_COLOR);
-  }
+  // Points follow base Point styling (fill color, selection, hover)
+  // No hardcoded overrides here to allow custom colors set via GUI.
 
   // You may want to add specific styling for when the point is attached to
   // different host types

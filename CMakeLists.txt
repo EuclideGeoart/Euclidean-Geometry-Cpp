@@ -102,6 +102,8 @@ set(SOURCES
     VertexLabelManager.cpp
     PointUtils.cpp
     ProjectSerializer.cpp
+    RayObject.cpp
+    VectorObject.cpp
     libs/imgui/imgui.cpp
     libs/imgui/imgui_draw.cpp
     libs/imgui/imgui_tables.cpp

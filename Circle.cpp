@@ -89,72 +89,216 @@ void Circle::setRadiusPoint(std::shared_ptr<Point> pt) {
 
 // GeometricObject overrides
 void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
-  if (!m_visible && !forceVisible) return;
-  
-  // Clone and scale main circle
-  sf::CircleShape circleShape = m_sfmlShape;
-  
-  float baseOutlineThickness = 1.0f;
-  if (isSelected()) baseOutlineThickness = 3.0f;
-  else if (isHovered()) baseOutlineThickness = 3.0f;
-  
-  circleShape.setOutlineThickness(baseOutlineThickness * scale);
+    if (!m_visible && !forceVisible) return;
 
-  // GHOST MODE
-  if (!m_visible && forceVisible) {
-      sf::Color ghostFill = circleShape.getFillColor();
-      ghostFill.a = 50;
-      circleShape.setFillColor(ghostFill);
-      
-      sf::Color ghostOutline = circleShape.getOutlineColor();
-      ghostOutline.a = 50;
-      circleShape.setOutlineColor(ghostOutline);
-  }
+    // --- SETUP COLORS ---
+    sf::Color fillColor = m_fillColor;
+    sf::Color outlineColor = m_outlineColor;
+    
+    // Pixel-perfect thickness (Integers for sharpness)
+    float pixelThickness = Constants::LINE_THICKNESS_DEFAULT;
+    if (isSelected()) {
+        outlineColor = Constants::SELECTION_COLOR;
+        pixelThickness = 4.0f;
+    } else if (isHovered()) {
+        outlineColor = Constants::HOVER_COLOR;
+        pixelThickness = 3.0f;
+    }
 
-  window.draw(circleShape);
+    if (!m_visible && forceVisible) {
+        fillColor.a = 50;
+        outlineColor.a = 50;
+    }
 
-  // Clone and scale center visual
-  sf::CircleShape centerShape = m_centerVisual;
-  float baseCenterRadius = 3.0f; // Corresponds to Constants::CIRCLE_CENTER_VISUAL_RADIUS
-  
-  // Recalculate position to handle scaling from center properly
-  // We use the center point directly to be precise
-  Point_2 center = getCenterPoint();
-  auto sfmlCenter = Point::cgalToSFML(center);
-  
-  centerShape.setRadius(baseCenterRadius * scale);
-  centerShape.setOrigin(baseCenterRadius * scale, baseCenterRadius * scale);
-  centerShape.setPosition(sfmlCenter);
-  
-  // GHOST MODE for center
-  if (!m_visible && forceVisible) {
-    sf::Color ghostCenter = centerShape.getFillColor();
-    ghostCenter.a = 50;
-    centerShape.setFillColor(ghostCenter);
-  }
+    // --- COORDINATES ---
+    Point_2 centerCgal = getCenterPoint();
+    sf::Vector2f center(static_cast<float>(CGAL::to_double(centerCgal.x())), 
+                        static_cast<float>(CGAL::to_double(centerCgal.y())));
+    
+    // Linear Radius
+    float radius = static_cast<float>(m_radius); 
 
-  window.draw(centerShape);
+    // --- HELPER: SHARP LINE DRAWING ---
+    // Defined here so BOTH Semicircle and Circle can use it
+    auto drawSharpLine = [&](sf::Vector2f w1, sf::Vector2f w2) {
+        sf::Vector2i sp1 = window.mapCoordsToPixel(w1);
+        sf::Vector2i sp2 = window.mapCoordsToPixel(w2);
+        
+        sf::Vector2f d = sf::Vector2f(sp2 - sp1);
+        float len = std::sqrt(d.x*d.x + d.y*d.y);
+        if (len < 0.1f) return;
+        
+        sf::Vector2f norm(-d.y/len, d.x/len);
+        sf::Vector2f off = norm * (pixelThickness * 0.5f);
+        
+        sf::VertexArray q(sf::Quads, 4);
+        // Map back to world coords for drawing
+        q[0].position = window.mapPixelToCoords(sf::Vector2i(sf::Vector2f(sp1) + off));
+        q[1].position = window.mapPixelToCoords(sf::Vector2i(sf::Vector2f(sp2) + off));
+        q[2].position = window.mapPixelToCoords(sf::Vector2i(sf::Vector2f(sp2) - off));
+        q[3].position = window.mapPixelToCoords(sf::Vector2i(sf::Vector2f(sp1) - off));
+        
+        for(int k=0; k<4; ++k) q[k].color = outlineColor;
+        window.draw(q);
+    };
+
+    int segments = 60; // Smoothness
+
+    // =========================================================
+    // CASE 1: SEMICIRCLE
+    // =========================================================
+    if (m_isSemicircle) {
+        // 1. Calculate Start/End Angles
+        Point_2 startCgal = m_semicircleStart;
+        Point_2 endCgal   = m_semicircleEnd;
+        
+        sf::Vector2f pStart(static_cast<float>(CGAL::to_double(startCgal.x())), static_cast<float>(CGAL::to_double(startCgal.y())));
+        sf::Vector2f pEnd(static_cast<float>(CGAL::to_double(endCgal.x())), static_cast<float>(CGAL::to_double(endCgal.y())));
+
+        double ang1 = std::atan2(pStart.y - center.y, pStart.x - center.x);
+        double ang2 = std::atan2(pEnd.y - center.y, pEnd.x - center.x);
+
+        // Ensure we draw CCW from Start to End
+        if (ang2 < ang1) ang2 += 2 * M_PI;
+
+        // 2. Draw Fill (Triangle Fan)
+        sf::VertexArray fan(sf::TriangleFan, segments + 2);
+        fan[0].position = center;
+        fan[0].color = fillColor;
+
+        for (int i = 0; i <= segments; ++i) {
+            double t = static_cast<double>(i) / segments;
+            double currentAng = ang1 + t * (ang2 - ang1);
+            
+            float px = center.x + radius * std::cos(currentAng);
+            float py = center.y + radius * std::sin(currentAng);
+            
+            fan[i+1].position = sf::Vector2f(px, py);
+            fan[i+1].color = fillColor;
+        }
+        window.draw(fan);
+
+        // 3. Draw Outline (Using Sharp Lines)
+        sf::Vector2f prevPos = fan[1].position;
+        for (int i = 1; i <= segments; ++i) {
+            sf::Vector2f currPos = fan[i+1].position;
+            drawSharpLine(prevPos, currPos); // Draw arc segment
+            prevPos = currPos;
+        }
+        // Draw Diameter
+        drawSharpLine(pStart, pEnd);
+    }
+    // =========================================================
+    // CASE 2: NORMAL CIRCLE & 3-POINT CIRCLE
+    // =========================================================
+    else {
+        // 1. Draw Fill (Standard SFML Circle is fine for fill)
+        sf::CircleShape circleShape(radius);
+        circleShape.setOrigin(radius, radius);
+        circleShape.setPosition(center);
+        circleShape.setFillColor(fillColor);
+        circleShape.setOutlineThickness(0); // We draw outline manually for sharpness
+        window.draw(circleShape);
+
+        // 2. Draw Sharp Outline Ring
+        double dAng = 2 * M_PI / segments;
+        sf::Vector2f prev(center.x + radius, center.y);
+        
+        for (int i = 1; i <= segments; ++i) {
+            double ang = i * dAng;
+            sf::Vector2f curr(center.x + radius * std::cos(ang), center.y + radius * std::sin(ang));
+            
+            drawSharpLine(prev, curr); // Use the helper!
+            prev = curr;
+        }
+    }
+
+    // =========================================================
+    // CENTER VISUAL (Draw last to be on top)
+    // =========================================================
+    sf::CircleShape centerShape;
+    float baseCenterRadius = 3.0f; // 3 pixels screen size
+    float scaledRadius = baseCenterRadius * scale; 
+    
+    centerShape.setRadius(scaledRadius);
+    centerShape.setOrigin(scaledRadius, scaledRadius);
+    centerShape.setPosition(center);
+    centerShape.setFillColor(m_outlineColor); // Use outline color for the dot
+
+    if (!m_visible && forceVisible) {
+        sf::Color ghost = centerShape.getFillColor();
+        ghost.a = 50;
+        centerShape.setFillColor(ghost);
+    }
+    window.draw(centerShape);
 }
 
-bool Circle::contains(const sf::Vector2f &worldPos, float tolerance) const {
-  if (!isValid()) return false;
+bool Circle::contains(const sf::Vector2f &worldPos_sfml, float tolerance) const {
+  if (!isValid() || !m_visible) return false;
 
   try {
     Point_2 center = getCenterPoint();
     auto sfmlCenter = Point::cgalToSFML(center);
-    float distToCenter = std::sqrt((worldPos.x - sfmlCenter.x) * (worldPos.x - sfmlCenter.x) +
-                                   (worldPos.y - sfmlCenter.y) * (worldPos.y - sfmlCenter.y));
+    double dx = worldPos_sfml.x - sfmlCenter.x;
+    double dy = worldPos_sfml.y - sfmlCenter.y;
+    double distSq = dx * dx + dy * dy;
+    double dist = std::sqrt(distSq);
 
-    // Check if on circumference (within tolerance band)
-    float circumferenceDistance = std::abs(distToCenter - static_cast<float>(m_radius));
-    return circumferenceDistance <= tolerance;
+    // 1. Distance Check (Ring Check)
+    // Check if point is near the circumference
+    if (std::abs(dist - m_radius) > tolerance) {
+      return false;
+    }
+
+    // 2. Semicircle Angle Check
+    if (m_isSemicircle) {
+      double mouseAngle = std::atan2(dy, dx);
+
+      Point_2 p1 = m_semicircleStart;
+      Point_2 p2 = m_semicircleEnd;
+      
+      // Calculate basis angles relative to center
+      auto cgalCenter = getCenterPoint();
+      double angStart = std::atan2(CGAL::to_double(p1.y()) - CGAL::to_double(cgalCenter.y()), 
+                                   CGAL::to_double(p1.x()) - CGAL::to_double(cgalCenter.x()));
+      double angEnd   = std::atan2(CGAL::to_double(p2.y()) - CGAL::to_double(cgalCenter.y()), 
+                                   CGAL::to_double(p2.x()) - CGAL::to_double(cgalCenter.x()));
+
+      // Normalize CCW order (End must be > Start, wrapping around 2PI if needed)
+      if (angEnd < angStart) angEnd += 2 * M_PI;
+
+      // Normalize mouse angle to be relative to Start
+      double angleRel = mouseAngle - angStart;
+      // Wrap angleRel to [0, 2PI) range relative to start
+      while (angleRel < 0) angleRel += 2 * M_PI;
+      while (angleRel >= 2 * M_PI) angleRel -= 2 * M_PI;
+      
+      // Allow for small tolerance in angle if close to ends, but strict logic:
+      // If the relative angle is beyond the span, we are on the "invisible" part of the circle
+      double span = angEnd - angStart;
+      if (angleRel > span) {
+        return false;
+      }
+    }
+
+    return true;
   } catch (const std::exception &e) {
-    std::cerr << "Error in Circle::contains: " << e.what() << std::endl;
     return false;
   }
 }
 
 bool Circle::isValid() const {
+  if (m_isSemicircle) {
+    if (!m_diameterP1 || !m_diameterP2) return false;
+    if (!m_diameterP1->isValid() || !m_diameterP2->isValid()) return false;
+    Point_2 p1 = m_diameterP1->getCGALPosition();
+    Point_2 p2 = m_diameterP2->getCGALPosition();
+    double distSq = CGAL::to_double(CGAL::squared_distance(p1, p2));
+    if (!std::isfinite(distSq) || distSq <= 0.0) return false;
+    Point_2 center((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
+    return CGAL::is_finite(center.x()) && CGAL::is_finite(center.y());
+  }
+
   if (!m_centerPoint) return false;
   if (m_radiusPoint && !m_radiusPoint->isValid()) return false;
   Point_2 center = m_centerPoint->getCGALPosition();
@@ -168,10 +312,26 @@ bool Circle::isValid() const {
 }
 
 void Circle::update() {
-  // Called when observed Point (center) changes
-  if (!isValid()) {
-    return;
+  if (m_isSemicircle && m_diameterP1 && m_diameterP2) {
+    if (!m_diameterP1->isValid() || !m_diameterP2->isValid()) return;
+
+    Point_2 p1 = m_diameterP1->getCGALPosition();
+    Point_2 p2 = m_diameterP2->getCGALPosition();
+
+    Point_2 newCenter((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
+    if (m_centerPoint) {
+      m_centerPoint->setCGALPosition(newCenter);
+    }
+
+    double distSq = CGAL::to_double(CGAL::squared_distance(p1, p2));
+    if (!std::isfinite(distSq) || distSq <= 0.0) return;
+    m_radius = std::sqrt(distSq) * 0.5;
+
+    m_semicircleStart = p1;
+    m_semicircleEnd = p2;
   }
+
+  if (!isValid()) return;
   updateSFMLShape();
   updateHostedPoints();
 }
@@ -181,6 +341,12 @@ sf::FloatRect Circle::getGlobalBounds() const {
 }
 
 void Circle::translate(const Vector_2 &offset) {
+  if (m_isSemicircle) {
+    if (m_diameterP1) m_diameterP1->translate(offset);
+    if (m_diameterP2) m_diameterP2->translate(offset);
+    return;
+  }
+
   if (m_centerPoint) {
     Point_2 currentCenter = m_centerPoint->getCGALPosition();
     Point_2 newCenter = currentCenter + offset;
@@ -229,19 +395,20 @@ bool Circle::isCenterPointHovered(const sf::Vector2f &worldPos_sfml, float toler
 }
 
 bool Circle::isCircumferenceHovered(const sf::Vector2f &worldPos_sfml, float tolerance) const {
-  if (!isValid()) return false;
+  return contains(worldPos_sfml, tolerance);
+  // if (!isValid()) return false;
 
-  try {
-    Point_2 center = getCenterPoint();
-    auto sfmlCenter = Point::cgalToSFML(center);
-    float distToCenter = std::sqrt((worldPos_sfml.x - sfmlCenter.x) * (worldPos_sfml.x - sfmlCenter.x) +
-                                   (worldPos_sfml.y - sfmlCenter.y) * (worldPos_sfml.y - sfmlCenter.y));
-    float circumferenceDistance = std::abs(distToCenter - static_cast<float>(m_radius));
-    return circumferenceDistance <= tolerance;
-  } catch (const std::exception &e) {
-    std::cerr << "Error in isCircumferenceHovered: " << e.what() << std::endl;
-    return false;
-  }
+  // try {
+  //   Point_2 center = getCenterPoint();
+  //   auto sfmlCenter = Point::cgalToSFML(center);
+  //   float distToCenter = std::sqrt((worldPos_sfml.x - sfmlCenter.x) * (worldPos_sfml.x - sfmlCenter.x) +
+  //                                  (worldPos_sfml.y - sfmlCenter.y) * (worldPos_sfml.y - sfmlCenter.y));
+  //   float circumferenceDistance = std::abs(distToCenter - static_cast<float>(m_radius));
+  //   return circumferenceDistance <= tolerance;
+  // } catch (const std::exception &e) {
+  //   std::cerr << "Error in isCircumferenceHovered: " << e.what() << std::endl;
+  //   return false;
+  // }
 }
 
 Point_2 Circle::projectOntoCircumference(const Point_2 &p) const {

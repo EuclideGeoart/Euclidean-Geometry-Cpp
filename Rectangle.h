@@ -1,4 +1,6 @@
 #pragma once
+#include "CharTraitsFix.h"
+
 
 #ifdef CGAL_USE_SSE2
 #undef CGAL_USE_SSE2
@@ -51,7 +53,7 @@ class Rectangle : public GeometricObject {
 
   // GeometricObject interface
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
-  virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
+  //virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   virtual void update() override;
   virtual void setColor(const sf::Color &color) override;
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
@@ -99,6 +101,7 @@ class Rectangle : public GeometricObject {
   // Rectangle-specific setters
   void setCorners(const Point_2 &corner1, const Point_2 &corner2);
   void setRotation(double angleRadians);
+  void setHeight(double height);
 
  private:
   std::shared_ptr<Point> m_corner1;  // First corner point

@@ -32,6 +32,9 @@
 // Include this if you have a custom char_traits
 #include "DynamicIntersection.h"
 #include "GeometryEditor.h"
+// This comment is added to force a recompile of this file to resolve a linker error
+// caused by removing drawLabel overrides in Triangle and Rectangle.
+
 #include "HandleEvents.h"
 
 // Add this include to make findIntersection available
@@ -77,7 +80,7 @@
 float Constants::CURRENT_ZOOM = 1.0f;
 // Constructor
 GeometryEditor::GeometryEditor()
-    : settings(0, 0, 0),
+    : settings(0, 0, 2),
       window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.8f, sf::VideoMode::getDesktopMode().height * 0.8f), "Geometry Editor",
              sf::Style::Default, settings),
       // Initialize drawing view: Width = 30 units (approx), centered at (0,0)
@@ -88,11 +91,13 @@ GeometryEditor::GeometryEditor()
       gui(),
       grid(Constants::GRID_SIZE, true),
       commandManager(),
-      objectIdCounter(0)
+      objectIdCounter(0),
+      backgroundColor(Constants::BACKGROUND_COLOR)
 // Other members like vectors, bools, pointers are default-initialized or
 // initialized in-class (in .h)
 {
   loadFont();
+  m_lastWindowSize = window.getSize();
   // Initialize Shared Font for Points
   if (Button::getFontLoaded()) {
       Point::commonFont = &Button::getFont();
@@ -136,7 +141,7 @@ GeometryEditor::GeometryEditor()
   xAxis = std::make_shared<Line>(xAxisStart, xAxisEnd, false, Constants::GRID_AXIS_COLOR, objectIdCounter++);
   xAxis->setLocked(true);
   xAxis->setVisible(true);
-  xAxis->setThickness(1.5f);
+  xAxis->setThickness(1.0f);
   lines.push_back(xAxis);
 
   auto yAxisStart = std::make_shared<Point>(Point_2(0, -1e8), Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, objectIdCounter++);
@@ -144,7 +149,7 @@ GeometryEditor::GeometryEditor()
   yAxis = std::make_shared<Line>(yAxisStart, yAxisEnd, false, Constants::GRID_AXIS_COLOR, objectIdCounter++);
   yAxis->setLocked(true);
   yAxis->setVisible(true);
-  yAxis->setThickness(1.5f);
+  yAxis->setThickness(1.0f);
   lines.push_back(yAxis);
 
   // Apply default view state (40 world units wide, Y+ up)
@@ -435,7 +440,7 @@ void GeometryEditor::updateConstraintsOnly() {
 void GeometryEditor::render() {
   try {
     // Clear the window with the background color
-    window.clear(Constants::BACKGROUND_COLOR);
+    window.clear(backgroundColor);
 
     // Only log view properties if debugging is enabled
     if (Constants::DEBUG_GEOMETRY_UPDATES) {
@@ -577,8 +582,8 @@ void GeometryEditor::render() {
       previewTriangle->draw(window, scale);
 
     // --- LABEL PASS (Screen Space) ---
-    // Switch to screen space (1:1 pixels) for sharp text
-    window.setView(window.getDefaultView());
+    // Switch to GUI view (1:1 pixels) for sharp text
+    window.setView(guiView);
     
     auto drawLabel = [&](const auto& obj) {
       if (!obj) return;
@@ -596,12 +601,12 @@ void GeometryEditor::render() {
     
     // hover message
     if (showHoverMessage) {
-      window.setView(window.getDefaultView());
+      window.setView(guiView);
       window.draw(hoverMessageText);
     }
 
     // finally GUI
-    window.setView(window.getDefaultView());
+    window.setView(guiView);
     gui.draw(window, drawingView, *this);
 
     // --- RENAME OVERLAY ---
@@ -609,7 +614,7 @@ void GeometryEditor::render() {
          // Map point position to GUI space (Screen Space)
          sf::Vector2f worldPos = pointToRename->getSFMLPosition();
          sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
-         sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, window.getDefaultView());
+         sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
 
          sf::Text text;
          if (Button::getFontLoaded()) {
@@ -1208,8 +1213,16 @@ float GeometryEditor::length(const sf::Vector2f &vec) const {
 void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
   if (width == 0 || height == 0) return;
 
-  // Update the viewport of both views
-  guiView.setSize(static_cast<float>(width), static_cast<float>(height));
+  sf::Vector2u previousSize = m_lastWindowSize;
+  if (previousSize.x == 0 || previousSize.y == 0) {
+    previousSize = window.getSize();
+  }
+
+  // Calculate current zoom factor (world units per pixel) from previous size
+  float currentZoom = drawingView.getSize().x / static_cast<float>(previousSize.x);
+
+  // Update GUI view to match window pixels
+  guiView.reset(sf::FloatRect(0.f, 0.f, static_cast<float>(width), static_cast<float>(height)));
   gui.updateLayout(static_cast<float>(width));
 
   float toolbarHeight = gui.getToolbarHeight();
@@ -1219,17 +1232,21 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
     contentHeight = 1.0f;
   }
 
-  // Preserve Y+ up by keeping negative height
-  drawingView.setSize(static_cast<float>(width), -contentHeight);
+  sf::Vector2f oldCenter = drawingView.getCenter();
+
+  // Preserve zoom and center, only update view size based on new window size
+  sf::Vector2f newViewSize(static_cast<float>(width) * currentZoom,
+                           contentHeight * currentZoom);
+  drawingView.setSize(newViewSize.x, -newViewSize.y);  // Keep Y+ up
+  drawingView.setCenter(oldCenter);
 
   float topNorm = clampedToolbar / static_cast<float>(height);
   drawingView.setViewport(sf::FloatRect(0.f, topNorm, 1.f, 1.f - topNorm));
 
-  // Ensure GUI view remains centered relative to the window
-  guiView.setCenter(static_cast<float>(width) / 2.f, static_cast<float>(height) / 2.f);
-
   // Update the grid when the view changes
-  grid.update(drawingView, window.getSize());
+  grid.update(drawingView, sf::Vector2u(width, height));
+
+  m_lastWindowSize = sf::Vector2u(width, height);
 }
 
 void GeometryEditor::resetView() {
@@ -1651,16 +1668,26 @@ std::string GeometryEditor::getCurrentToolName() const {
       return "Line";
     case ObjectType::LineSegment:
       return "Segment";
+    case ObjectType::Ray:
+      return "Ray";
+    case ObjectType::Vector:
+      return "Vector";
     case ObjectType::Circle:
       return "Circle";
+    case ObjectType::Semicircle:
+      return "Semicircle";
     case ObjectType::ObjectPoint:
       return "ObjectPoint";
     case ObjectType::Intersection:
       return "Intersection";
+    case ObjectType::Circle3P:
+      return "Circle (3P)";
     case ObjectType::ParallelLine:
       return "Parallel Line";
     case ObjectType::PerpendicularLine:
       return "Perpendicular Line";
+    case ObjectType::AngleGiven:
+      return "Angle (Given)";
     case ObjectType::Detach:
       return "Detach";
     // Add other cases as needed

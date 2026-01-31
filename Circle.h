@@ -75,6 +75,20 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   void setLocked(bool locked) { m_isLocked = locked; }
   bool isLocked() const { return m_isLocked; }
 
+  // Semicircle support
+  void setSemicircle(bool isSemi) { m_isSemicircle = isSemi; }
+  bool isSemicircle() const { return m_isSemicircle; }
+    void setSemicircleDiameterPoints(std::shared_ptr<Point> p1, std::shared_ptr<Point> p2) {
+      m_diameterP1 = p1;
+      m_diameterP2 = p2;
+    }
+  void setSemicircleBasis(const Point_2& p1, const Point_2& p2) {
+      // Optional: Store basis points if needed for exact arc recalculation
+      // For now, relies on center + radius + angular logic in draw()
+      m_semicircleStart = p1;
+      m_semicircleEnd = p2;
+  }
+
  private:
   // Geometry
   Point *m_centerPoint;  // Reference to the actual center Point object
@@ -89,7 +103,14 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
 
   // State
   bool m_isLocked = false;
-
+  
+  // Semicircle State
+  bool m_isSemicircle = false;
+  std::shared_ptr<Point> m_diameterP1;
+  std::shared_ptr<Point> m_diameterP2;
+  Point_2 m_semicircleStart; // For defining the arc range
+  Point_2 m_semicircleEnd;
+  
   // Child ObjectPoints
   // std::vector<std::weak_ptr<ObjectPoint>> m_hostedObjectPoints; // Inherited from GeometricObject
 

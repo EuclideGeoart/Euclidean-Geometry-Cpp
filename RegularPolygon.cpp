@@ -363,9 +363,24 @@ void RegularPolygon::setCreationPointPosition(size_t index, const Point_2& value
     // Translate entire shape by moving center
     Vector_2 delta = value - getCenter();
     translate(delta);
-  } else if (index == 1) {
-    // Scale by moving first vertex (uses existing setVertexPosition which preserves regularity)
-    setVertexPosition(0, value);
+  } else if (index >= 1) {
+    Point_2 centerPos = getCenter();
+    double dx = CGAL::to_double(value.x() - centerPos.x());
+    double dy = CGAL::to_double(value.y() - centerPos.y());
+    double newRadius = std::sqrt(dx * dx + dy * dy);
+    const double minRadius = 1e-6;
+    if (newRadius < minRadius) newRadius = minRadius;
+
+    m_rotationAngle = std::atan2(dy, dx);
+    m_radius = newRadius;
+
+    if (m_firstVertexPoint) {
+      m_firstVertexPoint->setCGALPosition(value);
+    }
+
+    generateVertices();
+    updateSFMLShape();
+    updateHostedPoints();
   }
 }
 

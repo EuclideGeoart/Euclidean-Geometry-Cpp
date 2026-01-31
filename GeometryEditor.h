@@ -179,6 +179,16 @@ class GeometryEditor {
                                           // creation
   std::shared_ptr<Circle> previewCircle;  // For visual feedback during circle creation
 
+  // Semicircle Creation
+  bool isCreatingSemicircle = false;
+  std::shared_ptr<Point> semicirclePoint1 = nullptr;
+  std::shared_ptr<Point> semicirclePoint2 = nullptr;
+
+  // Circle (3 Points) Creation
+  bool isCreatingCircle3P = false;
+  std::vector<Point_2> circle3PPoints;
+  std::vector<std::shared_ptr<Point>> circle3PPointObjects;
+
   // Perpendicular Bisector tool state
   bool isCreatingPerpendicularBisector = false;
   std::shared_ptr<Point> perpBisectorP1 = nullptr;
@@ -219,6 +229,7 @@ class GeometryEditor {
   std::shared_ptr<Point> regularPolygonCenterPoint = nullptr;      // Shared pointer for center
   std::shared_ptr<Point> regularPolygonFirstVertexPoint = nullptr; // Shared pointer for first vertex
   int regularPolygonNumSides = 6;         // Default to hexagon
+  bool showRegularPolygonSidesPopup = false;
   std::shared_ptr<RegularPolygon> previewRegularPolygon;  // Preview during creation
 
   // Triangle Creation
@@ -233,6 +244,8 @@ class GeometryEditor {
   std::shared_ptr<Point> anglePointB = nullptr;
   std::shared_ptr<Line> angleLine1 = nullptr;
   std::shared_ptr<Line> angleLine2 = nullptr;
+  bool showAngleInputPopup = false;
+  float angleInputDegrees = 60.0f;
 
   // --- Preview Overlay (lightweight, no CGAL) ---
   sf::VertexArray previewLineOverlay{sf::Lines, 2};
@@ -499,6 +512,7 @@ class GeometryEditor {
   // Current visual properties state
   float currentPointSize = 5.0f; // Default point size
   sf::Color currentColor = sf::Color::Black;
+  sf::Color backgroundColor = Constants::BACKGROUND_COLOR;
 
   // Axes handling
   std::shared_ptr<Line> xAxis;
@@ -513,6 +527,8 @@ class GeometryEditor {
   float getCurrentGridSpacing() const { return grid.getCurrentGridSpacing(); }
   float getCurrentPointSize() const { return currentPointSize; }
  private:
+
+  sf::Vector2u m_lastWindowSize;
 
   // Methods that should remain private
   // The following are examples of members that were explicitly removed

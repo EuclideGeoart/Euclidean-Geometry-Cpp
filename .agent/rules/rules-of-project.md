@@ -20,3 +20,4 @@ trigger: always_on
 ## 4. ARCHITECTURE
 * **NO RENAMING:** Member variables (e.g., `m_p1`, `m_corner1`) must NOT be renamed.
 * **SMART POINTERS:** Use existing `std::shared_ptr` patterns. Do not introduce `new` or raw pointer ownership.
+* **SMART SNAPPING REQUIRED:** Any new tool or click-based creation must use the centralized smart snapping logic in HandleMousePress.cpp (points first, then lines/circles/edges) and create constrained `ObjectPoint`s on geometry instead of free points when snapping to lines/circles/shapes.
