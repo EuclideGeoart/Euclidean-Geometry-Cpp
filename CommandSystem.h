@@ -117,12 +117,16 @@ class CreateCommandT : public Command {
         break;
       }
       case ObjectType::Line:
-      case ObjectType::LineSegment: {
+      case ObjectType::LineSegment:
+      case ObjectType::Ray:
+      case ObjectType::Vector: {
         auto casted = std::dynamic_pointer_cast<Line>(obj);
         pushUnique(editor.lines, casted);
         break;
       }
-      case ObjectType::Circle: {
+      case ObjectType::Circle:
+      case ObjectType::Semicircle:
+      case ObjectType::Circle3P: {
         auto casted = std::dynamic_pointer_cast<Circle>(obj);
         pushUnique(editor.circles, casted);
         break;
@@ -174,7 +178,9 @@ class CreateCommandT : public Command {
         break;
       }
       case ObjectType::Line:
-      case ObjectType::LineSegment: {
+      case ObjectType::LineSegment:
+      case ObjectType::Ray:
+      case ObjectType::Vector: {
         auto casted = std::dynamic_pointer_cast<Line>(obj);
         if (casted) {
           try {
@@ -189,7 +195,9 @@ class CreateCommandT : public Command {
         removePtr(editor.lines, casted);
         break;
       }
-      case ObjectType::Circle: {
+      case ObjectType::Circle:
+      case ObjectType::Semicircle:
+      case ObjectType::Circle3P: {
         auto casted = std::dynamic_pointer_cast<Circle>(obj);
         if (casted) {
           try {
@@ -366,9 +374,13 @@ class DeleteCommandT : public Command {
           break;
         case ObjectType::Line:
         case ObjectType::LineSegment:
+        case ObjectType::Ray:
+        case ObjectType::Vector:
           addUnique(m_lines, std::dynamic_pointer_cast<Line>(obj));
           break;
         case ObjectType::Circle:
+        case ObjectType::Semicircle:
+        case ObjectType::Circle3P:
           addUnique(m_circles, std::dynamic_pointer_cast<Circle>(obj));
           break;
         case ObjectType::Rectangle:

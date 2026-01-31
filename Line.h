@@ -62,7 +62,7 @@ public:
        const sf::Color &color, unsigned int id);
   ~Line() override;
   //---- enum class for LineType ----
-  enum class LineType { Infinite, Segment, Ray };
+  enum class LineType { Infinite, Segment, Ray, Vector };
   // --- GeometricObject Overrides ---
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   bool
@@ -77,6 +77,8 @@ public:
   void setCGALPosition(const Point_2 &newPos) override;
   void setPosition(const sf::Vector2f &newSfmlPos) override;
   ObjectType getType() const override {
+    if (m_lineType == LineType::Ray) return ObjectType::Ray;
+    if (m_lineType == LineType::Vector) return ObjectType::Vector;
     return m_isSegment ? ObjectType::LineSegment : ObjectType::Line;
   }
   std::vector<Segment_2> getEdges() const override;
@@ -93,6 +95,8 @@ public:
   Line_2 getCGALLine() const; // Throws if endpoints are null or coincident
   bool isSegment() const { return m_isSegment; }
   void setIsSegment(bool segment);
+  void setLineType(LineType type) { m_lineType = type; if(type == LineType::Segment || type == LineType::Vector) m_isSegment = true; else m_isSegment = false; }
+  LineType getLineType() const { return m_lineType; }
   // Vector_2 getDirection() const;
   Direction_2 getDirection() const;
   Point *getStartPointPtr() const { return m_startPoint.get(); }

@@ -13,6 +13,8 @@ class Line;
 class Circle;
 class ObjectPoint;
 class Angle;
+class RayObject;
+class VectorObject;
 
 // Add missing enum class declarations
 enum class DragMode;

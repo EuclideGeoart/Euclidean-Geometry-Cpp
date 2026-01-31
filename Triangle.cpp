@@ -1,4 +1,6 @@
 #include "Triangle.h"
+// Force recompile 
+
 #include "Point.h"
 #include "VertexLabelManager.h"
 #include <CGAL/Polygon_2.h>
@@ -216,7 +218,6 @@ std::vector<sf::Vector2f> Triangle::getVerticesSFML() const {
 
 void Triangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
     const float handleRadius = 4.0f * scale;
-    const char* labels[] = {"A", "B", "C"};
     
     for (size_t i = 0; i < m_vertices.size(); ++i) {
         sf::CircleShape handle(handleRadius);
@@ -243,21 +244,6 @@ void Triangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
     }
 }
 
-void Triangle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
-    if ((!m_visible) || !isValid()) return;
-
-    auto verts = getVerticesSFML();
-    const char* labels[] = {"A", "B", "C"};
-    
-    // Pass 2: Screen Space Label Drawing
-    for (size_t i = 0; i < verts.size() && i < 3; ++i) {
-        sf::Vector2f worldPos = verts[i];
-        sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, worldView);
-        sf::Vector2f drawPos = window.mapPixelToCoords(screenPos, window.getDefaultView());
-        
-        VertexLabelManager::instance().drawLabel(window, drawPos, labels[i]);
-    }
-}
 
 void Triangle::rotateCCW(const Point_2& center, double angleRadians) {
     double centerX = CGAL::to_double(center.x());

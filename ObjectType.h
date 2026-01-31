@@ -9,8 +9,11 @@ enum class ObjectType {
   Point,                   // Basic point
   Line,                    // Infinite line
   LineSegment,             // Line segment (finite line)
+  Ray,                     // Ray (half-infinite line)
+  Vector,                  // Vector (directed segment)
   ObjectPoint,             // Point dependent on another object
   Circle,                  // Circle
+  Semicircle,              // Semicircle
   Rectangle,               // Axis-aligned rectangle
   RectangleRotatable,      // Rotatable rectangle
   Polygon,                 // General polygon (user-drawn vertices)
@@ -18,11 +21,13 @@ enum class ObjectType {
   Triangle,                // General triangle (3 arbitrary vertices)
 
   Angle,                   // Angle measurement
+  AngleGiven,              // Angle with given size (popup input)
   Hide,                    // Hide tool mode
   Detach,                  // Detach tool mode
 
   Intersection,            // Intersection tool
   IntersectionPoint,       // Resulting intersection point
+  Circle3P,                // Circle defined by 3 points
   ParallelLine,            // Tool for creating parallel lines
   PerpendicularLine,       // Tool for creating perpendicular lines
   PerpendicularBisector,   // Tool for constructing perpendicular bisectors
@@ -51,7 +56,9 @@ enum class DragMode {
   DragObjectPoint,
   InteractWithCircle,
   CreateCircleCenter,
-  CreateLineP1
+  CreateLineP1,
+  RotatedRectP2,
+  RotatedRectHeight
 };
 
 // Defined here for convenience since it's related to drag operations

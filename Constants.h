@@ -86,7 +86,7 @@ const sf::Color POINT_FILL_COLOR = sf::Color(255, 0, 0);  // Red for better visi
 constexpr float POINT_RADIUS_SELECTED = 7.0f;             // Selected point radius
 
 const sf::Color LINE_DEFAULT_COLOR = sf::Color(0, 0, 255);            // Blue for lines
-constexpr float LINE_THICKNESS_DEFAULT = 2.0f; // Scale invariant thickness
+constexpr float LINE_THICKNESS_DEFAULT = 1.0f; // Scale invariant thickness
 const sf::Color CONSTRUCTION_LINE_COLOR = sf::Color(0, 0, 255, 150);  // Blue
 const sf::Color CIRCLE_DEFAULT_COLOR = sf::Color(255, 105, 180);      // Hot Pink
 const sf::Color OBJECT_POINT_DEFAULT_COLOR = sf::Color(255, 165, 0);  // Orange

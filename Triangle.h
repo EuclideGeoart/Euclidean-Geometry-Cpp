@@ -1,4 +1,6 @@
 #pragma once
+#include "CharTraitsFix.h"
+
 
 #ifdef CGAL_USE_SSE2
 #undef CGAL_USE_SSE2
@@ -40,7 +42,6 @@ public:
 
     // GeometricObject interface
     virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
-    virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
     virtual void update() override;
     virtual void setColor(const sf::Color& color) override;
     virtual bool contains(const sf::Vector2f& screenPos, float tolerance) const override;
