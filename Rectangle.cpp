@@ -426,7 +426,7 @@ void Rectangle::updateDependentShape() {
     return;
   }
 
-  if (!sourceRect->isRotatable()) {
+  if (!isRotatable()) {
     auto p0 = transformPoint(verts[0]);
     auto p2 = transformPoint(verts[2]);
     if (!p0 || !p2) {
