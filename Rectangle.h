@@ -55,6 +55,7 @@ class Rectangle : public GeometricObject {
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   virtual void update() override;
+  virtual void updateDependentShape() override;
   virtual void setColor(const sf::Color &color) override;
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
   virtual std::string getTypeString() const { return "Rectangle"; }
@@ -82,8 +83,8 @@ class Rectangle : public GeometricObject {
   void setDependentCornerPoints(const std::shared_ptr<Point>& b, const std::shared_ptr<Point>& d);
   Point_2 getCorner1Position() const;
   Point_2 getCorner2Position() const;
-  void setCorner1Position(const Point_2 &pos);
-  void setCorner2Position(const Point_2 &pos);
+  void setCorner1Position(const Point_2 &pos, bool triggerUpdate = true);
+  void setCorner2Position(const Point_2 &pos, bool triggerUpdate = true);
   Point_2 getCorner1() const;
   Point_2 getCorner2() const;
   bool isRotatable() const { return m_isRotatable; }
@@ -117,7 +118,6 @@ class Rectangle : public GeometricObject {
   double m_height;          // Height of the rectangle
   double m_rotationAngle;   // Rotation angle in radians (for rotatable rectangles)
   Point_2 m_center;         // Geometric center (authoritative for rotatable rectangles)
-  sf::Color m_color;        // Fill color
   sf::RectangleShape m_sfmlShape;  // SFML shape for rendering
   int m_hoveredVertex = -1;
   int m_activeVertex = -1;

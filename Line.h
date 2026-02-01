@@ -182,8 +182,7 @@ public:
   float getMidpointSize() const;
   void setShowLabels(bool show);
   bool areLabelsShown() const;
-  void setLabelOffset(const sf::Vector2f &offset);
-  const sf::Vector2f &getLabelOffset() const;
+  // Label offset management inherited from GeometricObject
 
   // --- Line Style Methods ---
   void setLineStyle(LineStyle style);
@@ -267,8 +266,8 @@ public:
   void setShow(bool show);
   bool isShown() const;
   void setVisible(bool visible) override;
-  void setLocked(bool locked);
-  bool isLocked() const;
+  void setLocked(bool locked) override;
+  bool isLocked() const override;
   void setName(const std::string &name);
   const std::string &getName() const;
   void setID(int id);
@@ -380,14 +379,10 @@ private:
   std::shared_ptr<Point> m_endPoint;
 
   // std::vector<std::weak_ptr<ObjectPoint>> m_hostedObjectPoints; // Inherited from GeometricObject
-  bool m_isSelected = false;
   bool m_isSegment;
   Line_2 m_cgalLine;
   sf::VertexArray m_sfmlShape;
-  sf::Color m_color;
   Kernel::FT m_canonicalLength;
-  bool m_selected = false;
-  bool m_hovered = false;
   bool m_isUpdating = false;           // Flag to prevent re-entrant updates
   bool m_isUpdatingInternally = false; // Flag for internal updates
   bool m_wasUpdatingAtEntry = false;
@@ -406,9 +401,6 @@ private:
 
   // Additional properties from Line.cpp methods
   bool m_isConstructionLine = false;
-  bool m_visible = true;
-  bool m_hidden = false;
-  bool m_locked = false;
   std::string m_label;
   bool m_labelVisible = false;
   bool m_snapToGrid = true;
@@ -458,7 +450,6 @@ private:
       Vector_2(0, 0); // Direction for parallel/perpendicular
   bool m_show = true;
   std::string m_name;
-  int m_id = -1;
   Object *m_parent = nullptr;
   void *m_userData = nullptr;
   std::map<std::string, std::string> m_data;

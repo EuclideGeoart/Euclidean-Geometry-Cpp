@@ -216,6 +216,24 @@ class CreateCommandT : public Command {
             DynamicIntersection::removeConstraintsInvolving(casted.get(), editor);
           } catch (...) {
           }
+
+          auto a = casted->getCorner1Point();
+          auto c = casted->getCorner2Point();
+          auto b = casted->getCornerBPoint();
+          auto d = casted->getCornerDPoint();
+
+          if (b && b->isDependent()) {
+            removePtr(editor.points, b);
+          }
+          if (d && d->isDependent()) {
+            removePtr(editor.points, d);
+          }
+          if (a && a->isCreatedWithShape()) {
+            removePtr(editor.points, a);
+          }
+          if (c && c->isCreatedWithShape()) {
+            removePtr(editor.points, c);
+          }
         }
         removePtr(editor.rectangles, casted);
         break;

@@ -484,8 +484,12 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     std::vector<std::shared_ptr<GeometricObject>> objectsToDelete;
 
     auto collectSelected = [&](const auto& container) {
+      auto xAxisPtr = editor.getXAxis();
+      auto yAxisPtr = editor.getYAxis();
       for (const auto& obj : container) {
-        if (obj && obj->isSelected() && !obj->isLocked()) {
+        if (!obj || !obj->isSelected()) continue;
+        if ((GeometricObject*)obj.get() == (GeometricObject*)xAxisPtr || (GeometricObject*)obj.get() == (GeometricObject*)yAxisPtr) continue;
+        if (!obj->isLocked() || obj->isDependent()) {
           objectsToDelete.push_back(obj);
         }
       }
@@ -605,12 +609,24 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   if (editor.isDraggingLabel && editor.labelDragObject) {
     sf::Vector2f mouseScreenPos(static_cast<float>(moveEvent.x), static_cast<float>(moveEvent.y));
+    auto clampOffsetToRadius = [](const sf::Vector2f& offset, float radius) {
+      float distSq = offset.x * offset.x + offset.y * offset.y;
+      float radiusSq = radius * radius;
+      if (distSq <= radiusSq || distSq <= 0.0f) {
+        return offset;
+      }
+      float dist = std::sqrt(distSq);
+      float scale = radius / dist;
+      return sf::Vector2f(offset.x * scale, offset.y * scale);
+    };
+
     if (auto* pt = dynamic_cast<Point*>(editor.labelDragObject)) {
       sf::Vector2f worldPos = pt->getSFMLPosition();
       sf::Vector2i pointScreen = editor.window.mapCoordsToPixel(worldPos, editor.drawingView);
       sf::Vector2f pointScreenPos(static_cast<float>(pointScreen.x), static_cast<float>(pointScreen.y));
       sf::Vector2f labelTopLeft = mouseScreenPos - editor.labelDragGrabOffset;
       sf::Vector2f newOffset = labelTopLeft - pointScreenPos;
+      newOffset = clampOffsetToRadius(newOffset, Constants::LABEL_DRAG_RADIUS_PIXELS);
       pt->setLabelOffset(newOffset);
     } else if (auto* rect = dynamic_cast<Rectangle*>(editor.labelDragObject)) {
       if (editor.labelDragVertexIndex >= 0 && editor.labelDragVertexIndex < 4) {
@@ -621,6 +637,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           sf::Vector2f vertexScreenPos(static_cast<float>(vertexScreen.x), static_cast<float>(vertexScreen.y));
           sf::Vector2f labelPos = mouseScreenPos - editor.labelDragGrabOffset;
           sf::Vector2f newOffset = labelPos - vertexScreenPos;
+          newOffset = clampOffsetToRadius(newOffset, Constants::LABEL_DRAG_RADIUS_PIXELS);
           rect->setVertexLabelOffset(editor.labelDragVertexIndex, newOffset);
         }
       }
@@ -670,17 +687,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         sf::Vector2f labelPos = mouseScreenPos - editor.labelDragGrabOffset;
         sf::Vector2f newOffset = labelPos - labelDefaultScreenPos;
         
-        // Optional: Constrain label movement to circular boundary around vertex
-        // Maximum distance = 2 * visual radius (or any desired radius)
-        double maxDistance = angle->getRadius() * 3.0; // Allow more freedom
-        double offsetMagnitude = std::sqrt(newOffset.x * newOffset.x + newOffset.y * newOffset.y);
-        
-        if (offsetMagnitude > maxDistance) {
-          // Clamp to circular boundary
-          float scaleFactor = static_cast<float>(maxDistance / offsetMagnitude);
-          newOffset.x *= scaleFactor;
-          newOffset.y *= scaleFactor;
-        }
+        // Constrain label movement to a circular boundary around the vertex (screen pixels)
+        newOffset = clampOffsetToRadius(newOffset, Constants::LABEL_DRAG_RADIUS_PIXELS);
         
         angle->setLabelOffset(newOffset);
       }
@@ -1459,7 +1467,6 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           // Route rectangle corner points through rectangle constraint logic
           for (auto& rectPtr : editor.rectangles) {
             if (!rectPtr || !rectPtr->isValid()) continue;
-            if (rectPtr->isRotatable()) continue;
             auto a = rectPtr->getCorner1Point();
             auto b = rectPtr->getCorner2Point();
             auto c = rectPtr->getCornerBPoint();
@@ -1485,8 +1492,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
             }
             if (c && c.get() == selectedPoint) {
               if (rectPtr->isRotatable()) {
-                c->setCGALPosition(targetPos);
-                rectPtr->update();
+                rectPtr->setVertexPosition(2, targetPos);
               } else {
                 rectPtr->setVertexPosition(1, targetPos);
               }
@@ -1494,12 +1500,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
             }
             if (d && d.get() == selectedPoint) {
               if (rectPtr->isRotatable()) {
-                Point_2 aPos = rectPtr->getCorner1Position();
-                Point_2 bPos = rectPtr->getCorner2Position();
-                Vector_2 heightVec = targetPos - aPos;
-                Point_2 newC = bPos + heightVec;
-                if (c) c->setCGALPosition(newC);
-                rectPtr->update();
+                rectPtr->setVertexPosition(3, targetPos);
               } else {
                 rectPtr->setVertexPosition(3, targetPos);
               }
@@ -1925,10 +1926,10 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         
         double dist;
         // SPECIALIZED AXIS CHECK: Bypass floating-point precision issues at high zoom
-        if (linePtr == editor.getXAxis()) {
+        if (linePtr.get() == editor.getXAxis()) {
           // X-axis is at Y=0, so distance is simply |mouseY|
           dist = std::abs(static_cast<double>(worldPos.y));
-        } else if (linePtr == editor.getYAxis()) {
+        } else if (linePtr.get() == editor.getYAxis()) {
           // Y-axis is at X=0, so distance is simply |mouseX|
           dist = std::abs(static_cast<double>(worldPos.x));
         } else {

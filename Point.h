@@ -67,11 +67,11 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   sf::Vector2f getSFMLPosition() const;
 
   // Lock status
-  void setLocked(bool lockStatus) { m_isLocked = lockStatus; }
+  void setLocked(bool lockStatus) override;
   bool isLocked() const override;
 
-  void setVisible(bool v) override { m_visible = v; }
-  bool isVisible() const override { return m_visible; }
+  void setVisible(bool v) override;
+  bool isVisible() const override { return GeometricObject::isVisible(); }
   void setIsValid(bool valid);
 
   // Intersection status
@@ -92,8 +92,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
     updateConnectedLines();
   }
 
-  void lock();
-  void unlock();
+  // lock() and unlock() inherited from GeometricObject
   void updateZoomFactor(float newZoomFactor);
 
   void translate(const Vector_2 &offset) override;
@@ -165,19 +164,14 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   // void updateSFMLPosition(); // Removed, replaced by updateSFMLShape
   bool m_isHovered;
   bool m_isDragging;
-  bool m_isLocked;
   bool m_isIntersectionPoint;
   bool m_isInitialized;
   bool m_deferConstraintUpdates;
-  bool m_visible = true;
-  bool m_isDependent = false;
   bool m_createdWithShape = false;
   std::vector<std::weak_ptr<Line>> m_connectedLines;  // Lines connected to this point
 
   // --- Labeling ---
   std::string m_label;
-  bool m_showLabel = true;
-  sf::Vector2f m_labelOffset = {10.0f, -10.0f}; // Default: Top-Right
   
 public: // Public for initialization in GeometryEditor
     static const sf::Font* commonFont; // Shared font pointer
@@ -185,12 +179,12 @@ public: // Public for initialization in GeometryEditor
 public:
     void setLabel(const std::string& label) { m_label = label; }
     std::string getLabel() const { return m_label; }
-    void setShowLabel(bool show) { m_showLabel = show; }
-    bool getShowLabel() const { return m_showLabel; }
-    void setLabelOffset(const sf::Vector2f& offset) { m_labelOffset = offset; }
-    sf::Vector2f getLabelOffset() const { return m_labelOffset; }
-    void setDependent(bool dependent) { m_isDependent = dependent; }
-    bool isDependent() const override { return m_isDependent; }
+    void setShowLabel(bool show) override { GeometricObject::setShowLabel(show); }
+    bool getShowLabel() const override { return GeometricObject::getShowLabel(); }
+    void setLabelOffset(const sf::Vector2f& offset) override { GeometricObject::setLabelOffset(offset); }
+    const sf::Vector2f& getLabelOffset() const override { return GeometricObject::getLabelOffset(); }
+    void setDependent(bool dependent) override { GeometricObject::setDependent(dependent); }
+    bool isDependent() const override { return GeometricObject::isDependent(); }
     void setCreatedWithShape(bool created) { m_createdWithShape = created; }
     bool isCreatedWithShape() const { return m_createdWithShape; }
 };

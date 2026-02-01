@@ -51,8 +51,6 @@ class RegularPolygon : public GeometricObject {
   std::vector<Point_2> getInteractableVertices() const override;
   std::vector<Segment_2> getEdges() const override;
 
-  // Additional methods (not overrides)
-  sf::Color getColor() const override { return m_color; }
   Point_2 getCenter() const;
   bool isWithinDistance(const sf::Vector2f &screenPos, float tolerance) const;
 
@@ -85,7 +83,6 @@ class RegularPolygon : public GeometricObject {
   int m_numSides;                   // Number of sides (must be >= 3)
   double m_radius;                  // Distance from center to vertex
   double m_rotationAngle;           // Rotation angle in radians
-  sf::Color m_color;                // Fill color
   sf::ConvexShape m_sfmlShape;      // SFML shape for rendering
   int m_hoveredVertex = -1;
   int m_activeVertex = -1;

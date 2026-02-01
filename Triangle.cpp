@@ -23,9 +23,7 @@ Triangle::Triangle(const Point_2& v1, const Point_2& v2, const Point_2& v3,
     m_vertices.push_back(std::make_shared<Point>(v2, 1.0f));
     m_vertices.push_back(std::make_shared<Point>(v3, 1.0f));
     
-    sf::Color base = color;
-    base.a = 128;  // Semi-transparent fill
-    m_color = base;
+    m_color.a = 128;  // Semi-transparent fill
     
     updateSFMLShape();
 }
@@ -44,9 +42,7 @@ Triangle::Triangle(const std::shared_ptr<Point>& v1, const std::shared_ptr<Point
     m_vertices.push_back(v2);
     m_vertices.push_back(v3);
 
-    sf::Color base = color;
-    base.a = 128;
-    m_color = base;
+    m_color.a = 128;
 
     updateSFMLShape();
 }
@@ -97,7 +93,7 @@ void Triangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) co
             sf::ConvexShape highlight = m_sfmlShape;
             highlight.setFillColor(sf::Color::Transparent);
             highlight.setOutlineThickness(3.0f * scale);
-            highlight.setOutlineColor(sf::Color::Yellow);
+            highlight.setOutlineColor(Constants::SELECTION_COLOR);
             window.draw(highlight);
         } else if (isHovered()) {
             sf::ConvexShape highlight = m_sfmlShape;

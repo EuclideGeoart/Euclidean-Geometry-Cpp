@@ -20,6 +20,24 @@ class ReflectLine : public Point {
     update();
   }
 
+  void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                            std::shared_ptr<GeometricObject> aux,
+                            TransformationType type) override {
+    GeometricObject::restoreTransformation(parent, aux, type);
+    sourcePoint = std::dynamic_pointer_cast<Point>(parent);
+    reflectLine = std::dynamic_pointer_cast<Line>(aux);
+    setTransformType(type);
+    if (sourcePoint) {
+        sourcePoint->addDependent(shared_from_this());
+        setParentSourceID(sourcePoint->getID());
+    }
+    if (reflectLine) {
+        reflectLine->addDependent(shared_from_this());
+        setAuxObjectID(reflectLine->getID());
+    }
+    update();
+  }
+
   void update() override {
     if (!sourcePoint || !reflectLine || !sourcePoint->isValid() || !reflectLine->isValid()) {
       setVisible(false);
@@ -66,6 +84,24 @@ class ReflectPoint : public Point {
     update();
   }
 
+  void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                            std::shared_ptr<GeometricObject> aux,
+                            TransformationType type) override {
+    GeometricObject::restoreTransformation(parent, aux, type);
+    sourcePoint = std::dynamic_pointer_cast<Point>(parent);
+    centerPoint = std::dynamic_pointer_cast<Point>(aux);
+    setTransformType(type);
+    if (sourcePoint) {
+        sourcePoint->addDependent(shared_from_this());
+        setParentSourceID(sourcePoint->getID());
+    }
+    if (centerPoint) {
+        centerPoint->addDependent(shared_from_this());
+        setAuxObjectID(centerPoint->getID());
+    }
+    update();
+  }
+
   void update() override {
     if (!sourcePoint || !centerPoint || !sourcePoint->isValid() || !centerPoint->isValid() ||
         !centerPoint->isVisible()) {
@@ -98,6 +134,24 @@ class ReflectCircle : public Point {
       : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
         reflectCircle(std::move(circle)) {
     setDependent(true);
+    update();
+  }
+
+  void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                            std::shared_ptr<GeometricObject> aux,
+                            TransformationType type) override {
+    GeometricObject::restoreTransformation(parent, aux, type);
+    sourcePoint = std::dynamic_pointer_cast<Point>(parent);
+    reflectCircle = std::dynamic_pointer_cast<Circle>(aux);
+    setTransformType(type);
+    if (sourcePoint) {
+        sourcePoint->addDependent(shared_from_this());
+        setParentSourceID(sourcePoint->getID());
+    }
+    if (reflectCircle) {
+        reflectCircle->addDependent(shared_from_this());
+        setAuxObjectID(reflectCircle->getID());
+    }
     update();
   }
 
@@ -142,8 +196,27 @@ class RotatePoint : public Point {
               double angleDegrees,
               const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
       : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
-        centerPoint(std::move(center)), angleDeg(angleDegrees) {
+        centerPoint(std::move(center)) {
+    setTransformValue(angleDegrees);
     setDependent(true);
+    update();
+  }
+
+  void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                            std::shared_ptr<GeometricObject> aux,
+                            TransformationType type) override {
+    GeometricObject::restoreTransformation(parent, aux, type);
+    sourcePoint = std::dynamic_pointer_cast<Point>(parent);
+    centerPoint = std::dynamic_pointer_cast<Point>(aux);
+    setTransformType(type);
+    if (sourcePoint) {
+        sourcePoint->addDependent(shared_from_this());
+        setParentSourceID(sourcePoint->getID());
+    }
+    if (centerPoint) {
+        centerPoint->addDependent(shared_from_this());
+        setAuxObjectID(centerPoint->getID());
+    }
     update();
   }
 
@@ -160,7 +233,7 @@ class RotatePoint : public Point {
     double px = CGAL::to_double(p.x()) - CGAL::to_double(c.x());
     double py = CGAL::to_double(p.y()) - CGAL::to_double(c.y());
 
-    double rad = angleDeg * (3.14159265358979323846 / 180.0);
+    double rad = getTransformValue() * (3.14159265358979323846 / 180.0);
     double cosA = std::cos(rad);
     double sinA = std::sin(rad);
 
@@ -176,12 +249,11 @@ class RotatePoint : public Point {
 
   std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
   std::shared_ptr<Point> getCenterPoint() const { return centerPoint; }
-  double getAngleDegrees() const { return angleDeg; }
+  double getAngleDegrees() const { return getTransformValue(); }
 
  private:
   std::shared_ptr<Point> sourcePoint;
   std::shared_ptr<Point> centerPoint;
-  double angleDeg;
 };
 
 class TranslateVector : public Point {
@@ -193,6 +265,26 @@ class TranslateVector : public Point {
       : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
         vectorStart(std::move(vecStart)), vectorEnd(std::move(vecEnd)) {
     setDependent(true);
+    update();
+  }
+
+  void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                            std::shared_ptr<GeometricObject> aux,
+                            TransformationType type) override {
+    GeometricObject::restoreTransformation(parent, aux, type);
+    sourcePoint = std::dynamic_pointer_cast<Point>(parent);
+    vectorEnd = std::dynamic_pointer_cast<Point>(aux);
+    // vectorStart restoration is currently limited by metadata having only 1 aux ID.
+    // However, vectorEnd is usually the primary anchor for the vector.
+    setTransformType(type);
+    if (sourcePoint) {
+        sourcePoint->addDependent(shared_from_this());
+        setParentSourceID(sourcePoint->getID());
+    }
+    if (vectorEnd) {
+        vectorEnd->addDependent(shared_from_this());
+        setAuxObjectID(vectorEnd->getID());
+    }
     update();
   }
 
@@ -232,8 +324,27 @@ class DilatePoint : public Point {
               double factor,
               const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
       : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
-        centerPoint(std::move(center)), scaleFactor(factor) {
+        centerPoint(std::move(center)) {
+    setTransformValue(factor);
     setDependent(true);
+    update();
+  }
+
+  void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                            std::shared_ptr<GeometricObject> aux,
+                            TransformationType type) override {
+    GeometricObject::restoreTransformation(parent, aux, type);
+    sourcePoint = std::dynamic_pointer_cast<Point>(parent);
+    centerPoint = std::dynamic_pointer_cast<Point>(aux);
+    setTransformType(type);
+    if (sourcePoint) {
+        sourcePoint->addDependent(shared_from_this());
+        setParentSourceID(sourcePoint->getID());
+    }
+    if (centerPoint) {
+        centerPoint->addDependent(shared_from_this());
+        setAuxObjectID(centerPoint->getID());
+    }
     update();
   }
 
@@ -247,7 +358,7 @@ class DilatePoint : public Point {
     Point_2 p = sourcePoint->getCGALPosition();
     Point_2 c = centerPoint->getCGALPosition();
     Vector_2 cp = p - c;
-    Point_2 pPrime = c + cp * FT(scaleFactor);
+    Point_2 pPrime = c + cp * FT(getTransformValue());
 
     setCGALPosition(pPrime);
     setVisible(true);
@@ -256,10 +367,9 @@ class DilatePoint : public Point {
 
   std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
   std::shared_ptr<Point> getCenterPoint() const { return centerPoint; }
-  double getScaleFactor() const { return scaleFactor; }
+  double getScaleFactor() const { return getTransformValue(); }
 
  private:
   std::shared_ptr<Point> sourcePoint;
   std::shared_ptr<Point> centerPoint;
-  double scaleFactor;
 };

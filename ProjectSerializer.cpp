@@ -267,6 +267,13 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 sf::Vector2f offset = pt->getLabelOffset();
                 ptJson["labelOffset"] = { offset.x, offset.y };
 
+                // --- Transformation Metadata ---
+                ptJson["transformType"] = static_cast<int>(pt->getTransformType());
+                if (pt->getTransformType() != TransformationType::None) {
+                    ptJson["parentSourceID"] = pt->getParentSourceID();
+                    ptJson["auxObjectID"] = pt->getAuxObjectID();
+                }
+
                 // Transformation-derived points
                 if (auto refL = std::dynamic_pointer_cast<ReflectLine>(pt)) {
                     json t;
@@ -317,13 +324,24 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         json linesArray = json::array();
         for (const auto& ln : editor.lines) {
             if (ln && ln->isValid()) {
-                if (editor.getXAxis() && ln == editor.getXAxis()) continue;
-                if (editor.getYAxis() && ln == editor.getYAxis()) continue;
+                if (editor.getXAxisShared() && ln == editor.getXAxisShared()) continue;
+                if (editor.getYAxisShared() && ln == editor.getYAxisShared()) continue;
                 if (std::dynamic_pointer_cast<TangentLine>(ln)) continue;
                 json lnJson;
                 lnJson["id"] = ln->getID();
                 lnJson["isSegment"] = ln->isSegment();
                 lnJson["color"] = colorToHex(ln->getColor());
+                lnJson["thickness"] = ln->getThickness();
+                lnJson["decoration"] = static_cast<int>(ln->getDecoration());
+                lnJson["lineType"] = static_cast<int>(ln->getLineType());
+
+                // --- Transformation Metadata ---
+                lnJson["transformType"] = static_cast<int>(ln->getTransformType());
+                if (ln->getTransformType() != TransformationType::None) {
+                    lnJson["parentSourceID"] = ln->getParentSourceID();
+                    lnJson["auxObjectID"] = ln->getAuxObjectID();
+                    lnJson["transformValue"] = ln->getTransformValue();
+                }
 
                 if (auto startObj = ln->getStartPointObject()) {
                     lnJson["startPointID"] = startObj->getID();
@@ -361,6 +379,21 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 json ciJson;
                 ciJson["id"] = ci->getID();
                 ciJson["color"] = colorToHex(ci->getColor());
+                ciJson["thickness"] = ci->getThickness();
+
+                // --- Transformation Metadata ---
+                ciJson["transformType"] = static_cast<int>(ci->getTransformType());
+                if (ci->getTransformType() != TransformationType::None) {
+                    ciJson["parentSourceID"] = ci->getParentSourceID();
+                    ciJson["auxObjectID"] = ci->getAuxObjectID();
+                    ciJson["transformValue"] = ci->getTransformValue();
+                }
+
+                ciJson["isSemicircle"] = ci->isSemicircle();
+                if (ci->isSemicircle()) {
+                    if (auto p1 = ci->getDiameterP1()) ciJson["diameterP1ID"] = p1->getID();
+                    if (auto p2 = ci->getDiameterP2()) ciJson["diameterP2ID"] = p2->getID();
+                }
 
                 if (auto centerObj = ci->getCenterPointObject()) {
                     ciJson["centerPointID"] = centerObj->getID();
@@ -394,6 +427,19 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 }
                 rectJson["vertices"] = verticesJson;
                 rectJson["color"] = colorToHex(rect->getColor());
+                rectJson["thickness"] = rect->getThickness();
+                rectJson["isRotatable"] = rect->isRotatable();
+                rectJson["height"] = rect->getHeight();
+                rectJson["width"] = rect->getWidth();
+
+                // --- Transformation Metadata ---
+                rectJson["transformType"] = static_cast<int>(rect->getTransformType());
+                if (rect->getTransformType() != TransformationType::None) {
+                    rectJson["parentSourceID"] = rect->getParentSourceID();
+                    rectJson["auxObjectID"] = rect->getAuxObjectID();
+                    rectJson["transformValue"] = rect->getTransformValue();
+                }
+
                 rectanglesArray.push_back(rectJson);
             }
         }
@@ -405,6 +451,15 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             if (poly && poly->isValid()) {
                 json polyJson;
                 polyJson["id"] = poly->getID();
+                
+                // --- Transformation Metadata ---
+                polyJson["transformType"] = static_cast<int>(poly->getTransformType());
+                if (poly->getTransformType() != TransformationType::None) {
+                    polyJson["parentSourceID"] = poly->getParentSourceID();
+                    polyJson["auxObjectID"] = poly->getAuxObjectID();
+                    polyJson["transformValue"] = poly->getTransformValue();
+                }
+
                 auto vertices = poly->getInteractableVertices();
                 json verticesJson = json::array();
                 for (const auto& v : vertices) {
@@ -423,6 +478,15 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             if (tri && tri->isValid()) {
                 json triJson;
                 triJson["id"] = tri->getID();
+                
+                // --- Transformation Metadata ---
+                triJson["transformType"] = static_cast<int>(tri->getTransformType());
+                if (tri->getTransformType() != TransformationType::None) {
+                    triJson["parentSourceID"] = tri->getParentSourceID();
+                    triJson["auxObjectID"] = tri->getAuxObjectID();
+                    triJson["transformValue"] = tri->getTransformValue();
+                }
+
                 auto vertices = tri->getInteractableVertices();
                 json verticesJson = json::array();
                 for (const auto& v : vertices) {
@@ -441,6 +505,15 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             if (rpoly && rpoly->isValid()) {
                 json rpolyJson;
                 rpolyJson["id"] = rpoly->getID();
+                
+                // --- Transformation Metadata ---
+                rpolyJson["transformType"] = static_cast<int>(rpoly->getTransformType());
+                if (rpoly->getTransformType() != TransformationType::None) {
+                    rpolyJson["parentSourceID"] = rpoly->getParentSourceID();
+                    rpolyJson["auxObjectID"] = rpoly->getAuxObjectID();
+                    rpolyJson["transformValue"] = rpoly->getTransformValue();
+                }
+
                 auto vertices = rpoly->getInteractableVertices();
                 json verticesJson = json::array();
                 for (const auto& v : vertices) {
@@ -711,6 +784,14 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 if (jPoint.contains("labelOffset") && jPoint["labelOffset"].is_array() && jPoint["labelOffset"].size() >= 2) {
                     newPoint->setLabelOffset(sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
                 }
+
+                // Read Transformation Metadata
+                if (jPoint.contains("transformType")) {
+                    newPoint->setTransformType(static_cast<TransformationType>(jPoint["transformType"].get<int>()));
+                    newPoint->setParentSourceID(jPoint.value("parentSourceID", 0u));
+                    newPoint->setAuxObjectID(jPoint.value("auxObjectID", 0u));
+                }
+
                 editor.points.push_back(newPoint);
 
                 if (id != -1) {
@@ -755,6 +836,20 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     );
                     editor.lines.push_back(newLine);
                     newLine->registerWithEndpoints();
+                    
+                    newLine->setThickness(jLine.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                    newLine->setDecoration(static_cast<DecorationType>(jLine.value("decoration", 0)));
+                    newLine->setLineType(static_cast<Line::LineType>(jLine.value("lineType", 1))); // Default to Segment if missing
+
+                    // Read Transformation Metadata
+                    if (jLine.contains("transformType")) {
+                        newLine->setTransformType(static_cast<TransformationType>(jLine["transformType"].get<int>()));
+                        newLine->setParentSourceID(jLine.value("parentSourceID", 0u));
+                        newLine->setAuxObjectID(jLine.value("auxObjectID", 0u));
+                    }
+                    if (jLine.contains("transformValue")) {
+                        newLine->setTransformValue(jLine["transformValue"].get<double>());
+                    }
 
                     if (id != -1) {
                         objectMap[id] = newLine;
@@ -802,6 +897,28 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     }
 
                     editor.circles.push_back(newCircle);
+                    
+                    newCircle->setThickness(jCircle.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+                    // Read Transformation Metadata
+                    if (jCircle.contains("transformType")) {
+                        newCircle->setTransformType(static_cast<TransformationType>(jCircle["transformType"].get<int>()));
+                        newCircle->setParentSourceID(jCircle.value("parentSourceID", 0u));
+                        newCircle->setAuxObjectID(jCircle.value("auxObjectID", 0u));
+                    }
+                    if (jCircle.contains("transformValue")) {
+                        newCircle->setTransformValue(jCircle["transformValue"].get<double>());
+                    }
+                    bool isSemi = jCircle.value("isSemicircle", false);
+                    newCircle->setSemicircle(isSemi);
+                    if (isSemi) {
+                        int p1Id = jCircle.value("diameterP1ID", -1);
+                        int p2Id = jCircle.value("diameterP2ID", -1);
+                        if (pointMap.count(p1Id) && pointMap.count(p2Id)) {
+                            newCircle->setSemicircleDiameterPoints(pointMap[p1Id], pointMap[p2Id]);
+                        }
+                    }
+
                     if (id != -1) {
                         objectMap[id] = newCircle;
                         if (id > maxId) maxId = id;
@@ -840,6 +957,15 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 int id = polyJson.value("id", -1);
 
                 auto polygon = std::make_shared<Polygon>(vertices, color, id);
+                polygon->setThickness(polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+                // Read Transformation Metadata
+                if (polyJson.contains("transformType")) {
+                    polygon->setTransformType(static_cast<TransformationType>(polyJson["transformType"].get<int>()));
+                    polygon->setParentSourceID(polyJson.value("parentSourceID", 0u));
+                    polygon->setAuxObjectID(polyJson.value("auxObjectID", 0u));
+                }
+
                 editor.polygons.push_back(polygon);
                 
                 if (id != -1) {
@@ -889,7 +1015,23 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     Point_2 corner1(x1, y1);
                     Point_2 corner2(x2, y2);
                     
-                    auto rect = std::make_shared<Rectangle>(corner1, corner2, false, color, id);
+                    bool isRotatable = rectJson.value("isRotatable", false);
+                    double height = rectJson.value("height", 0.0);
+                    auto rect = std::make_shared<Rectangle>(corner1, corner2, isRotatable, color, id);
+                    rect->setThickness(rectJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                    if (isRotatable) {
+                        rect->setHeight(height);
+                    }
+
+                    // Read Transformation Metadata
+                    if (rectJson.contains("transformType")) {
+                        rect->setTransformType(static_cast<TransformationType>(rectJson["transformType"].get<int>()));
+                        rect->setParentSourceID(rectJson.value("parentSourceID", 0u));
+                        rect->setAuxObjectID(rectJson.value("auxObjectID", 0u));
+                    }
+                    if (rectJson.contains("transformValue")) {
+                        rect->setTransformValue(rectJson["transformValue"].get<double>());
+                    }
                     editor.rectangles.push_back(rect);
 
                     if (id != -1) {
@@ -903,6 +1045,60 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         // =========================================================
         // PASS 6: LOAD TRIANGLES (Fixed)
         // =========================================================
+
+
+        // =========================================================
+        // PASS 5: LOAD POLYGONS
+        // =========================================================
+        if (data.contains("polygons")) {
+            for (const auto& polyJson : data["polygons"]) {
+                auto verticesJson = polyJson["vertices"];
+                if (verticesJson.size() >= 3) {
+                    std::vector<Point_2> pts;
+                    for(const auto& v : verticesJson) {
+                         if (v.is_array()) { 
+                            double x = v[0].get<double>();
+                            double y = v[1].get<double>();
+                            pts.emplace_back(x, y);
+                         } else {
+                            pts.emplace_back(v.value("x", 0.0), v.value("y", 0.0));
+                         }
+                    }
+
+                    sf::Color color = sf::Color::Black;
+                    if (polyJson.contains("color")) {
+                        if (polyJson["color"].is_string()) {
+                            color = hexToColor(polyJson["color"]);
+                        } else {
+                            auto c = polyJson["color"];
+                            color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                        }
+                    }
+                    
+                    int id = polyJson.value("id", -1);
+                    
+                    auto poly = std::make_shared<Polygon>(pts, color, id);
+                    
+                    // Read Transformation Metadata
+                    if (polyJson.contains("transformType")) {
+                        poly->setTransformType(static_cast<TransformationType>(polyJson["transformType"].get<int>()));
+                        poly->setParentSourceID(polyJson.value("parentSourceID", 0u));
+                        poly->setAuxObjectID(polyJson.value("auxObjectID", 0u));
+                    }
+                    if (polyJson.contains("transformValue")) {
+                        poly->setTransformValue(polyJson["transformValue"].get<double>());
+                    }
+                    
+                    editor.polygons.push_back(poly);
+
+                    if (id != -1) {
+                        objectMap[id] = poly;
+                        if (id > maxId) maxId = id;
+                    }
+                } 
+            }
+        } 
+        
         if (data.contains("triangles")) {
             for (const auto& triJson : data["triangles"]) {
                 auto verticesJson = triJson["vertices"];
@@ -935,6 +1131,18 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     int id = triJson.value("id", -1);
                     
                     auto triangle = std::make_shared<Triangle>(pts[0], pts[1], pts[2], color, id);
+                    triangle->setThickness(triJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+                    // Read Transformation Metadata
+                    if (triJson.contains("transformType")) {
+                        triangle->setTransformType(static_cast<TransformationType>(triJson["transformType"].get<int>()));
+                        triangle->setParentSourceID(triJson.value("parentSourceID", 0u));
+                        triangle->setAuxObjectID(triJson.value("auxObjectID", 0u));
+                    }
+                    if (triJson.contains("transformValue")) {
+                        triangle->setTransformValue(triJson["transformValue"].get<double>());
+                    }
+
                     editor.triangles.push_back(triangle);
                     
                     if (id != -1) {
@@ -986,6 +1194,18 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                     Point_2 firstVertex(fx, fy);
                     
                     auto rpoly = std::make_shared<RegularPolygon>(center, firstVertex, sides, color, id);
+                    rpoly->setThickness(rpolyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                    
+                    // Read Transformation Metadata
+                    if (rpolyJson.contains("transformType")) {
+                        rpoly->setTransformType(static_cast<TransformationType>(rpolyJson["transformType"].get<int>()));
+                        rpoly->setParentSourceID(rpolyJson.value("parentSourceID", 0u));
+                        rpoly->setAuxObjectID(rpolyJson.value("auxObjectID", 0u));
+                    }
+                    if (rpolyJson.contains("transformValue")) {
+                        rpoly->setTransformValue(rpolyJson["transformValue"].get<double>());
+                    }
+
                     editor.regularPolygons.push_back(rpoly);
 
                     if (id != -1) {
@@ -1294,17 +1514,35 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             }
         }
 
-        // Restore axes visibility and ensure axes are present
-        if (editor.getXAxis()) {
-            editor.getXAxis()->setVisible(axesVisible);
-            if (std::find(editor.lines.begin(), editor.lines.end(), editor.getXAxis()) == editor.lines.end()) {
-                editor.lines.push_back(editor.getXAxis());
+        // =========================================================
+        // PASS 13: RESTITCH TRANSFORMATION LOGIC
+        // =========================================================
+        // We iterate through all objects and re-establish transformation links
+        for (auto& pair : objectMap) {
+            auto obj = pair.second;
+            if (obj && obj->getTransformType() != TransformationType::None) {
+                unsigned int parentId = obj->getParentSourceID();
+                unsigned int auxId = obj->getAuxObjectID();
+                
+                std::shared_ptr<GeometricObject> parent = (parentId != 0 && objectMap.count(parentId)) ? objectMap[parentId] : nullptr;
+                std::shared_ptr<GeometricObject> aux = (auxId != 0 && objectMap.count(auxId)) ? objectMap[auxId] : nullptr;
+                
+                obj->restoreTransformation(parent, aux, obj->getTransformType());
+                obj->update(); // Ensure initial position is correct after re-linking
             }
         }
-        if (editor.getYAxis()) {
-            editor.getYAxis()->setVisible(axesVisible);
-            if (std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxis()) == editor.lines.end()) {
-                editor.lines.push_back(editor.getYAxis());
+
+        // Restore axes visibility and ensure axes are present
+        if (editor.getXAxisShared()) {
+            editor.getXAxisShared()->setVisible(axesVisible);
+            if (std::find(editor.lines.begin(), editor.lines.end(), editor.getXAxisShared()) == editor.lines.end()) {
+                editor.lines.push_back(editor.getXAxisShared());
+            }
+        }
+        if (editor.getYAxisShared()) {
+            editor.getYAxisShared()->setVisible(axesVisible);
+            if (std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxisShared()) == editor.lines.end()) {
+                editor.lines.push_back(editor.getYAxisShared());
             }
         }
 
@@ -1442,7 +1680,7 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
                 
                 SVGWriter::Style style;
                 style.stroke = colorToHex(rect->getColor());
-                style.strokeWidth = strokeWidth;
+                style.strokeWidth = rect->getThickness() * pixelToWorldScale;
                 svg.drawPolygon(points, style);
             }
         }
@@ -1455,23 +1693,170 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
                 
                 SVGWriter::Style style;
                 style.stroke = colorToHex(ln->getColor());
-                style.strokeWidth = strokeWidth;
+                style.strokeWidth = ln->getThickness() * pixelToWorldScale;
                 
-                // Handle infinite lines / rays by clipping to view bounds?
-                // For now exporting segments as is.
-                svg.drawLine(CGAL::to_double(start.x()), CGAL::to_double(start.y()),
-                             CGAL::to_double(end.x()), CGAL::to_double(end.y()), style);
+                // Handle infinite lines / rays by clipping to view bounds
+                // Reuse logic from Line::draw but in world space
+                Point_2 p1 = start;
+                Point_2 p2 = end;
+
+                if (!ln->isSegment()) {
+                    Vector_2 dir = end - start;
+                    Direction_2 direction(dir);
+                    double viewDiag = std::sqrt(width * width + height * height);
+                    double extension = viewDiag * 1.5;
+
+                    Point_2 viewCenter(minX + width / 2.0, minY + height / 2.0);
+                    // Projections in world space
+                    Vector_2 toCenter = viewCenter - start;
+                    double proj = CGAL::to_double(toCenter.x() * dir.x() + toCenter.y() * dir.y()) / CGAL::to_double(dir.squared_length());
+                    Point_2 mid = start + dir * proj;
+
+                    if (ln->getLineType() == Line::LineType::Ray) {
+                        p1 = start;
+                        p2 = mid + direction.to_vector() * extension;
+                    } else {
+                        p1 = mid - direction.to_vector() * extension;
+                        p2 = mid + direction.to_vector() * extension;
+                    }
+                }
+
+                svg.drawLine(CGAL::to_double(p1.x()), CGAL::to_double(p1.y()),
+                             CGAL::to_double(p2.x()), CGAL::to_double(p2.y()), style);
+
+                // --- Vector Arrowhead ---
+                if (ln->getLineType() == Line::LineType::Vector || ln->getType() == ObjectType::Vector) {
+                    double x1 = CGAL::to_double(p1.x());
+                    double y1 = CGAL::to_double(p1.y());
+                    double x2 = CGAL::to_double(p2.x());
+                    double y2 = CGAL::to_double(p2.y());
+
+                    double dx = x2 - x1;
+                    double dy = y2 - y1;
+                    double l = std::sqrt(dx*dx + dy*dy);
+                    if (l > 1e-6) {
+                        double ux = dx / l;
+                        double uy = dy / l;
+                        double nx = -uy;
+                        double ny = ux;
+
+                        double arrowLen = 15.0 * pixelToWorldScale;
+                        double arrowWidth = 10.0 * pixelToWorldScale;
+
+                        double tipX = x2;
+                        double tipY = y2;
+                        double baseX = tipX - ux * arrowLen;
+                        double baseY = tipY - uy * arrowLen;
+
+                        double leftX = baseX + nx * (arrowWidth * 0.5);
+                        double leftY = baseY + ny * (arrowWidth * 0.5);
+                        double rightX = baseX - nx * (arrowWidth * 0.5);
+                        double rightY = baseY - ny * (arrowWidth * 0.5);
+
+                        std::vector<std::pair<double, double>> arrowPoints = {
+                            {tipX, tipY}, {leftX, leftY}, {rightX, rightY}
+                        };
+                        SVGWriter::Style arrowStyle = style;
+                        arrowStyle.fill = style.stroke; // Fill with stroke color
+                        svg.drawPolygon(arrowPoints, arrowStyle);
+                    }
+                }
+
+                // Export Decorations
+                if (ln->getDecoration() != DecorationType::None) {
+                    double x1 = CGAL::to_double(p1.x());
+                    double y1 = CGAL::to_double(p1.y());
+                    double x2 = CGAL::to_double(p2.x());
+                    double y2 = CGAL::to_double(p2.y());
+
+                    double dx = x2 - x1;
+                    double dy = y2 - y1;
+                    double l = std::sqrt(dx*dx + dy*dy);
+                    if (l > 1e-6) {
+                        double ux = dx / l;
+                        double uy = dy / l;
+                        double nx = -uy;
+                        double ny = ux;
+                        double cx = (x1 + x2) * 0.5;
+                        double cy = (y1 + y2) * 0.5;
+                        double size = 12.0 * pixelToWorldScale;
+                        double spacing = 6.0 * pixelToWorldScale;
+
+                        auto exportTick = [&](double px, double py) {
+                            svg.drawLine(px + nx * size * 0.5, py + ny * size * 0.5,
+                                         px - nx * size * 0.5, py - ny * size * 0.5, style);
+                        };
+
+                        auto exportArrow = [&](double px, double py) {
+                            double tipX = px + ux * size * 0.5;
+                            double tipY = py + uy * size * 0.5;
+                            double baseX = px - ux * size * 0.5;
+                            double baseY = py - uy * size * 0.5;
+                            svg.drawLine(baseX + nx * size * 0.4, baseY + ny * size * 0.4, tipX, tipY, style);
+                            svg.drawLine(baseX - nx * size * 0.4, baseY - ny * size * 0.4, tipX, tipY, style);
+                        };
+
+                        switch (ln->getDecoration()) {
+                            case DecorationType::Tick1: exportTick(cx, cy); break;
+                            case DecorationType::Tick2:
+                                exportTick(cx - ux * spacing * 0.5, cy - uy * spacing * 0.5);
+                                exportTick(cx + ux * spacing * 0.5, cy + uy * spacing * 0.5);
+                                break;
+                            case DecorationType::Tick3:
+                                exportTick(cx, cy);
+                                exportTick(cx - ux * spacing, cy - uy * spacing);
+                                exportTick(cx + ux * spacing, cy + uy * spacing);
+                                break;
+                            case DecorationType::Arrow1: exportArrow(cx, cy); break;
+                            case DecorationType::Arrow2:
+                                exportArrow(cx - ux * spacing * 0.7, cy - uy * spacing * 0.7);
+                                exportArrow(cx + ux * spacing * 0.7, cy + uy * spacing * 0.7);
+                                break;
+                            case DecorationType::Arrow3:
+                                exportArrow(cx, cy);
+                                exportArrow(cx - ux * spacing * 1.2, cy - uy * spacing * 1.2);
+                                exportArrow(cx + ux * spacing * 1.2, cy + uy * spacing * 1.2);
+                                break;
+                            case DecorationType::None:
+                                break;
+                        }
+                    }
+                }
             }
         }
 
         // Circles
         for (const auto& ci : editor.circles) {
              if (ci && ci->isValid() && ci->isVisible()) {
-                Point_2 center = ci->getCGALPosition();
                 SVGWriter::Style style;
                 style.stroke = colorToHex(ci->getColor());
-                style.strokeWidth = strokeWidth;
-                svg.drawCircle(CGAL::to_double(center.x()), CGAL::to_double(center.y()), ci->getRadius(), style);
+                style.strokeWidth = ci->getThickness() * pixelToWorldScale;
+
+                if (ci->isSemicircle()) {
+                    // Semicircle export using SVG Arc
+                    Point_2 center = ci->getCenterPoint();
+                    double r = ci->getRadius();
+                    auto p1 = ci->getDiameterP1();
+                    auto p2 = ci->getDiameterP2();
+                    
+                    if (p1 && p2) {
+                        double x1 = CGAL::to_double(p1->getCGALPosition().x());
+                        double y1 = CGAL::to_double(p1->getCGALPosition().y());
+                        double x2 = CGAL::to_double(p2->getCGALPosition().x());
+                        double y2 = CGAL::to_double(p2->getCGALPosition().y());
+
+                        // SVG path: M x1 y1 A r r 0 0 1 x2 y2
+                        // We need to determine the arc sweep flag. 
+                        // Our semicircle is always the CCW arc from P1 to P2 
+                        // in our Cartesian system.
+                        std::stringstream ss;
+                        ss << "M " << x1 << " " << y1 << " A " << r << " " << r << " 0 0 1 " << x2 << " " << y2;
+                        svg.drawPath(ss.str(), style);
+                    }
+                } else {
+                    Point_2 center = ci->getCGALPosition();
+                    svg.drawCircle(CGAL::to_double(center.x()), CGAL::to_double(center.y()), ci->getRadius(), style);
+                }
              }
         }
         
@@ -1484,7 +1869,7 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
                 
                 SVGWriter::Style style;
                 style.stroke = colorToHex(poly->getColor());
-                style.strokeWidth = strokeWidth;
+                style.strokeWidth = poly->getThickness() * pixelToWorldScale;
                 svg.drawPolygon(points, style);
             }
         }
@@ -1498,7 +1883,7 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
                 
                 SVGWriter::Style style;
                 style.stroke = colorToHex(tri->getColor());
-                style.strokeWidth = strokeWidth;
+                style.strokeWidth = tri->getThickness() * pixelToWorldScale;
                 svg.drawPolygon(points, style);
             }
         }
@@ -1512,7 +1897,7 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
                 
                 SVGWriter::Style style;
                 style.stroke = colorToHex(rp->getColor());
-                style.strokeWidth = strokeWidth;
+                style.strokeWidth = rp->getThickness() * pixelToWorldScale;
                 svg.drawPolygon(points, style);
             }
         }

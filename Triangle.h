@@ -56,8 +56,6 @@ public:
     std::vector<Point_2> getInteractableVertices() const override;
     std::vector<Segment_2> getEdges() const override;
 
-    // Additional methods (not overrides)
-    sf::Color getColor() const override { return m_color; }
     Point_2 getCenter() const;
     bool isWithinDistance(const sf::Vector2f& screenPos, float tolerance) const;
     void rotateCCW(const Point_2& center, double angleRadians);
@@ -78,7 +76,6 @@ public:
 
 private:
     std::vector<std::shared_ptr<Point>> m_vertices;  // Exactly 3 vertices
-    sf::Color m_color;                // Fill color
     sf::ConvexShape m_sfmlShape;      // SFML shape for rendering
     int m_hoveredVertex = -1;         // For handle coloring
     int m_activeVertex = -1;          // For handle coloring

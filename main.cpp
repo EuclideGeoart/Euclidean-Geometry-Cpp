@@ -173,11 +173,7 @@ int main() {
     // Explicit cleanup before exit
     std::cout << "Cleaning up CGAL resources..." << std::endl;
 
-    // Clear all geometry containers
-    editor.points.clear();
-    editor.lines.clear();
-    editor.circles.clear();
-    editor.ObjectPoints.clear();
+    // GeometryEditor destructor will handle cleanup safely
 
     std::cout << "Application exiting cleanly." << std::endl;
     return 0;

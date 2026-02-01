@@ -85,6 +85,43 @@ void GeometricObject::updateHostedPoints() {
   if (validPoints.size() != m_hostedObjectPoints.size()) {
     m_hostedObjectPoints = std::move(validPoints);
   }
+
+  // Also notify generic dependents
+  notifyDependents();
+}
+
+void GeometricObject::addDependent(std::shared_ptr<GeometricObject> obj) {
+    if (!obj) return;
+    // Avoid self-dependency
+    if (obj.get() == this) return;
+
+    // Check if already exists
+    for (const auto& wp : m_dependents) {
+        if (auto sp = wp.lock()) {
+            if (sp == obj) return;
+        }
+    }
+    m_dependents.push_back(obj);
+}
+
+void GeometricObject::removeDependent(GeometricObject* obj) {
+    if (!obj) return;
+    m_dependents.erase(std::remove_if(m_dependents.begin(), m_dependents.end(),
+        [obj](const std::weak_ptr<GeometricObject>& wp) {
+            auto sp = wp.lock();
+            return !sp || sp.get() == obj;
+        }), m_dependents.end());
+}
+
+void GeometricObject::notifyDependents() {
+    std::vector<std::weak_ptr<GeometricObject>> validDependents;
+    for (auto& wp : m_dependents) {
+        if (auto sp = wp.lock()) {
+            sp->update();
+            validDependents.push_back(wp);
+        }
+    }
+    m_dependents = std::move(validDependents);
 }
 
 namespace {

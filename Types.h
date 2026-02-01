@@ -40,6 +40,9 @@ inline FT safe_zero_ft() { return FT(0); }
 // Helper function to create a "safe" one FT
 inline FT safe_one_ft() { return FT(1); }
 
+// Transformation history types
+// Enum for transformation types (MOVED TO ObjectType.h)
+
 // Line decoration symbols
 enum class DecorationType {
     None,
