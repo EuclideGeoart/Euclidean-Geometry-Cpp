@@ -236,8 +236,8 @@ void Angle::updateSFMLShape() {
   sf::Vector2f textPos(static_cast<float>(cx) + textRadius * std::cos(midAngle),
                        static_cast<float>(cy) + textRadius * std::sin(midAngle));
   
-  // Apply label offset (in screen space pixels)
-  textPos += m_labelOffset;
+  // Apply label offset (already in base)
+  textPos += GeometricObject::getLabelOffset();
   
   m_text.setString(std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xC2\xB0");
   m_text.setPosition(textPos);

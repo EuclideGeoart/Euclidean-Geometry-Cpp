@@ -71,9 +71,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   // Child ObjectPoint management
   // addChildPoint, removeChildPoint, updateHostedPoints, getHostedObjectPoints inherited from GeometricObject
 
-  // Lock/state
-  void setLocked(bool locked) { m_isLocked = locked; }
-  bool isLocked() const override { return m_isLocked; }
+  // CHILD OBJECTPOINT MANAGEMENT handled by GeometricObject
 
   // Semicircle support
   void setSemicircle(bool isSemi) { m_isSemicircle = isSemi; }
@@ -82,6 +80,8 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
       m_diameterP1 = p1;
       m_diameterP2 = p2;
     }
+    std::shared_ptr<Point> getDiameterP1() const { return m_diameterP1; }
+    std::shared_ptr<Point> getDiameterP2() const { return m_diameterP2; }
   void setSemicircleBasis(const Point_2& p1, const Point_2& p2) {
       // Optional: Store basis points if needed for exact arc recalculation
       // For now, relies on center + radius + angular logic in draw()
@@ -102,7 +102,6 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   sf::Color m_fillColor;
 
   // State
-  bool m_isLocked = false;
   
   // Semicircle State
   bool m_isSemicircle = false;

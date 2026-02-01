@@ -172,29 +172,58 @@ GeometryEditor::~GeometryEditor() {
     // 2. Clear any other raw pointers or references
     previewCircle.reset();
 
-    // 3. Clear ObjectPoints first since they depend on other objects
+    // 3. Normalize Line shared_ptrs to avoid mixed control blocks
+    auto normalizeLinePtr = [&](std::shared_ptr<Line>& sp) {
+      if (!sp) return;
+      for (auto& ln : lines) {
+        if (ln && ln.get() == sp.get()) {
+          sp = ln;
+          return;
+        }
+      }
+    };
+
+    normalizeLinePtr(xAxis);
+    normalizeLinePtr(yAxis);
+    normalizeLinePtr(m_parallelPreviewLine);
+    normalizeLinePtr(m_perpendicularPreviewLine);
+    normalizeLinePtr(perpBisectorLineRef);
+    normalizeLinePtr(angleBisectorLine1);
+    normalizeLinePtr(angleBisectorLine2);
+    normalizeLinePtr(angleLine1);
+    normalizeLinePtr(angleLine2);
+    normalizeLinePtr(m_hoveredIntersectionLine1);
+    normalizeLinePtr(m_hoveredIntersectionLine2);
+    normalizeLinePtr(m_hoveredLine);
+
+    // 4. Clear ObjectPoints first since they depend on other objects
     std::cout << "Clearing ObjectPoints..." << std::endl;
     ObjectPoints.clear();
 
-    // 4. Clear Lines next since they depend on Points
+    // 5. Clear Lines next since they depend on Points
     std::cout << "Clearing Lines..." << std::endl;
+    for (auto& ln : lines) {
+      if (ln) {
+        ln->prepareForDestruction();
+      }
+    }
     lines.clear();
 
-    // 5. Clear Circles
+    // 6. Clear Circles
     std::cout << "Clearing Circles..." << std::endl;
     circles.clear();
 
-    // 6. Clear Triangles
+    // 7. Clear Triangles
     std::cout << "Clearing Triangles..." << std::endl;
     triangles.clear();
     
-    // 7. Clear Rectangles, Polygons, RegularPolygons
+    // 8. Clear Rectangles, Polygons, RegularPolygons
     std::cout << "Clearing Shapes..." << std::endl;
     rectangles.clear();
     polygons.clear();
     regularPolygons.clear();
 
-    // 8. Clear Points last
+    // 9. Clear Points last
     std::cout << "Clearing Points..." << std::endl;
     points.clear();
 
@@ -1790,42 +1819,42 @@ void GeometryEditor::deleteSelected() {
 
   // Collect selected objects by their actual shared_ptr (keeps them alive)
   for (auto &ptr : points) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       pointsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : lines) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       linesToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : circles) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       circlesToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : ObjectPoints) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       objPointsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : rectangles) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       rectanglesToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : polygons) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       polygonsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : regularPolygons) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       regularPolygonsToDelete.push_back(ptr);
     }
   }
   for (auto &ptr : triangles) {
-    if (ptr && ptr->isSelected() && !ptr->isLocked()) {
+    if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       trianglesToDelete.push_back(ptr);
     }
   }

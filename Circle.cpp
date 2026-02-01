@@ -89,7 +89,7 @@ void Circle::setRadiusPoint(std::shared_ptr<Point> pt) {
 
 // GeometricObject overrides
 void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
-    if (!m_visible && !forceVisible) return;
+    if (!isVisible() && !forceVisible) return;
 
     // --- SETUP COLORS ---
     sf::Color fillColor = m_fillColor;
@@ -367,13 +367,13 @@ void Circle::setPosition(const sf::Vector2f &newSfmlPos) {
 }
 
 void Circle::setSelected(bool sel) {
-  GeometricObject::setSelected(sel);
-  updateSFMLShape();
+    GeometricObject::setSelected(sel);
+    updateSFMLShape();
 }
 
 void Circle::setHovered(bool hov) {
-  GeometricObject::setHovered(hov);
-  updateSFMLShape();
+    GeometricObject::setHovered(hov);
+    updateSFMLShape();
 }
 
 void Circle::clearCenterPoint() {

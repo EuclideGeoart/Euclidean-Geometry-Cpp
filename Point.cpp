@@ -29,9 +29,7 @@ Point::Point(float initialZoomFactor)
       m_fillColor(Constants::POINT_FILL_COLOR),
       m_outlineColor(Constants::POINT_DEFAULT_COLOR),
       m_outlineThickness(Constants::POINT_OUTLINE_THICKNESS),
-      m_isHovered(false),
       m_isDragging(false),
-      m_isLocked(false),
       m_isIntersectionPoint(false),
       m_isInitialized(true),
       m_desiredScreenRadius(Constants::POINT_DRAW_RADIUS_SCREEN_PIXELS) {
@@ -47,9 +45,7 @@ Point::Point(const Point_2 &cgalPos, float initialZoomFactor, const sf::Color &f
       m_fillColor(fillColor),
       m_outlineColor(outlineColor),
       m_outlineThickness(Constants::POINT_OUTLINE_THICKNESS),
-      m_isHovered(false),
       m_isDragging(false),
-      m_isLocked(false),
       m_isIntersectionPoint(false),
       m_isInitialized(true),
       m_desiredScreenRadius(Constants::POINT_DRAW_RADIUS_SCREEN_PIXELS) {
@@ -65,9 +61,7 @@ Point::Point(const sf::Vector2f &sfmlPos, float initialZoomFactor, const sf::Col
       m_fillColor(fillColor),
       m_outlineColor(outlineColor),
       m_outlineThickness(Constants::POINT_OUTLINE_THICKNESS),
-      m_isHovered(false),
       m_isDragging(false),
-      m_isLocked(false),
       m_isIntersectionPoint(false),
       m_isInitialized(true),
       m_desiredScreenRadius(Constants::POINT_DRAW_RADIUS_SCREEN_PIXELS) {
@@ -83,9 +77,7 @@ Point::Point(const Point_2 &cgal_point, float initialZoomFactor, const sf::Color
       m_fillColor(fillColor),
       m_outlineColor(outlineColor),
       m_outlineThickness(Constants::POINT_OUTLINE_THICKNESS),
-      m_isHovered(false),
       m_isDragging(false),
-      m_isLocked(false),
       m_isIntersectionPoint(false),
       m_isInitialized(true),
       m_desiredScreenRadius(Constants::POINT_DRAW_RADIUS_SCREEN_PIXELS) {
@@ -135,7 +127,7 @@ void Point::initializeShape() {
                         this->m_radius);        // Use the calculated m_radius
   m_sfmlShape.setFillColor(this->m_fillColor);  // Use m_fillColor for consistency
   m_sfmlShape.setOutlineThickness(Constants::POINT_OUTLINE_THICKNESS);
-  m_sfmlShape.setOutlineColor(m_isLocked ? Constants::LOCKED_COLOR
+  m_sfmlShape.setOutlineColor(isLocked() ? Constants::LOCKED_COLOR
                                          : Constants::POINT_DEFAULT_COLOR);
   // Consider if updateSFMLShape() should be called here to ensure all states
   // are immediately reflected, though it might be redundant if constructors set
@@ -220,6 +212,7 @@ void Point::setCGALPosition(const Point_2 &newPos) {
     if (!m_deferConstraintUpdates) {
       QUICK_PROFILE("Point::updateConnectedLines");
       updateConnectedLines();
+      updateHostedPoints(); // Notify hosted points and general dependents
     }
   } catch (const std::exception& e) {
     std::cerr << "Point::setCGALPosition - Exception: " << e.what() << std::endl;
@@ -272,13 +265,13 @@ void Point::updateSFMLShape() {
     // Base outline thickness in world units, draw() handles screen scaling for it.
     // float currentOutlineThickness = m_outlineThickness;
 
-    if (m_isLocked) {
+    if (isLocked()) {
       currentFill = Constants::LOCKED_COLOR;
       currentOutline = sf::Color::Black;  // Or Constants::LOCKED_OUTLINE_COLOR
-    } else if (m_selected) {
+    } else if (isSelected()) {
       currentFill = Constants::SELECTION_COLOR_POINT_FILL;
       currentOutline = Constants::SELECTION_COLOR_POINT_OUTLINE;
-    } else if (m_isHovered) {                          // Use the standardized m_isHovered
+    } else if (isHovered()) {                          // Use the standardized isHovered()
       currentFill = Constants::HOVER_UNIVERSAL_COLOR;  // Universal fill for hover
       currentOutline = Constants::HOVER_COLOR_POINT_OUTLINE;
     }
@@ -368,13 +361,13 @@ void Point::updateSFMLShape(const sf::Vector2f &position) {
   sf::Color currentFill = m_fillColor;
   sf::Color currentOutline = m_outlineColor;
 
-  if (m_isLocked) {
+  if (isLocked()) {
     currentFill = Constants::LOCKED_COLOR;
     currentOutline = sf::Color::Black;
-  } else if (m_selected) {
+  } else if (isSelected()) {
     currentFill = Constants::SELECTION_COLOR_POINT_FILL;
     currentOutline = Constants::SELECTION_COLOR_POINT_OUTLINE;
-  } else if (m_isHovered) {
+  } else if (isHovered()) {
     currentFill = Constants::HOVER_UNIVERSAL_COLOR;
     currentOutline = Constants::HOVER_COLOR_POINT_OUTLINE;
   } else if (m_isIntersectionPoint) {
@@ -429,14 +422,14 @@ sf::FloatRect Point::getGlobalBounds() const { return m_sfmlShape.getGlobalBound
 
 // --- GeometricObject Overrides ---
 void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
-  if (!m_visible && !forceVisible) return;
-  if (!m_isValid) return;  // Don't draw if invalid
+  if (!isVisible() && !forceVisible) return;
+  if (!isValid()) return;  // Don't draw if invalid
 
   if (Constants::DEBUG_POINT_DRAWING) {
     std::cout << "Point::draw: ID " << getID() << " CGAL Pos=("
               << CGAL::to_double(m_cgalPosition.x()) << "," << CGAL::to_double(m_cgalPosition.y())
               << ")"
-              << " World Radius: " << m_radius << " IsHovered: " << m_isHovered << std::endl;
+              << " World Radius: " << m_radius << " IsHovered: " << isHovered() << std::endl;
   }
 
   // m_sfmlShape should already have its correct colors and base properties
@@ -452,16 +445,16 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
   // Outline thickness scaling
   float baseScreenOutlineThickness = Constants::POINT_OUTLINE_THICKNESS;
 
-  if (m_selected) {
+  if (isSelected()) {
     baseScreenOutlineThickness = Constants::SELECTION_THICKNESS_POINT;
-  } else if (m_isHovered) {
+  } else if (isHovered()) {
     baseScreenOutlineThickness = Constants::HOVER_THICKNESS_POINT;
   }
 
   pointToDraw.setOutlineThickness(baseScreenOutlineThickness * scale);
 
   // GHOST MODE: Apply transparency if hidden but forced visible
-  if (!m_visible && forceVisible) {
+  if (!isVisible() && forceVisible) {
       sf::Color ghostFill = pointToDraw.getFillColor();
       ghostFill.a = 50; // Faint alpha
       pointToDraw.setFillColor(ghostFill);
@@ -522,26 +515,34 @@ bool Point::contains(const sf::Vector2f &worldPos_sfml,
 }
 
 void Point::setSelected(bool sel) {
-  if (m_selected == sel) return;  // No change
-  m_selected = sel;
+  GeometricObject::setSelected(sel);
   updateSFMLShape();  // Always update the shape when selection changes
 }
 
 void Point::setHovered(bool hover) {
   if (!isValid()) {
-    // std::cerr << "ERROR: Attempting to set hover on invalid Point!" << std::endl;
-    if (m_isHovered) {  // If it thought it was hovered but is invalid, ensure it's unhovered
-      m_isHovered = false;
-      // No updateSFMLShape() call here as it will handle invalid state
+    if (isHovered()) {  // If it thought it was hovered but is invalid, ensure it's unhovered
+      GeometricObject::setHovered(false);
     }
     return;
   }
 
-  // It's good practice to check if state actually changes to avoid redundant updates
-  if (hover != m_isHovered) {  // Use the standardized m_isHovered
-    m_isHovered = hover;
-    updateSFMLShape();  // Update visuals based on new hover state
-  }
+  GeometricObject::setHovered(hover);
+  updateSFMLShape();  // Update visuals based on new hover state
+}
+
+void Point::setLocked(bool lockStatus) {
+    GeometricObject::setLocked(lockStatus);
+    updateSFMLShape();
+}
+
+bool Point::isLocked() const {
+    return GeometricObject::isLocked();
+}
+
+void Point::setVisible(bool v) {
+    GeometricObject::setVisible(v);
+    updateSFMLShape();
 }
 
 // --- Position Management ---
@@ -593,7 +594,7 @@ sf::Color Point::getColor() const { return m_color; }
 // --- Point Specific Methods ---
 
 void Point::dragTo(const sf::Vector2f &targetSfmlPos) {
-  if (m_isLocked || !m_isInitialized) return;
+  if (isLocked() || !m_isInitialized) return;
   setPosition(targetSfmlPos);  // This will call setCGALPosition ->
                                // updateConnectedLines
 }
@@ -660,20 +661,6 @@ void Point::notifyConnectedLines() {
   }
 }
 // --- Other Methods ---
-void Point::lock() {
-  m_isLocked = true;
-  // Optionally, change visual state for locked points
-  // updateSFMLShape();
-  //std::cout << "Point locked." << std::endl;
-}
-
-void Point::unlock() {
-  m_isLocked = false;
-  // updateSFMLShape();
-  //std::cout << "Point unlocked." << std::endl;
-}
-
-bool Point::isLocked() const { return m_isLocked; }
 
 bool Point::isIntersectionPoint() const { return m_isIntersectionPoint; }
 

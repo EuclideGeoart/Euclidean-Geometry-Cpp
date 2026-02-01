@@ -41,7 +41,12 @@ class GeometricObject {
   virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {}
   virtual bool contains(const sf::Vector2f &worldPos, float tolerance) const = 0;
   virtual sf::FloatRect getGlobalBounds() const = 0;
-  virtual void update() {}
+  virtual void update() {
+    if (isDependent()) {
+      updateDependentShape();
+    }
+  }
+  virtual void updateDependentShape() {}
 
   // Position access
   virtual Point_2 getCGALPosition() const = 0;
@@ -63,7 +68,7 @@ class GeometricObject {
   virtual void setSelected(bool selected);
   virtual bool isSelected() const;
   virtual void setHovered(bool hovered);
-  bool isHovered() const;
+  virtual bool isHovered() const;
 
   // Visibility
   virtual void setVisible(bool visible) { m_visible = visible; }
@@ -76,6 +81,8 @@ class GeometricObject {
     (void)view;
     return sf::FloatRect();
   }
+  virtual void setLabelOffset(const sf::Vector2f &offset) { m_labelOffset = offset; }
+  virtual const sf::Vector2f& getLabelOffset() const { return m_labelOffset; }
 
   // Thickness (used by UI slider for line rendering)
   virtual void setThickness(float thickness) { m_thickness = thickness; }
@@ -86,11 +93,41 @@ class GeometricObject {
   virtual float getVertexHandleSize() const { return m_vertexHandleSize; }
 
   // Locking
-  void setLocked(bool locked);
+  virtual void setLocked(bool locked);
   virtual bool isLocked() const;
-  virtual bool isDependent() const { return false; }
+  virtual void lock() { setLocked(true); }
+  virtual void unlock() { setLocked(false); }
+  virtual void setDependent(bool dependent) { m_isDependent = dependent; }
+  virtual bool isDependent() const { return m_isDependent; }
   void setDecoration(DecorationType t) { m_decoration = t; }
   DecorationType getDecoration() const { return m_decoration; }
+
+  // Transformation support
+  void setTransformType(TransformationType t) { m_transformType = t; }
+  TransformationType getTransformType() const { return m_transformType; }
+  void setTranslationVector(const Vector_2 &translation) { m_translationVector = translation; }
+  Vector_2 getTranslationVector() const { return m_translationVector; }
+  void setTransformValue(double val) { m_transformValue = val; }
+  double getTransformValue() const { return m_transformValue; }
+  void setParentSourceID(unsigned int id) { m_parentSourceID = id; }
+  unsigned int getParentSourceID() const { return m_parentSourceID; }
+  void setAuxObjectID(unsigned int id) { m_auxObjectID = id; }
+  unsigned int getAuxObjectID() const { return m_auxObjectID; }
+
+  virtual void restoreTransformation(std::shared_ptr<GeometricObject> parent,
+                                    std::shared_ptr<GeometricObject> aux,
+                                    TransformationType type) {
+    m_parentSource = parent;
+    m_auxObject = aux;
+    m_transformType = type;
+    (void)parent; (void)aux; (void)type; 
+    // Default implementation stores metadata. Derived classes (like ReflectPoint) override this.
+  }
+
+  // Dependent notification system
+  virtual void addDependent(std::shared_ptr<GeometricObject> obj);
+  virtual void removeDependent(GeometricObject* obj);
+  virtual void notifyDependents();
 
   // Added validation method that can be overridden by derived classes
   virtual bool isValid() const {
@@ -108,22 +145,36 @@ class GeometricObject {
 
  protected:
   std::vector<std::weak_ptr<ObjectPoint>> m_hostedObjectPoints;
+  // --- Original State Members ---
   ObjectType m_type;
   sf::Color m_color;
   unsigned int m_id;
   // Point_2 m_cgalPositionIfBase; // If Point_2 is stored in the base for all
   // objects
+  // objects
 
   bool m_selected = false;
   bool m_hovered = false;
-  bool m_isValid = true;  // Assume valid on construction unless proven otherwise
+  bool m_isValid = true;
+
+  // --- New Metadata (Moved to end for layout stability) ---
   bool m_visible = true;
   bool m_locked = false;
+  bool m_isDependent = false;
   bool m_showLabel = true;
   sf::Vector2f m_labelOffset = {0.f, 0.f};
   float m_thickness = Constants::LINE_THICKNESS_DEFAULT;
-  float m_vertexHandleSize = 4.0f;  // Default vertex handle size
+  float m_vertexHandleSize = 4.0f;  
   DecorationType m_decoration = DecorationType::None;
+
+  std::vector<std::weak_ptr<GeometricObject>> m_dependents;
+  TransformationType m_transformType = TransformationType::None;
+  unsigned int m_parentSourceID = 0;
+  unsigned int m_auxObjectID = 0;
+  Vector_2 m_translationVector = Vector_2(0, 0);
+  double m_transformValue = 0.0;
+  std::weak_ptr<GeometricObject> m_parentSource;
+  std::weak_ptr<GeometricObject> m_auxObject;
 };
 
 #endif  // GEOMETRIC_OBJECT_H

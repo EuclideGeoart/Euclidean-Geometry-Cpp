@@ -95,12 +95,7 @@ class GeometryEditor {
   std::vector<std::shared_ptr<Triangle>> triangles;              // General triangles
   std::vector<std::shared_ptr<Angle>> angles;                    // Angle measurements
 
-  std::shared_ptr<Line> getLineSharedPtr(Line *raw) const {
-    for (auto &L : lines)
-      if (L.get() == raw) return L;
-    return nullptr;
-  }
-  // ---Color Management---
+
   // ---Color Management---
   void setCurrentColor(sf::Color color) { currentColor = color; }
 
@@ -524,8 +519,10 @@ class GeometryEditor {
  public:
   void toggleAxes();
   bool areAxesVisible() const;
-  std::shared_ptr<Line> getXAxis() const { return xAxis; }
-  std::shared_ptr<Line> getYAxis() const { return yAxis; }
+  Line* getXAxis() const { return xAxis.get(); }
+  Line* getYAxis() const { return yAxis.get(); }
+  const std::shared_ptr<Line>& getXAxisShared() const { return xAxis; }
+  const std::shared_ptr<Line>& getYAxisShared() const { return yAxis; }
   bool isGridVisible() const { return grid.isVisible(); }
   float getCurrentGridSpacing() const { return grid.getCurrentGridSpacing(); }
   float getCurrentPointSize() const { return currentPointSize; }

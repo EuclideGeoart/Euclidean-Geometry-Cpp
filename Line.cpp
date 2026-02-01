@@ -68,7 +68,6 @@ Line::Line(std::shared_ptr<Point> startPoint, std::shared_ptr<Point> endPoint, b
       m_startPoint(startPoint),
       m_endPoint(endPoint),
       m_isSegment(isSegment),
-      m_color(color),
       m_isUpdatingInternally(false),
       m_isUnderDirectManipulation(false),
       m_isParallelLine(false),
@@ -138,7 +137,6 @@ Line::Line(std::shared_ptr<Point> start, std::shared_ptr<Point> end, bool isSegm
       m_startPoint(start),
       m_endPoint(end),
       m_isSegment(isSegment),
-      m_color(color),
       m_dashLength(Constants::LINE_DASH_LENGTH),
       m_gapLength(Constants::LINE_DASH_GAP) {
   if (!m_startPoint || !m_endPoint) {
@@ -600,8 +598,7 @@ Line::Line(const Point_2& start, const Point_2& end, bool isSegment, const sf::C
       m_startPoint(nullptr),  // Initialize before other members that might
       // depend on it or for order
       m_endPoint(nullptr),
-      m_isSegment(isSegment),
-      m_color(color) {
+      m_isSegment(isSegment) {
   if (start == end) {
     throw std::invalid_argument("Line (CGAL constructor) endpoints are coincident (exact).");
   }
@@ -640,7 +637,8 @@ void Line::setTemporaryPreviewPoints(std::shared_ptr<Point> p1, std::shared_ptr<
 // improved draw method with sharpness trick (do not refactor)
 void Line::draw(sf::RenderWindow& window, float scale, bool forceVisible) const {
   try {
-    if ((!m_visible && !forceVisible) || (!m_startPoint || !m_startPoint->isValid()) || (m_endPoint && !m_endPoint->isValid())) {
+    if (!isVisible() && !forceVisible) return;
+    if ((!m_startPoint || !m_startPoint->isValid()) || (m_endPoint && !m_endPoint->isValid())) {
       return;
     }
 
@@ -1042,24 +1040,13 @@ bool Line::contains(const sf::Vector2f& worldPos_sfml, float tolerance) const {
 }
 
 void Line::setSelected(bool selected) {
-  // ONLY update if the state actually changed
-  if (m_selected != selected) {
-    m_selected = selected;
-    if (m_startPoint && m_endPoint) {
-      try {
-        updateSFMLShape();  // Only update when state changes
-      } catch (const std::exception& e) {
-        std::cerr << "Exception in Line::setSelected: " << e.what() << std::endl;
-      }
-    }
-  }
+    GeometricObject::setSelected(selected);
+    updateSFMLShape();
 }
 
 void Line::setHovered(bool hoveredStatus) {
-  if (m_hovered != hoveredStatus) {
-    m_hovered = hoveredStatus;
-    updateSFMLShape();  // Only update when state changes
-  }
+    GeometricObject::setHovered(hoveredStatus);
+    updateSFMLShape();
 }
 
 sf::FloatRect Line::getGlobalBounds() const {
@@ -1332,26 +1319,26 @@ void Line::setAsConstructionLine() { m_isConstructionLine = true; }
 bool Line::isConstructionLine() const { return m_isConstructionLine; }
 
 void Line::setVisible(bool visible) {
-  m_visible = visible;
-  m_hidden = !visible;
-  updateSFMLShape();
+    GeometricObject::setVisible(visible);
+    updateSFMLShape();
 }
 
-void Line::setLocked(bool locked) { GeometricObject::setLocked(locked); }
+void Line::setLocked(bool locked) {
+    GeometricObject::setLocked(locked);
+    updateSFMLShape();
+}
 
 bool Line::isLocked() const { return GeometricObject::isLocked(); }
 
-bool Line::isVisible() const { return m_visible; }
+bool Line::isVisible() const { return GeometricObject::isVisible(); }
 
-void Line::toggleVisibility() { setVisible(!m_visible); }
+void Line::toggleVisibility() { setVisible(!isVisible()); }
 
 void Line::setHidden(bool hidden) {
-  m_hidden = hidden;
-  m_visible = !hidden;
-  updateSFMLShape();
+    setVisible(!hidden);
 }
 
-bool Line::isHidden() const { return m_hidden; }
+bool Line::isHidden() const { return !isVisible(); }
 /* void Line::translate(const Vector_2 &offset) {
   std::cerr << "Line::translate (Simplified): Entered." << std::endl;
   try {

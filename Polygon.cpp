@@ -10,18 +10,14 @@ Polygon::Polygon(const std::vector<Point_2> &vertices, const sf::Color &color, u
   for (const auto &v : vertices) {
     m_vertices.push_back(std::make_shared<Point>(v, 1.0f));
   }
-  sf::Color base = color;
-  base.a = 0;
-  m_color = base;
+  m_color.a = 0;
   updateSFMLShape();
 }
 
 Polygon::Polygon(const std::vector<std::shared_ptr<Point>> &vertices, const sf::Color &color,
                  unsigned int id)
     : GeometricObject(ObjectType::Polygon, color, id), m_vertices(vertices) {
-  sf::Color base = color;
-  base.a = 0;
-  m_color = base;
+  m_color.a = 0;
   updateSFMLShape();
 }
 
@@ -68,13 +64,13 @@ void Polygon::updateSFMLShapeInternal() {
 }
 
 void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
-  if ((!m_visible && !forceVisible) || m_vertices.size() < 3) return;
+  if ((!isVisible() && !forceVisible) || m_vertices.size() < 3) return;
 
   sf::ConvexShape shape = m_sfmlShape;
   shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
 
   // GHOST MODE: Apply transparency if hidden but forced visible
-  if (!m_visible && forceVisible) {
+  if (!isVisible() && forceVisible) {
       sf::Color ghostFill = shape.getFillColor();
       ghostFill.a = 50; // Faint alpha
       shape.setFillColor(ghostFill);
@@ -91,7 +87,7 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
     sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
     highlight.setOutlineThickness(3.0f * scale);
-    highlight.setOutlineColor(sf::Color::Yellow);
+    highlight.setOutlineColor(Constants::SELECTION_COLOR);
     window.draw(highlight);
   } else if (isHovered()) {
     sf::ConvexShape highlight = m_sfmlShape;

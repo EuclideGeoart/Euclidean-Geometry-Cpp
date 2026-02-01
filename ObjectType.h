@@ -3,6 +3,7 @@
 #ifndef OBJECT_TYPE_H
 #define OBJECT_TYPE_H
 
+
 // Enum to track what kind of geometric object this point is attached to.
 enum class ObjectType {
   None,                    // Default state, no specific object type
@@ -44,6 +45,17 @@ enum class ObjectType {
                            // Add more object types as needed
 };
 
+// Enum to track what kind of transformation is applied to an object
+enum class TransformationType {
+    None,
+    Translate,
+    Rotate,
+    Reflect,
+    ReflectPoint,
+    ReflectCircle,
+    Dilate
+};
+
 // Define drag modes here since it's used by multiple classes
 enum class DragMode {
   None,
@@ -64,11 +76,11 @@ enum class DragMode {
 // Defined here for convenience since it's related to drag operations
 enum class EndpointSelection { None, Start, End };
 
+class GeometricObject;
+class GeometryEditor;
 class Point;
 class Line;
 class Circle;
 class ObjectPoint;
-class GeometricObject;
-class GeometryEditor;
 
 #endif // OBJECT_TYPE_H

@@ -8,8 +8,7 @@ RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex
   m_centerPoint(std::make_shared<Point>(center, 1.0f)),
   m_firstVertexPoint(std::make_shared<Point>(firstVertex, 1.0f)),
       m_numSides(numSides),
-      m_rotationAngle(0),
-      m_color(color) {
+      m_rotationAngle(0) {
   m_color.a = 0;  // Default to transparent fill
   if (m_numSides < 3) m_numSides = 3;
 
@@ -33,8 +32,7 @@ RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
       m_firstVertexPoint(firstVertex ? firstVertex
                                      : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
       m_numSides(numSides),
-      m_rotationAngle(0),
-      m_color(color) {
+      m_rotationAngle(0) {
   m_color.a = 0;
   if (m_numSides < 3) m_numSides = 3;
 
@@ -93,7 +91,7 @@ void RegularPolygon::updateSFMLShapeInternal() {
 }
 
 void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) const {
-  if (!m_visible && !forceVisible) return;
+  if (!isVisible() && !forceVisible) return;
 
   sf::ConvexShape shape = m_sfmlShape;
   shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
@@ -116,7 +114,7 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
     sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
     highlight.setOutlineThickness(3.0f * scale);
-    highlight.setOutlineColor(sf::Color::Yellow);
+    highlight.setOutlineColor(Constants::SELECTION_COLOR);
     window.draw(highlight);
   } else if (isHovered()) {
     sf::ConvexShape highlight = m_sfmlShape;

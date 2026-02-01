@@ -134,10 +134,11 @@ add_executable(FluxGeo ${SOURCES})
 
 # Linking
 if(WIN32)
+#
     target_link_libraries(FluxGeo PRIVATE 
-        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32
+        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32 
     )
-    target_link_options(FluxGeo PRIVATE "-mwindows")
+    target_link_options(FluxGeo PRIVATE "") #-mwindows
 else()
     target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL 
