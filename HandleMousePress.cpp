@@ -862,6 +862,26 @@ bool handleTransformationCreation(GeometryEditor& editor,
       return true;
     }
 
+    // Find or create a Vector/Line object to serve as the 'aux' object for dynamic updates
+    std::shared_ptr<GeometricObject> vectorAux = nullptr;
+    for (const auto& ln : editor.lines) {
+      if (!ln || !ln->isValid()) continue;
+      auto s = ln->getStartPointObjectShared();
+      auto e = ln->getEndPointObjectShared();
+      if ((s == v1 && e == v2) || (s == v2 && e == v1)) {
+        vectorAux = ln;
+        break;
+      }
+    }
+    if (!vectorAux) {
+      auto vLine = std::make_shared<Line>(v1, v2, true, sf::Color::Transparent);
+      vLine->setLineType(Line::LineType::Vector);
+      vLine->setVisible(false);
+      vLine->setDependent(true);
+      editor.lines.push_back(vLine);
+      vectorAux = vLine;
+    }
+
     if (sourceShared->getType() == ObjectType::Rectangle) {
       auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
       auto V0 = getPointForShapeVertex(editor, rect, 0);
@@ -878,7 +898,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         auto newRect = std::make_shared<Rectangle>(V0t, V1t, h, editor.getCurrentColor(), editor.objectIdCounter++);
         newRect->setThickness(rect->getThickness());
         newRect->setDependent(true);
-        attachTransformMetadata(sourceShared, newRect, tool, nullptr, v1, v2);
+        attachTransformMetadata(sourceShared, newRect, tool, vectorAux, v1, v2);
         applyRectangleVertexLabels(editor, newRect);
         editor.rectangles.push_back(newRect);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRect)));
@@ -899,7 +919,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], editor.getCurrentColor(), editor.objectIdCounter++);
         newTri->setThickness(tri->getThickness());
         newTri->setDependent(true);
-        attachTransformMetadata(sourceShared, newTri, tool, nullptr, v1, v2);
+        attachTransformMetadata(sourceShared, newTri, tool, vectorAux, v1, v2);
         editor.triangles.push_back(newTri);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
         editor.setGUIMessage("Translated triangle created.");
@@ -917,7 +937,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), editor.getCurrentColor(), editor.objectIdCounter++);
         newRPoly->setThickness(rpoly->getThickness());
         newRPoly->setDependent(true);
-        attachTransformMetadata(sourceShared, newRPoly, tool, nullptr, v1, v2);
+        attachTransformMetadata(sourceShared, newRPoly, tool, vectorAux, v1, v2);
         editor.regularPolygons.push_back(newRPoly);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
         editor.setGUIMessage("Translated regular polygon created.");
@@ -949,6 +969,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       auto newPoly = std::make_shared<Polygon>(newVerts, editor.getCurrentColor());
       newPoly->setThickness(poly->getThickness());
       newPoly->setDependent(true);
+      attachTransformMetadata(sourceShared, newPoly, tool, vectorAux, v1, v2);
       editor.polygons.push_back(newPoly);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));

@@ -42,6 +42,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   bool contains(const sf::Vector2f &worldPos, float tolerance) const override;
   bool isValid() const override;
   void update() override;
+  void updateDependentShape() override;
   sf::FloatRect getGlobalBounds() const override;
   Point_2 getCGALPosition() const override { return getCenterPoint(); }
   void setCGALPosition(const Point_2 &newPos) override { setCenter(newPos); }

@@ -1062,6 +1062,10 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     float top = std::min(editor.selectionBoxStart_sfml.y, worldPos.y);
     float width = std::abs(worldPos.x - editor.selectionBoxStart_sfml.x);
     float height = std::abs(worldPos.y - editor.selectionBoxStart_sfml.y);
+    if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(width) ||
+        !std::isfinite(height)) {
+      return;
+    }
     editor.selectionBoxShape.setPosition(sf::Vector2f(left, top));
     editor.selectionBoxShape.setSize(sf::Vector2f(width, height));
     return;
@@ -1838,8 +1842,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       GeometricObject* bestObj = nullptr;
       double bestDist = static_cast<double>(tolerance);
       int bestPriority = -1;  // 0 = Axis, 1 = Line/Shape, 2 = Point
+      int bestEdgeIndex = -1; // New: Track which edge triggered the hover
 
-      auto considerCandidate = [&](GeometricObject* obj, double dist, int priority) {
+      auto considerCandidate = [&](GeometricObject* obj, double dist, int priority, int edgeIndex = -1) {
         if (!obj) return;
         if (dist > tolerance) return;
         
@@ -1848,6 +1853,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           bestObj = obj;
           bestDist = dist;
           bestPriority = priority;
+          bestEdgeIndex = edgeIndex;
           return;
         }
         
@@ -1856,6 +1862,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           bestObj = obj;
           bestDist = dist;
           bestPriority = priority;
+          bestEdgeIndex = edgeIndex;
           return;
         }
         
@@ -1864,6 +1871,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           bestObj = obj;
           bestDist = dist;
           bestPriority = priority;
+          bestEdgeIndex = edgeIndex;
           return;
         }
         
@@ -1906,13 +1914,17 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           if (!shape || !shape->isValid() || !shape->isVisible() || isObjectBeingDeleted(shape.get())) continue;
           auto edges = shape->getEdges();
           double minDist = static_cast<double>(tolerance) + 1.0;
+          int nearestEdge = -1;
           for (size_t i = 0; i < edges.size(); ++i) {
             Point_2 proj;
             double relPos;
             double dist = PointUtils::projectPointOntoSegment(cgalWorldPos, edges[i], proj, relPos);
-            if (dist < minDist) minDist = dist;
+            if (dist < minDist) {
+                 minDist = dist;
+                 nearestEdge = static_cast<int>(i);
+            }
           }
-          considerCandidate(shape.get(), minDist, 1);
+          considerCandidate(shape.get(), minDist, 1, nearestEdge);
         }
       };
       considerEdges(editor.rectangles);
@@ -1964,6 +1976,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       if (bestObj && !isObjectBeingDeleted(bestObj)) {
         try {
           bestObj->setHovered(true);
+          bestObj->setHoveredEdge(bestEdgeIndex);
           g_lastHoveredObject = bestObj;
           editor.hoveredObject = bestObj;
         } catch (const std::exception& e) {

@@ -98,6 +98,7 @@ void applyCommonPointFields(const json& jPoint,
     point->setLabelOffset(
         sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
   }
+  if (jPoint.contains("fixed")) point->setLocked(jPoint.value("fixed", false));
   if (jPoint.contains("locked")) point->setLocked(jPoint.value("locked", false));
   if (jPoint.contains("visible"))
     point->setVisible(jPoint.value("visible", true));
@@ -187,6 +188,17 @@ bool Deserializer::loadProject(GeometryEditor& editor,
       return nullptr;
     };
 
+    // Helper: find an existing point by exact position (legacy fallback only)
+    auto findPointByPosition = [&](const Point_2& pos) -> std::shared_ptr<Point> {
+      for (const auto& [objId, obj] : objectMap) {
+        auto pt = std::dynamic_pointer_cast<Point>(obj);
+        if (!pt) continue;
+        Point_2 p = pt->getCGALPosition();
+        if (p == pos) return pt;
+      }
+      return nullptr;
+    };
+
     // ========================================================================
     // PASS 1: LOAD ALL POINTS
     // Constraint: Create points ONLY here. Never create new points in Pass 2.
@@ -195,6 +207,9 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
     // Deferred transform points (need to be created after base objects)
     std::vector<json> deferredTransformPoints;
+    std::vector<json> pendingLines;
+    std::vector<json> pendingPolygons;
+    std::vector<json> pendingCircles;
 
     // 1a. Load regular points
     if (data.contains("points")) {
@@ -309,9 +324,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
         auto endPt = getPoint(endId);
 
         if (!startPt || !endPt) {
-          std::cerr << "[Deserializer] Warning: Line " << id
-                    << " missing endpoints (start=" << startId
-                    << ", end=" << endId << ")" << std::endl;
+          pendingLines.push_back(jLine);
           continue;
         }
 
@@ -350,9 +363,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
         auto centerPt = getPoint(centerId);
         if (!centerPt) {
-          std::cerr << "[Deserializer] Warning: Circle " << id
-                    << " missing center point (" << centerId << ")"
-                    << std::endl;
+          pendingCircles.push_back(jCircle);
           continue;
         }
 
@@ -377,12 +388,13 @@ bool Deserializer::loadProject(GeometryEditor& editor,
         bool isSemi = jCircle.value("isSemicircle", false);
         newCircle->setSemicircle(isSemi);
         if (isSemi) {
-          int p1Id = jCircle.value("diameterP1ID", -1);
-          int p2Id = jCircle.value("diameterP2ID", -1);
+          int p1Id = jCircle.value("startArcID", jCircle.value("diameterP1ID", -1));
+          int p2Id = jCircle.value("endArcID", jCircle.value("diameterP2ID", -1));
           auto p1 = getPoint(p1Id);
           auto p2 = getPoint(p2Id);
           if (p1 && p2) {
             newCircle->setSemicircleDiameterPoints(p1, p2);
+            newCircle->setSemicircleBasis(p1->getCGALPosition(), p2->getCGALPosition());
           }
         }
 
@@ -445,19 +457,45 @@ bool Deserializer::loadProject(GeometryEditor& editor,
     // 2d. Load Polygons
     if (data.contains("polygons")) {
       for (const auto& polyJson : data["polygons"]) {
-        if (!polyJson.contains("vertices")) continue;
+        std::vector<std::shared_ptr<Point>> vertexPoints;
 
-        std::vector<Point_2> vertices;
-        for (const auto& vJson : polyJson["vertices"]) {
-          if (vJson.is_array() && vJson.size() >= 2) {
-            vertices.emplace_back(vJson[0].get<double>(),
-                                  vJson[1].get<double>());
-          } else if (vJson.is_object()) {
-            vertices.emplace_back(vJson.value("x", 0.0), vJson.value("y", 0.0));
+        if (polyJson.contains("vertexIds") && polyJson["vertexIds"].is_array()) {
+          for (const auto& idJson : polyJson["vertexIds"]) {
+            int vId = idJson.get<int>();
+            auto vPtr = getPoint(vId);
+            if (!vPtr) {
+              vertexPoints.clear();
+              break;
+            }
+            vertexPoints.push_back(vPtr);
+          }
+        } else if (polyJson.contains("vertices")) {
+          // Legacy fallback: attempt to match existing points by position
+          for (const auto& vJson : polyJson["vertices"]) {
+            if (vJson.is_array() && vJson.size() >= 2) {
+              Point_2 pos(vJson[0].get<double>(), vJson[1].get<double>());
+              auto vPtr = findPointByPosition(pos);
+              if (!vPtr) {
+                vertexPoints.clear();
+                break;
+              }
+              vertexPoints.push_back(vPtr);
+            } else if (vJson.is_object()) {
+              Point_2 pos(vJson.value("x", 0.0), vJson.value("y", 0.0));
+              auto vPtr = findPointByPosition(pos);
+              if (!vPtr) {
+                vertexPoints.clear();
+                break;
+              }
+              vertexPoints.push_back(vPtr);
+            }
           }
         }
 
-        if (vertices.size() < 3) continue;
+        if (vertexPoints.size() < 3) {
+          pendingPolygons.push_back(polyJson);
+          continue;
+        }
 
         sf::Color color = sf::Color::Black;
         if (polyJson.contains("color")) {
@@ -466,7 +504,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
         int id = polyJson.value("id", -1);
         auto polygon = std::make_shared<Polygon>(
-            vertices, color, static_cast<unsigned int>(std::max(id, 0)));
+            vertexPoints, color, static_cast<unsigned int>(std::max(id, 0)));
 
         polygon->setThickness(
             polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
@@ -656,6 +694,138 @@ bool Deserializer::loadProject(GeometryEditor& editor,
         editor.points.push_back(newPoint);
         registerObject(static_cast<unsigned int>(id), newPoint);
       }
+    }
+
+    // 3a.1 Resolve pending circles (after transform points exist)
+    for (const auto& jCircle : pendingCircles) {
+      int id = jCircle.value("id", -1);
+      int centerId = jCircle.value("centerPointID", -1);
+      int radiusPtId = jCircle.value("radiusPointID", -1);
+      double radius = jCircle.value("radiusValue", jCircle.value("radius", 10.0));
+
+      auto centerPt = getPoint(centerId);
+      if (!centerPt) continue;
+
+      sf::Color color = sf::Color::Black;
+      if (jCircle.contains("color")) {
+        color = colorFromJson(jCircle["color"], color);
+      }
+
+      std::shared_ptr<Point> radiusPt = getPoint(radiusPtId);
+
+      auto newCircle = std::make_shared<Circle>(centerPt.get(), radiusPt, radius, color);
+      if (id > 0) newCircle->setID(static_cast<unsigned int>(id));
+      newCircle->setThickness(
+          jCircle.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+      applyTransformMetadata(jCircle, newCircle);
+
+      bool isSemi = jCircle.value("isSemicircle", false);
+      newCircle->setSemicircle(isSemi);
+      if (isSemi) {
+        int p1Id = jCircle.value("startArcID", jCircle.value("diameterP1ID", -1));
+        int p2Id = jCircle.value("endArcID", jCircle.value("diameterP2ID", -1));
+        auto p1 = getPoint(p1Id);
+        auto p2 = getPoint(p2Id);
+        if (p1 && p2) {
+          newCircle->setSemicircleDiameterPoints(p1, p2);
+          newCircle->setSemicircleBasis(p1->getCGALPosition(), p2->getCGALPosition());
+        }
+      }
+
+      editor.circles.push_back(newCircle);
+      if (id > 0) registerObject(static_cast<unsigned int>(id), newCircle);
+    }
+
+    // 3a.2 Resolve pending lines (after transform points exist)
+    for (const auto& jLine : pendingLines) {
+      int id = jLine.value("id", -1);
+      int startId = jLine.value("startPointID", jLine.value("startId", -1));
+      int endId = jLine.value("endPointID", jLine.value("endId", -1));
+
+      auto startPt = getPoint(startId);
+      auto endPt = getPoint(endId);
+      if (!startPt || !endPt) continue;
+
+      bool isSegment = jLine.value("isSegment", false);
+      sf::Color color = sf::Color::Black;
+      if (jLine.contains("color")) {
+        color = colorFromJson(jLine["color"], color);
+      }
+
+      auto newLine = std::make_shared<Line>(startPt, endPt, isSegment, color,
+                                            static_cast<unsigned int>(std::max(id, 0)));
+      editor.lines.push_back(newLine);
+      newLine->registerWithEndpoints();
+
+      newLine->setThickness(jLine.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+      newLine->setDecoration(static_cast<DecorationType>(jLine.value("decoration", 0)));
+      newLine->setLineType(static_cast<Line::LineType>(jLine.value("lineType", 1)));
+
+      applyTransformMetadata(jLine, newLine);
+
+      if (id > 0) registerObject(static_cast<unsigned int>(id), newLine);
+    }
+
+    // 3a.3 Resolve pending polygons (after transform points exist)
+    for (const auto& polyJson : pendingPolygons) {
+      std::vector<std::shared_ptr<Point>> vertexPoints;
+
+      if (polyJson.contains("vertexIds") && polyJson["vertexIds"].is_array()) {
+        for (const auto& idJson : polyJson["vertexIds"]) {
+          int vId = idJson.get<int>();
+          auto vPtr = getPoint(vId);
+          if (!vPtr) {
+            vertexPoints.clear();
+            break;
+          }
+          vertexPoints.push_back(vPtr);
+        }
+      } else if (polyJson.contains("vertices")) {
+        for (const auto& vJson : polyJson["vertices"]) {
+          if (vJson.is_array() && vJson.size() >= 2) {
+            Point_2 pos(vJson[0].get<double>(), vJson[1].get<double>());
+            auto vPtr = findPointByPosition(pos);
+            if (!vPtr) {
+              vertexPoints.clear();
+              break;
+            }
+            vertexPoints.push_back(vPtr);
+          } else if (vJson.is_object()) {
+            Point_2 pos(vJson.value("x", 0.0), vJson.value("y", 0.0));
+            auto vPtr = findPointByPosition(pos);
+            if (!vPtr) {
+              vertexPoints.clear();
+              break;
+            }
+            vertexPoints.push_back(vPtr);
+          }
+        }
+      }
+
+      if (vertexPoints.size() < 3) {
+        int id = polyJson.value("id", -1);
+        std::cerr << "[Deserializer] Warning: Polygon " << id
+                  << " missing valid vertex references. Skipped." << std::endl;
+        continue;
+      }
+
+      sf::Color color = sf::Color::Black;
+      if (polyJson.contains("color")) {
+        color = colorFromJson(polyJson["color"], color);
+      }
+
+      int id = polyJson.value("id", -1);
+      auto polygon = std::make_shared<Polygon>(
+          vertexPoints, color, static_cast<unsigned int>(std::max(id, 0)));
+
+      polygon->setThickness(
+          polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+      applyTransformMetadata(polyJson, polygon);
+
+      editor.polygons.push_back(polygon);
+      if (id > 0) registerObject(static_cast<unsigned int>(id), polygon);
     }
 
     // 3b. Load ObjectPoints
@@ -864,7 +1034,9 @@ bool Deserializer::loadProject(GeometryEditor& editor,
       auto aux = (auxId != 0) ? getObject(static_cast<int>(auxId)) : nullptr;
 
       obj->restoreTransformation(parent, aux,
-                                 static_cast<TransformationType>(typeInt));
+                 static_cast<TransformationType>(typeInt));
+      obj->setDependent(true);
+      obj->setLocked(true);
     };
 
     // Apply to all shape types

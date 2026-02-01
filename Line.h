@@ -72,6 +72,7 @@ public:
   void setHovered(bool hoveredStatus) override;
   sf::FloatRect getGlobalBounds() const override;
   void update() override;
+  void updateDependentShape() override;
   void translate(const Vector_2 &offset) override;
   Point_2 getCGALPosition() const override;
   void setCGALPosition(const Point_2 &newPos) override;

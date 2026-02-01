@@ -70,6 +70,9 @@ class GeometricObject {
   virtual void setHovered(bool hovered);
   virtual bool isHovered() const;
 
+  virtual void setHoveredEdge(int edgeIndex) { m_hoveredEdgeIndex = edgeIndex; }
+  virtual int getHoveredEdge() const { return m_hoveredEdgeIndex; }
+
   // Visibility
   virtual void setVisible(bool visible) { m_visible = visible; }
   virtual bool isVisible() const { return m_visible; }
@@ -113,12 +116,13 @@ class GeometricObject {
   unsigned int getParentSourceID() const { return m_parentSourceID; }
   void setAuxObjectID(unsigned int id) { m_auxObjectID = id; }
   unsigned int getAuxObjectID() const { return m_auxObjectID; }
+  void setAuxObject(std::shared_ptr<GeometricObject> aux);
 
   virtual void restoreTransformation(std::shared_ptr<GeometricObject> parent,
                                     std::shared_ptr<GeometricObject> aux,
                                     TransformationType type) {
     m_parentSource = parent;
-    m_auxObject = aux;
+    setAuxObject(aux);
     m_transformType = type;
     (void)parent; (void)aux; (void)type; 
     // Default implementation stores metadata. Derived classes (like ReflectPoint) override this.
@@ -155,6 +159,7 @@ class GeometricObject {
 
   bool m_selected = false;
   bool m_hovered = false;
+  int m_hoveredEdgeIndex = -1;
   bool m_isValid = true;
 
   // --- New Metadata (Moved to end for layout stability) ---
@@ -168,6 +173,7 @@ class GeometricObject {
   DecorationType m_decoration = DecorationType::None;
 
   std::vector<std::weak_ptr<GeometricObject>> m_dependents;
+  std::shared_ptr<GeometricObject> m_selfHandle;
   TransformationType m_transformType = TransformationType::None;
   unsigned int m_parentSourceID = 0;
   unsigned int m_auxObjectID = 0;

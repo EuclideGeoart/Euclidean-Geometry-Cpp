@@ -6,20 +6,38 @@
 
 // Constructor for generic shapes
 GeometricObject::GeometricObject(ObjectType type, const sf::Color &color, unsigned int id)
-    : m_type(type), m_color(color), m_id(id), m_selected(false), m_hovered(false), m_isValid(true) {}
+    : m_type(type), m_color(color), m_id(id), m_selected(false), m_hovered(false), m_isValid(true) {
+  m_selfHandle = std::shared_ptr<GeometricObject>(this, [](GeometricObject*) {});
+}
 
 // Constructor for shapes with initial position (point-based)
 GeometricObject::GeometricObject(ObjectType type, const sf::Color &color, const Point_2 &cgal_pos,
                                  unsigned int id)
     : m_type(type), m_color(color), m_id(id), m_selected(false), m_hovered(false), m_isValid(true) {
   // m_cgalPosition would be set by derived class or virtual calls
+  m_selfHandle = std::shared_ptr<GeometricObject>(this, [](GeometricObject*) {});
+}
+
+void GeometricObject::setAuxObject(std::shared_ptr<GeometricObject> aux) {
+  if (auto oldAux = m_auxObject.lock()) {
+    oldAux->removeDependent(this);
+  }
+
+  m_auxObject = aux;
+
+  if (aux && m_selfHandle) {
+    aux->addDependent(m_selfHandle);
+  }
 }
 
 void GeometricObject::setSelected(bool selected) { m_selected = selected; }
 
 bool GeometricObject::isSelected() const { return m_selected; }
 
-void GeometricObject::setHovered(bool hovered) { m_hovered = hovered; }
+void GeometricObject::setHovered(bool hovered) { 
+  m_hovered = hovered; 
+  if (!hovered) m_hoveredEdgeIndex = -1;
+}
 
 bool GeometricObject::isHovered() const { return m_hovered; }
 
