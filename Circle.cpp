@@ -2,6 +2,7 @@
 #include "ObjectPoint.h"
 #include "Constants.h"
 #include "Transforms.h"
+#include "Line.h"
 #include <cmath>
 #include <iostream>
 
@@ -503,4 +504,110 @@ bool Circle::getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint)
   } catch (...) {
     return false;
   }
+}
+
+void Circle::updateDependentShape() {
+  auto parent = m_parentSource.lock();
+  if (!parent || !parent->isValid()) {
+    setVisible(false);
+    return;
+  }
+
+  // Helper lambda for Point transform
+  auto transformPoint = [&](const Point_2& p) -> std::optional<Point_2> {
+    auto aux = m_auxObject.lock();
+    switch (m_transformType) {
+      case TransformationType::Translate: {
+        Vector_2 delta = m_translationVector;
+        if (aux && (aux->getType() == ObjectType::Line || aux->getType() == ObjectType::LineSegment ||
+                    aux->getType() == ObjectType::Ray || aux->getType() == ObjectType::Vector)) {
+           auto line = std::dynamic_pointer_cast<Line>(aux);
+           if (line && line->isValid()) delta = line->getEndPoint() - line->getStartPoint();
+        }
+        return p + delta;
+      }
+      case TransformationType::Reflect: {
+        if (aux && (aux->getType() == ObjectType::Line || aux->getType() == ObjectType::LineSegment || aux->getType() == ObjectType::Ray)) {
+             auto line = std::dynamic_pointer_cast<Line>(aux);
+             if (!line || !line->isValid()) return std::nullopt;
+             Point_2 a = line->getStartPoint();
+             Point_2 b = line->getEndPoint();
+             Vector_2 ab = b - a;
+             if (CGAL::to_double(ab.squared_length()) < 1e-12) return p;
+             Vector_2 ap = p - a;
+             FT t = (ap * ab) / ab.squared_length();
+             Point_2 h = a + ab * t;
+             return p + (h - p) * FT(2.0);
+        }
+        return std::nullopt;
+      }
+      case TransformationType::ReflectPoint: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        return c + (c - p);
+      }
+      case TransformationType::ReflectCircle: {
+        auto circle = std::dynamic_pointer_cast<Circle>(aux);
+        if (!circle || !circle->isValid()) return std::nullopt;
+        Point_2 o = circle->getCenterPoint();
+        double r = circle->getRadius();
+        Vector_2 op = p - o;
+        double opLenSq = CGAL::to_double(op.squared_length());
+        if (opLenSq < 1e-12) return std::nullopt;
+        double scale = (r * r) / opLenSq;
+        return o + op * FT(scale);
+      }
+      case TransformationType::Rotate: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        double rad = m_transformValue * 3.14159265358979323846 / 180.0;
+        double s = std::sin(rad);
+        double c_val = std::cos(rad);
+        double dx = CGAL::to_double(p.x() - c.x());
+        double dy = CGAL::to_double(p.y() - c.y());
+        return Point_2(c.x() + FT(dx * c_val - dy * s),
+                       c.y() + FT(dx * s + dy * c_val));
+      }
+      case TransformationType::Dilate: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        double scale = m_transformValue;
+        return c + (p - c) * FT(scale);
+      }
+      default: return std::nullopt;
+    }
+  };
+
+  auto sourceCircle = std::dynamic_pointer_cast<Circle>(parent);
+  if (!sourceCircle || !sourceCircle->isValid()) return;
+
+  Point_2 center = sourceCircle->getCenterPoint();
+  double originalRadius = sourceCircle->getRadius();
+  
+  auto newCenter = transformPoint(center);
+  
+  if (newCenter) {
+      setCenter(*newCenter);
+      
+      // Radius Update
+      if (m_transformType == TransformationType::Dilate) {
+          setRadius(std::abs(originalRadius * m_transformValue));
+      } else if (m_transformType == TransformationType::ReflectCircle) {
+           // Inversion Radius check
+           Point_2 edgePt = center + Vector_2(FT(originalRadius), FT(0));
+           auto newEdgePt = transformPoint(edgePt);
+           if (newEdgePt) {
+               double d = std::sqrt(CGAL::to_double(CGAL::squared_distance(*newCenter, *newEdgePt)));
+               setRadius(d);
+           }
+      } else {
+          setRadius(originalRadius);
+      }
+  }
+
+  updateSFMLShape();
+  setVisible(sourceCircle->isVisible());
 }

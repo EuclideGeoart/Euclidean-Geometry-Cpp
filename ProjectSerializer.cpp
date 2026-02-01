@@ -267,6 +267,9 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 ptJson["showLabel"] = pt->getShowLabel();
                 sf::Vector2f offset = pt->getLabelOffset();
                 ptJson["labelOffset"] = { offset.x, offset.y };
+                ptJson["visible"] = pt->isVisible();
+                ptJson["locked"] = pt->isLocked();
+                ptJson["fixed"] = pt->isLocked();
 
                 // --- Transformation Metadata ---
                 ptJson["transformType"] = static_cast<int>(pt->getTransformType());
@@ -392,8 +395,14 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 
                 ciJson["isSemicircle"] = ci->isSemicircle();
                 if (ci->isSemicircle()) {
-                    if (auto p1 = ci->getDiameterP1()) ciJson["diameterP1ID"] = p1->getID();
-                    if (auto p2 = ci->getDiameterP2()) ciJson["diameterP2ID"] = p2->getID();
+                    if (auto p1 = ci->getDiameterP1()) {
+                        ciJson["diameterP1ID"] = p1->getID();
+                        ciJson["startArcID"] = p1->getID();
+                    }
+                    if (auto p2 = ci->getDiameterP2()) {
+                        ciJson["diameterP2ID"] = p2->getID();
+                        ciJson["endArcID"] = p2->getID();
+                    }
                 }
 
                 if (auto centerObj = ci->getCenterPointObject()) {
@@ -467,6 +476,16 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                     verticesJson.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
                 }
                 polyJson["vertices"] = verticesJson;
+                json vertexIdsJson = json::array();
+                for (size_t i = 0; i < poly->getVertexCount(); ++i) {
+                    auto vPtr = poly->getVertexPoint(i);
+                    if (vPtr) {
+                        vertexIdsJson.push_back(static_cast<int>(vPtr->getID()));
+                    } else {
+                        vertexIdsJson.push_back(-1);
+                    }
+                }
+                polyJson["vertexIds"] = vertexIdsJson;
                 polyJson["color"] = colorToHex(poly->getColor());
                 polygonsArray.push_back(polyJson);
             }
@@ -993,42 +1012,60 @@ bool ProjectSerializer::loadProject_LEGACY(GeometryEditor& editor, const std::st
             for (const auto& rectJson : data["rectangles"]) {
                 auto verticesJson = rectJson["vertices"];
                 // Need at least 2 points (corners) or 4 points (all verts)
+                // Need at least 2 points
                 if (verticesJson.size() >= 2) {
+                    bool isRotatable = rectJson.value("isRotatable", false);
+                    double height = rectJson.value("height", 0.0);
+                    
                     double x1, y1, x2, y2;
                     
-                    // Logic to extract corners based on storage format
+                    // Extract Corner 1 (Always index 0)
                     if (verticesJson[0].is_array()) {
                         x1 = verticesJson[0][0].get<double>();
                         y1 = verticesJson[0][1].get<double>();
-                        // If it stores 4 vertices, index 2 is opposite corner
-                        int idx2 = (verticesJson.size() == 4) ? 2 : 1; 
-                        x2 = verticesJson[idx2][0].get<double>();
-                        y2 = verticesJson[idx2][1].get<double>();
                     } else {
                         x1 = verticesJson[0].value("x", 0.0);
                         y1 = verticesJson[0].value("y", 0.0);
-                        int idx2 = (verticesJson.size() == 4) ? 2 : 1;
+                    }
+
+                    // Extract Corner 2
+                    // Rotatable: Index 1 (Adjacent for base). Aligned: Index 2 (Opposite/Diagonal)
+                    int idx2 = 1;
+                    if (!isRotatable && verticesJson.size() == 4) {
+                        idx2 = 2;
+                    }
+
+                    if (verticesJson[idx2].is_array()) {
+                        x2 = verticesJson[idx2][0].get<double>();
+                        y2 = verticesJson[idx2][1].get<double>();
+                    } else {
                         x2 = verticesJson[idx2].value("x", 0.0);
                         y2 = verticesJson[idx2].value("y", 0.0);
                     }
 
                     sf::Color color = sf::Color::Black;
                     if (rectJson.contains("color")) {
-                        if (rectJson["color"].is_string()) {
-                            color = hexToColor(rectJson["color"]);
-                        } else {
-                            auto c = rectJson["color"];
-                            color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
-                        }
+                         if (rectJson["color"].is_string()) {
+                             color = hexToColor(rectJson["color"]);
+                         } else {
+                             auto c = rectJson["color"];
+                             color = sf::Color(c.value("r", 0), c.value("g", 0), c.value("b", 0), c.value("a", 255));
+                         }
                     }
                     
                     int id = rectJson.value("id", -1);
                     Point_2 corner1(x1, y1);
                     Point_2 corner2(x2, y2);
                     
-                    bool isRotatable = rectJson.value("isRotatable", false);
-                    double height = rectJson.value("height", 0.0);
-                    auto rect = std::make_shared<Rectangle>(corner1, corner2, isRotatable, color, id);
+                    std::shared_ptr<Rectangle> rect;
+                    if (isRotatable) {
+                        // Use constructor: Rectangle(p1, p2, height/width, ...)
+                        // Note: The constructor param is named 'width' but corresponds to the side perpendicular to p1-p2
+                        rect = std::make_shared<Rectangle>(corner1, corner2, height, color, id);
+                    } else {
+                        // Use constructor: Rectangle(p1, p2, isRotatable=false, ...)
+                        rect = std::make_shared<Rectangle>(corner1, corner2, false, color, id);
+                    }
                     rect->setThickness(rectJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
                     if (isRotatable) {
                         rect->setHeight(height);
@@ -1580,17 +1617,16 @@ bool ProjectSerializer::loadProject_LEGACY(GeometryEditor& editor, const std::st
 
 bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::string& filepath) {
     try {
-        // STEP 1: Use current view bounds (WYSIWYG)
-        const sf::View& view = editor.getDrawingView();
-        sf::Vector2f center = view.getCenter();
-        sf::Vector2f size = view.getSize();
+        // STEP 1: Compute bounds from visible objects (dynamic viewBox)
+        double minX = 0.0, minY = 0.0, maxX = 0.0, maxY = 0.0;
+        calculateBounds(editor, minX, minY, maxX, maxY);
 
-        double minX = center.x - size.x / 2.0;
-        double minY = center.y - size.y / 2.0;
-        double width = size.x;
-        double height = size.y;
-        double maxX = minX + width;
-        double maxY = minY + height;
+        double width = maxX - minX;
+        double height = maxY - minY;
+        if (width <= 0.0) width = 1.0;
+        if (height <= 0.0) height = 1.0;
+        maxX = minX + width;
+        maxY = minY + height;
 
         // Initialize SVG Writer
         SVGWriter svg(width, height);
@@ -1938,6 +1974,29 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
 
         // End flipped group
         svg.endGroup();
+
+        // Labels (drawn in non-flipped coordinates so text is upright)
+        for (const auto& pt : editor.points) {
+            if (!pt || !pt->isValid() || !pt->isVisible()) continue;
+            if (!pt->getShowLabel()) continue;
+            const std::string& label = pt->getLabel();
+            if (label.empty()) continue;
+
+            Point_2 pos = pt->getCGALPosition();
+            sf::Vector2f offset = pt->getLabelOffset();
+            double wx = CGAL::to_double(pos.x()) + offset.x;
+            double wy = CGAL::to_double(pos.y()) + offset.y;
+
+            double sx = 0.0, sy = 0.0;
+            worldToSVG(wx, wy, sx, sy, height, minY);
+
+            SVGWriter::Style textStyle;
+            textStyle.fill = "black";
+            textStyle.stroke = "none";
+            textStyle.strokeWidth = 0.0;
+            textStyle.fontSize = 14.0 * pixelToWorldScale;
+            svg.drawText(sx, sy, label, textStyle);
+        }
 
         // Save file
         if (svg.save(filepath)) {

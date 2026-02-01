@@ -121,9 +121,40 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
   } else if (isHovered()) {
     sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(2.0f * scale);
-    highlight.setOutlineColor(sf::Color::Cyan); // Cyan for hover
+    highlight.setOutlineThickness(1.0f * scale);
+    highlight.setOutlineColor(sf::Color(0, 255, 255, 100)); // Dim Cyan
+    
+    if (getHoveredEdge() == -1) {
+        highlight.setOutlineThickness(2.0f * scale);
+        highlight.setOutlineColor(sf::Color::Cyan); // Full Cyan
+    }
     window.draw(highlight);
+
+    if (getHoveredEdge() >= 0) {
+         size_t count = m_sfmlShape.getPointCount();
+         int idx = getHoveredEdge();
+         if (idx >= 0 && idx < static_cast<int>(count)) {
+             sf::Vector2f p1 = m_sfmlShape.getPoint(idx);
+             sf::Vector2f p2 = m_sfmlShape.getPoint((idx + 1) % count);
+             
+             sf::Vector2f dir = p2 - p1;
+             float len = std::sqrt(dir.x*dir.x + dir.y*dir.y);
+             if (len > 0.1f) {
+                 dir /= len;
+                 sf::Vector2f perp(-dir.y, dir.x);
+                 float thickness = 4.0f * scale; 
+                 
+                 sf::ConvexShape thickLine;
+                 thickLine.setPointCount(4);
+                 thickLine.setPoint(0, p1 + perp * thickness * 0.5f);
+                 thickLine.setPoint(1, p2 + perp * thickness * 0.5f);
+                 thickLine.setPoint(2, p2 - perp * thickness * 0.5f);
+                 thickLine.setPoint(3, p1 - perp * thickness * 0.5f);
+                 thickLine.setFillColor(sf::Color(255, 100, 50, 200));
+                 window.draw(thickLine);
+             }
+         }
+    }
   }
 
   drawVertexHandles(window, scale);
@@ -196,7 +227,12 @@ void RegularPolygon::updateDependentShape() {
         return o + op * FT(scale);
       }
       case TransformationType::Translate: {
-        return p + m_translationVector;
+        Vector_2 delta = m_translationVector;
+        auto line = std::dynamic_pointer_cast<Line>(aux);
+        if (line && line->isValid()) {
+            delta = line->getEndPoint() - line->getStartPoint();
+        }
+        return p + delta;
       }
       case TransformationType::Rotate: {
         auto center = std::dynamic_pointer_cast<Point>(aux);

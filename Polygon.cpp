@@ -2,6 +2,7 @@
 #include "Point.h"
 #include "VertexLabelManager.h"
 #include "Line.h"
+#include "Circle.h"
 #include <cmath>
 
 
@@ -93,9 +94,41 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
   } else if (isHovered()) {
     sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(2.0f * scale);
-    highlight.setOutlineColor(sf::Color::Cyan); // Cyan for hover
+    highlight.setOutlineThickness(1.0f * scale);
+    highlight.setOutlineColor(sf::Color(0, 255, 255, 100)); // Dim Cyan
+    
+    if (getHoveredEdge() == -1) {
+        highlight.setOutlineThickness(2.0f * scale);
+        highlight.setOutlineColor(sf::Color::Cyan); // Full Cyan
+    }
     window.draw(highlight);
+
+    if (getHoveredEdge() >= 0) {
+        // Since Polygon might use hosted points, use getVerticesSFML to ensure we get current positions
+        auto sfmlVerts = getVerticesSFML();
+        int idx = getHoveredEdge();
+        if (idx >= 0 && idx < static_cast<int>(sfmlVerts.size())) {
+            sf::Vector2f p1 = sfmlVerts[idx];
+            sf::Vector2f p2 = sfmlVerts[(idx + 1) % sfmlVerts.size()];
+            
+            sf::Vector2f dir = p2 - p1;
+            float len = std::sqrt(dir.x*dir.x + dir.y*dir.y);
+            if (len > 0.1f) {
+                dir /= len;
+                sf::Vector2f perp(-dir.y, dir.x);
+                float thickness = 4.0f * scale; 
+                
+                sf::ConvexShape thickLine;
+                thickLine.setPointCount(4);
+                thickLine.setPoint(0, p1 + perp * thickness * 0.5f);
+                thickLine.setPoint(1, p2 + perp * thickness * 0.5f);
+                thickLine.setPoint(2, p2 - perp * thickness * 0.5f);
+                thickLine.setPoint(3, p1 - perp * thickness * 0.5f);
+                thickLine.setFillColor(sf::Color(255, 100, 50, 200)); 
+                window.draw(thickLine);
+            }
+        }
+    }
   }
 
   drawVertexHandles(window, scale);
@@ -164,59 +197,118 @@ void Polygon::translate(const Vector_2 &translation) {
 
 void Polygon::updateDependentShape() {
   auto parent = m_parentSource.lock();
-  if (!parent) return;
+  if (!parent || !parent->isValid()) {
+    updateSFMLShape();
+    updateHostedPoints();
+    setVisible(false);
+    return;
+  }
 
   auto sourcePoly = std::dynamic_pointer_cast<Polygon>(parent);
-  if (!sourcePoly) return;
+  if (!sourcePoly) {
+    updateSFMLShape();
+    updateHostedPoints();
+    return;
+  }
 
   auto sourceVerts = sourcePoly->getVertices();
+  if (sourceVerts.empty()) return;
 
-  if (m_transformType == TransformationType::Reflect) {
-    auto aux = m_auxObject.lock();
-    if (aux && (aux->getType() == ObjectType::Line || aux->getType() == ObjectType::LineSegment ||
-                aux->getType() == ObjectType::Ray)) {
-      auto line = std::dynamic_pointer_cast<Line>(aux);
-      if (!line || !line->isValid()) {
-        updateSFMLShape();
-        updateHostedPoints();
-        return;
-      }
+  auto aux = m_auxObject.lock();
 
-      auto reflectAcrossLine = [](const Point_2 &p, const std::shared_ptr<Line> &l) -> Point_2 {
-        Point_2 a = l->getStartPoint();
-        Point_2 b = l->getEndPoint();
+  // Helper lambda for math
+  auto transformPoint = [&](const Point_2& p) -> std::optional<Point_2> {
+    switch (m_transformType) {
+      case TransformationType::Reflect: {
+        // Reflect across Line
+        if (aux && (aux->getType() == ObjectType::Line || aux->getType() == ObjectType::LineSegment || aux->getType() == ObjectType::Ray)) {
+             auto line = std::dynamic_pointer_cast<Line>(aux);
+             if (!line || !line->isValid()) return std::nullopt;
+             
+             Point_2 a = line->getStartPoint();
+             Point_2 b = line->getEndPoint();
+             Vector_2 ab = b - a;
+             double abLenSq = CGAL::to_double(ab.squared_length());
+             if (abLenSq < 1e-12) return p;
 
-        Vector_2 ab = b - a;
-        double abLenSq = CGAL::to_double(ab.squared_length());
-        if (abLenSq < 1e-12) {
-          return p;
+             Vector_2 ap = p - a;
+             FT t = (ap * ab) / ab.squared_length();
+             Point_2 h = a + ab * t;
+             return p + (h - p) * FT(2.0);
         }
-
-        Vector_2 ap = p - a;
-        FT t = (ap * ab) / ab.squared_length();
-        Point_2 h = a + ab * t;
-        return p + (h - p) * FT(2.0);
-      };
-
-      for (size_t i = 0; i < sourceVerts.size(); ++i) {
-        Point_2 reflectedPos = reflectAcrossLine(sourceVerts[i], line);
-        if (i < m_vertices.size() && m_vertices[i]) {
-          m_vertices[i]->setCGALPosition(reflectedPos);
+        return std::nullopt;
+      }
+      case TransformationType::ReflectPoint: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        return c + (c - p);
+      }
+      case TransformationType::ReflectCircle: {
+        auto circle = std::dynamic_pointer_cast<Circle>(aux);
+        if (!circle || !circle->isValid()) return std::nullopt;
+        Point_2 o = circle->getCenterPoint();
+        double r = circle->getRadius();
+        Vector_2 op = p - o;
+        double opLenSq = CGAL::to_double(op.squared_length());
+        if (opLenSq < 1e-12) return std::nullopt;
+        double scale = (r * r) / opLenSq;
+        return o + op * FT(scale);
+      }
+      case TransformationType::Translate: {
+        Vector_2 delta = m_translationVector;
+        if (aux && (aux->getType() == ObjectType::Line || aux->getType() == ObjectType::LineSegment ||
+                    aux->getType() == ObjectType::Ray || aux->getType() == ObjectType::Vector)) {
+             auto line = std::dynamic_pointer_cast<Line>(aux);
+             if (line && line->isValid()) {
+                delta = line->getEndPoint() - line->getStartPoint();
+             }
         }
+        return p + delta;
       }
-    }
-  } else if (m_transformType == TransformationType::Translate) {
-    for (size_t i = 0; i < sourceVerts.size(); ++i) {
-      Point_2 p = sourceVerts[i];
-      Point_2 newPos(p.x() + m_translationVector.x(), p.y() + m_translationVector.y());
-      if (i < m_vertices.size() && m_vertices[i]) {
-        m_vertices[i]->setCGALPosition(newPos);
+      case TransformationType::Rotate: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        double rad = m_transformValue * 3.14159265358979323846 / 180.0;
+        double s = std::sin(rad);
+        double c_val = std::cos(rad);
+        double dx = CGAL::to_double(p.x() - c.x());
+        double dy = CGAL::to_double(p.y() - c.y());
+        return Point_2(c.x() + FT(dx * c_val - dy * s),
+                       c.y() + FT(dx * s + dy * c_val));
       }
+      case TransformationType::Dilate: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        double scale = m_transformValue;
+        return c + (p - c) * FT(scale);
+      }
+      default:
+        return p;
     }
+  };
+
+  for (size_t i = 0; i < sourceVerts.size(); ++i) {
+      if (i >= m_vertices.size()) break;
+      if (!m_vertices[i]) continue;
+      
+      // If the vertex is "smart" (a transformed point), it might have updated itself already.
+      // BUT for "dumb" vertices (loaded), we MUST update it here.
+      // We can force set position. 
+      // Optimization: Check if m_vertices[i] is already a Dependent Point?
+      // Actually, enforcing geometry here is safer for consistency.
+      
+      auto newPos = transformPoint(sourceVerts[i]);
+      if (newPos.has_value()) {
+          m_vertices[i]->setCGALPosition(*newPos);
+      }
   }
 
   updateSFMLShape();
   updateHostedPoints();
+  setVisible(parent->isVisible());
 }
 
 void Polygon::setVertexPosition(size_t index, const Point_2 &value) {
