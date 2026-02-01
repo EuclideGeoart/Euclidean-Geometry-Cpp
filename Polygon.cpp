@@ -1,6 +1,7 @@
 #include "Polygon.h"
 #include "Point.h"
 #include "VertexLabelManager.h"
+#include "Line.h"
 #include <cmath>
 
 
@@ -101,8 +102,12 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
 }
 
 void Polygon::update() {
-  updateSFMLShape();
-  updateHostedPoints();
+  if (isDependent()) {
+    updateDependentShape();
+  } else {
+    updateSFMLShape();
+    updateHostedPoints();
+  }
 }
 
 void Polygon::setColor(const sf::Color &color) {
@@ -153,6 +158,63 @@ void Polygon::translate(const Vector_2 &translation) {
     Point_2 pos = v->getCGALPosition();
     v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
   }
+  updateSFMLShape();
+  updateHostedPoints();
+}
+
+void Polygon::updateDependentShape() {
+  auto parent = m_parentSource.lock();
+  if (!parent) return;
+
+  auto sourcePoly = std::dynamic_pointer_cast<Polygon>(parent);
+  if (!sourcePoly) return;
+
+  auto sourceVerts = sourcePoly->getVertices();
+
+  if (m_transformType == TransformationType::Reflect) {
+    auto aux = m_auxObject.lock();
+    if (aux && (aux->getType() == ObjectType::Line || aux->getType() == ObjectType::LineSegment ||
+                aux->getType() == ObjectType::Ray)) {
+      auto line = std::dynamic_pointer_cast<Line>(aux);
+      if (!line || !line->isValid()) {
+        updateSFMLShape();
+        updateHostedPoints();
+        return;
+      }
+
+      auto reflectAcrossLine = [](const Point_2 &p, const std::shared_ptr<Line> &l) -> Point_2 {
+        Point_2 a = l->getStartPoint();
+        Point_2 b = l->getEndPoint();
+
+        Vector_2 ab = b - a;
+        double abLenSq = CGAL::to_double(ab.squared_length());
+        if (abLenSq < 1e-12) {
+          return p;
+        }
+
+        Vector_2 ap = p - a;
+        FT t = (ap * ab) / ab.squared_length();
+        Point_2 h = a + ab * t;
+        return p + (h - p) * FT(2.0);
+      };
+
+      for (size_t i = 0; i < sourceVerts.size(); ++i) {
+        Point_2 reflectedPos = reflectAcrossLine(sourceVerts[i], line);
+        if (i < m_vertices.size() && m_vertices[i]) {
+          m_vertices[i]->setCGALPosition(reflectedPos);
+        }
+      }
+    }
+  } else if (m_transformType == TransformationType::Translate) {
+    for (size_t i = 0; i < sourceVerts.size(); ++i) {
+      Point_2 p = sourceVerts[i];
+      Point_2 newPos(p.x() + m_translationVector.x(), p.y() + m_translationVector.y());
+      if (i < m_vertices.size() && m_vertices[i]) {
+        m_vertices[i]->setCGALPosition(newPos);
+      }
+    }
+  }
+
   updateSFMLShape();
   updateHostedPoints();
 }

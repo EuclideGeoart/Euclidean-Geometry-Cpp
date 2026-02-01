@@ -39,6 +39,7 @@ class Polygon : public GeometricObject {
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
   virtual std::string getTypeString() const { return "Polygon"; }
   virtual void translate(const Vector_2 &translation) override;
+    virtual void updateDependentShape() override;
   virtual Point_2 getCGALPosition() const override;
   virtual void setCGALPosition(const Point_2 &newPos) override;
   virtual void setPosition(const sf::Vector2f &newSfmlPos) override;
