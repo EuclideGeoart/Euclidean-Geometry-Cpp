@@ -9,6 +9,7 @@
  */
 
 #include "ProjectSerializer.h"
+#include "Deserializer.h"
 #include "GeometryEditor.h"
 #include "Point.h"
 #include "Line.h"  
@@ -717,10 +718,20 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 }
 
 // ============================================================================
-// LOAD PROJECT
+// LOAD PROJECT - Delegates to Deserializer for robust 4-pass loading
 // ============================================================================
 
 bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& filepath) {
+    // Delegate to the robust Deserializer implementation
+    return Deserializer::loadProject(editor, filepath);
+}
+
+// ============================================================================
+// LEGACY LOAD PROJECT - Kept for reference, but NOT USED
+// ============================================================================
+#if 0  // DISABLED - Using Deserializer::loadProject instead
+
+bool ProjectSerializer::loadProject_LEGACY(GeometryEditor& editor, const std::string& filepath) {
     std::ifstream file(filepath);
     if (!file.is_open()) {
         std::cerr << "ProjectSerializer::loadProject: Failed to open file: " << filepath << std::endl;
@@ -1560,6 +1571,8 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         return false;
     }
 }
+
+#endif  // DISABLED LEGACY LOAD
 
 // ============================================================================
 // EXPORT SVG

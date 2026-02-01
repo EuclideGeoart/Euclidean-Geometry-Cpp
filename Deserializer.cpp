@@ -1,11 +1,27 @@
+/**
+ * Deserializer.cpp
+ *
+ * Robust 4-Pass Deserialization for 1:1 State Restoration
+ *
+ * DESIGN:
+ * - Pass 1: Load all Points (including intersection points) into objectMap
+ * - Pass 2: Load all Shapes (Lines, Circles, Rectangles, Polygons, Triangles, RegularPolygons)
+ *           using ONLY references from objectMap (never creating new points)
+ * - Pass 3: Restore Dependencies (Transformations, Constraints, TangentLines, ObjectPoints)
+ * - Pass 4: Force Update all objects to synchronize visual state
+ *
+ * CRITICAL: Uses std::map<unsigned int, std::shared_ptr<GeometricObject>> objectMap
+ *           to guarantee pointer uniqueness - NO duplicates.
+ */
+
 #include "Deserializer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <sstream>
-#include <unordered_map>
 #include <vector>
 
 #include "Angle.h"
@@ -21,21 +37,26 @@
 #include "Polygon.h"
 #include "Rectangle.h"
 #include "RegularPolygon.h"
+#include "TransformationObjects.h"
 #include "Triangle.h"
 #include "json.hpp"
 
 using json = nlohmann::json;
 
+// ============================================================================
+// ANONYMOUS NAMESPACE: Helper Functions
+// ============================================================================
 namespace {
 
+/**
+ * Convert hex color string to sf::Color
+ */
 sf::Color hexToColor(const std::string& hex) {
   if (hex.empty() || hex[0] != '#' || hex.length() < 7) {
     return sf::Color::Blue;
   }
 
-  unsigned int r = 0;
-  unsigned int g = 0;
-  unsigned int b = 0;
+  unsigned int r = 0, g = 0, b = 0;
   std::stringstream ss;
   ss << std::hex << hex.substr(1, 2);
   ss >> r;
@@ -50,32 +71,66 @@ sf::Color hexToColor(const std::string& hex) {
                    static_cast<sf::Uint8>(b));
 }
 
+/**
+ * Parse color from JSON (supports both hex string and object format)
+ */
 sf::Color colorFromJson(const json& j, const sf::Color& fallback) {
   if (j.is_string()) {
     return hexToColor(j.get<std::string>());
   }
   if (j.is_object()) {
-    return sf::Color(j.value("r", fallback.r), j.value("g", fallback.g), j.value("b", fallback.b),
-                     j.value("a", fallback.a));
+    return sf::Color(j.value("r", fallback.r), j.value("g", fallback.g),
+                     j.value("b", fallback.b), j.value("a", fallback.a));
   }
   return fallback;
 }
 
-void applyCommonPointFields(const json& jPoint, const std::shared_ptr<Point>& point) {
+/**
+ * Apply common point attributes from JSON
+ */
+void applyCommonPointFields(const json& jPoint,
+                            const std::shared_ptr<Point>& point) {
   if (jPoint.contains("label")) point->setLabel(jPoint.value("label", ""));
-  if (jPoint.contains("showLabel")) point->setShowLabel(jPoint.value("showLabel", true));
+  if (jPoint.contains("showLabel"))
+    point->setShowLabel(jPoint.value("showLabel", true));
   if (jPoint.contains("labelOffset") && jPoint["labelOffset"].is_array() &&
       jPoint["labelOffset"].size() >= 2) {
-    point->setLabelOffset(sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
+    point->setLabelOffset(
+        sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
+  }
+  if (jPoint.contains("locked")) point->setLocked(jPoint.value("locked", false));
+  if (jPoint.contains("visible"))
+    point->setVisible(jPoint.value("visible", true));
+}
+
+/**
+ * Apply transformation metadata to an object
+ */
+void applyTransformMetadata(const json& jObj,
+                            const std::shared_ptr<GeometricObject>& obj) {
+  if (!obj) return;
+  if (jObj.contains("transformType")) {
+    obj->setTransformType(
+        static_cast<TransformationType>(jObj["transformType"].get<int>()));
+    obj->setParentSourceID(jObj.value("parentSourceID", 0u));
+    obj->setAuxObjectID(jObj.value("auxObjectID", 0u));
+  }
+  if (jObj.contains("transformValue")) {
+    obj->setTransformValue(jObj["transformValue"].get<double>());
   }
 }
 
 }  // namespace
 
-bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepath) {
+// ============================================================================
+// MAIN LOAD FUNCTION
+// ============================================================================
+bool Deserializer::loadProject(GeometryEditor& editor,
+                               const std::string& filepath) {
   std::ifstream file(filepath);
   if (!file.is_open()) {
-    std::cerr << "Deserializer::loadProject: Failed to open file: " << filepath << std::endl;
+    std::cerr << "Deserializer::loadProject: Failed to open file: " << filepath
+              << std::endl;
     return false;
   }
 
@@ -84,191 +139,259 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
     file >> j;
     file.close();
 
+    // Clear existing scene completely
     editor.clearScene();
     DynamicIntersection::clearAllIntersectionConstraints(editor);
 
+    // Detect JSON structure (nested "objects" or flat)
     const json& data = j.contains("objects") ? j["objects"] : j;
 
+    // Load settings
     bool axesVisible = true;
     if (j.contains("settings") && j["settings"].contains("axesVisible")) {
       axesVisible = j["settings"]["axesVisible"].get<bool>();
     }
 
+    // ========================================================================
+    // CRITICAL: The Object Map - Guarantees Pointer Uniqueness
+    // ========================================================================
     std::map<unsigned int, std::shared_ptr<GeometricObject>> objectMap;
-    std::unordered_map<unsigned int, std::shared_ptr<Point>> pointMap;
     unsigned int maxId = 0;
 
-    auto registerObject = [&](unsigned int id, const std::shared_ptr<GeometricObject>& obj) {
-      if (!obj) return;
-      if (id == 0) return;
+    // Helper to register objects and track max ID
+    auto registerObject = [&](unsigned int id,
+                              const std::shared_ptr<GeometricObject>& obj) {
+      if (!obj || id == 0) return;
       objectMap[id] = obj;
-      if (auto pt = std::dynamic_pointer_cast<Point>(obj)) {
-        pointMap[id] = pt;
-      }
       if (id > maxId) maxId = id;
     };
 
-    auto loadPointFromJson = [&](const json& jPoint, bool isIntersection) -> std::shared_ptr<Point> {
-      int id = jPoint.value("id", -1);
-      if (id != -1) {
-        auto existing = objectMap.find(static_cast<unsigned int>(id));
-        if (existing != objectMap.end()) {
-          auto existingPoint = std::dynamic_pointer_cast<Point>(existing->second);
-          if (existingPoint && isIntersection) {
-            existingPoint->setIntersectionPoint(true);
-            existingPoint->setDependent(true);
-            existingPoint->setSelected(false);
-            existingPoint->lock();
-          }
-          return existingPoint;
-        }
+    // Helper to get Point from objectMap
+    auto getPoint = [&](int id) -> std::shared_ptr<Point> {
+      if (id <= 0) return nullptr;
+      auto it = objectMap.find(static_cast<unsigned int>(id));
+      if (it != objectMap.end()) {
+        return std::dynamic_pointer_cast<Point>(it->second);
       }
-
-      double x = jPoint.value("x", 0.0);
-      double y = jPoint.value("y", 0.0);
-      sf::Color color = sf::Color::Black;
-      if (jPoint.contains("color")) {
-        color = colorFromJson(jPoint["color"], color);
-      }
-
-      auto newPoint = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color,
-                                              static_cast<unsigned int>(std::max(id, 0)));
-      applyCommonPointFields(jPoint, newPoint);
-
-      if (jPoint.contains("transformType")) {
-        newPoint->setTransformType(
-            static_cast<TransformationType>(jPoint["transformType"].get<int>()));
-        newPoint->setParentSourceID(jPoint.value("parentSourceID", 0u));
-        newPoint->setAuxObjectID(jPoint.value("auxObjectID", 0u));
-      }
-      if (jPoint.contains("transformValue")) {
-        newPoint->setTransformValue(jPoint["transformValue"].get<double>());
-      }
-
-      if (isIntersection) {
-        newPoint->setIntersectionPoint(true);
-        newPoint->setDependent(true);
-        newPoint->setSelected(false);
-        newPoint->lock();
-      }
-
-      editor.points.push_back(newPoint);
-      if (id != -1) {
-        registerObject(static_cast<unsigned int>(id), newPoint);
-      }
-      return newPoint;
+      return nullptr;
     };
 
-    // =========================================================
-    // PASS 1: LOAD POINTS (and intersection points)
-    // =========================================================
+    // Helper to get any GeometricObject from objectMap
+    auto getObject =
+        [&](int id) -> std::shared_ptr<GeometricObject> {
+      if (id <= 0) return nullptr;
+      auto it = objectMap.find(static_cast<unsigned int>(id));
+      if (it != objectMap.end()) {
+        return it->second;
+      }
+      return nullptr;
+    };
+
+    // ========================================================================
+    // PASS 1: LOAD ALL POINTS
+    // Constraint: Create points ONLY here. Never create new points in Pass 2.
+    // ========================================================================
+    std::cout << "[Deserializer] Pass 1: Loading Points..." << std::endl;
+
+    // Deferred transform points (need to be created after base objects)
+    std::vector<json> deferredTransformPoints;
+
+    // 1a. Load regular points
     if (data.contains("points")) {
       for (const auto& jPoint : data["points"]) {
-        loadPointFromJson(jPoint, false);
+        // Check if this is a transformation-derived point (defer to later)
+        if (jPoint.contains("transform")) {
+          deferredTransformPoints.push_back(jPoint);
+          continue;
+        }
+
+        int id = jPoint.value("id", -1);
+        if (id == -1) continue;
+
+        // Check if already exists (avoid duplicates)
+        if (objectMap.count(static_cast<unsigned int>(id))) {
+          continue;
+        }
+
+        double x = jPoint.value("x", 0.0);
+        double y = jPoint.value("y", 0.0);
+
+        sf::Color color = sf::Color::Black;
+        if (jPoint.contains("color")) {
+          color = colorFromJson(jPoint["color"], color);
+        }
+
+        auto newPoint = std::make_shared<Point>(
+            Point_2(x, y), Constants::CURRENT_ZOOM, color,
+            static_cast<unsigned int>(id));
+
+        applyCommonPointFields(jPoint, newPoint);
+        applyTransformMetadata(jPoint, newPoint);
+
+        editor.points.push_back(newPoint);
+        registerObject(static_cast<unsigned int>(id), newPoint);
       }
     }
 
+    // 1b. Load intersection points (from intersections array)
+    // These are stored within the intersections constraint data
     if (data.contains("intersections")) {
       for (const auto& cJson : data["intersections"]) {
-        if (cJson.contains("points") && cJson["points"].is_array()) {
-          for (const auto& pJson : cJson["points"]) {
-            loadPointFromJson(pJson, true);
+        if (!cJson.contains("points") || !cJson["points"].is_array()) continue;
+
+        for (const auto& pJson : cJson["points"]) {
+          int id = pJson.value("id", -1);
+          if (id == -1) continue;
+
+          // Check if already exists
+          if (objectMap.count(static_cast<unsigned int>(id))) {
+            // Already loaded - just mark as intersection point
+            auto existing = getPoint(id);
+            if (existing) {
+              existing->setIntersectionPoint(true);
+              existing->setDependent(true);
+              existing->setSelected(false);
+              existing->lock();
+            }
+            continue;
           }
+
+          double x = pJson.value("x", 0.0);
+          double y = pJson.value("y", 0.0);
+
+          sf::Color color = Constants::INTERSECTION_POINT_COLOR;
+          if (pJson.contains("color")) {
+            color = colorFromJson(pJson["color"], color);
+          }
+
+          auto newPoint = std::make_shared<Point>(
+              Point_2(x, y), Constants::CURRENT_ZOOM, color,
+              static_cast<unsigned int>(id));
+
+          newPoint->setIntersectionPoint(true);
+          newPoint->setDependent(true);
+          newPoint->setSelected(false);
+          newPoint->lock();
+
+          if (pJson.contains("label")) newPoint->setLabel(pJson.value("label", ""));
+          if (pJson.contains("showLabel"))
+            newPoint->setShowLabel(pJson.value("showLabel", true));
+          if (pJson.contains("labelOffset") && pJson["labelOffset"].is_array() &&
+              pJson["labelOffset"].size() >= 2) {
+            newPoint->setLabelOffset(
+                sf::Vector2f(pJson["labelOffset"][0], pJson["labelOffset"][1]));
+          }
+
+          editor.points.push_back(newPoint);
+          registerObject(static_cast<unsigned int>(id), newPoint);
         }
       }
     }
 
-    // =========================================================
-    // PASS 2: LOAD SHAPES (Lines, Circles, Rectangles, etc.)
-    // =========================================================
+    std::cout << "[Deserializer] Pass 1 Complete: " << objectMap.size()
+              << " points loaded." << std::endl;
+
+    // ========================================================================
+    // PASS 2: LOAD BASE SHAPES (Lines, Circles, Rectangles, Polygons, etc.)
+    // Constraint: NEVER create new points. Always look up from objectMap.
+    // ========================================================================
+    std::cout << "[Deserializer] Pass 2: Loading Shapes..." << std::endl;
+
+    // 2a. Load Lines
     if (data.contains("lines")) {
       for (const auto& jLine : data["lines"]) {
-        int startId = jLine.value("startPointID", -1);
-        if (startId == -1) startId = jLine.value("startId", -1);
-        int endId = jLine.value("endPointID", -1);
-        if (endId == -1) endId = jLine.value("endId", -1);
         int id = jLine.value("id", -1);
-        bool isSegment = jLine.value("isSegment", false);
+        int startId = jLine.value("startPointID", jLine.value("startId", -1));
+        int endId = jLine.value("endPointID", jLine.value("endId", -1));
 
-        if (pointMap.count(startId) && pointMap.count(endId)) {
-          sf::Color color = sf::Color::Black;
-          if (jLine.contains("color")) {
-            color = colorFromJson(jLine["color"], color);
-          }
+        // CRITICAL: Get points from objectMap - never create new ones
+        auto startPt = getPoint(startId);
+        auto endPt = getPoint(endId);
 
-          auto newLine = std::make_shared<Line>(pointMap[startId], pointMap[endId], isSegment, color,
-                                                static_cast<unsigned int>(std::max(id, 0)));
-          editor.lines.push_back(newLine);
-          newLine->registerWithEndpoints();
-
-          newLine->setThickness(jLine.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
-          newLine->setDecoration(static_cast<DecorationType>(jLine.value("decoration", 0)));
-          newLine->setLineType(static_cast<Line::LineType>(jLine.value("lineType", 1)));
-
-          if (jLine.contains("transformType")) {
-            newLine->setTransformType(
-                static_cast<TransformationType>(jLine["transformType"].get<int>()));
-            newLine->setParentSourceID(jLine.value("parentSourceID", 0u));
-            newLine->setAuxObjectID(jLine.value("auxObjectID", 0u));
-          }
-          if (jLine.contains("transformValue")) {
-            newLine->setTransformValue(jLine["transformValue"].get<double>());
-          }
-
-          if (id != -1) registerObject(static_cast<unsigned int>(id), newLine);
+        if (!startPt || !endPt) {
+          std::cerr << "[Deserializer] Warning: Line " << id
+                    << " missing endpoints (start=" << startId
+                    << ", end=" << endId << ")" << std::endl;
+          continue;
         }
+
+        bool isSegment = jLine.value("isSegment", false);
+        sf::Color color = sf::Color::Black;
+        if (jLine.contains("color")) {
+          color = colorFromJson(jLine["color"], color);
+        }
+
+        auto newLine = std::make_shared<Line>(
+            startPt, endPt, isSegment, color,
+            static_cast<unsigned int>(std::max(id, 0)));
+
+        newLine->registerWithEndpoints();
+        newLine->setThickness(
+            jLine.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        newLine->setDecoration(
+            static_cast<DecorationType>(jLine.value("decoration", 0)));
+        newLine->setLineType(
+            static_cast<Line::LineType>(jLine.value("lineType", 1)));
+
+        applyTransformMetadata(jLine, newLine);
+
+        editor.lines.push_back(newLine);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), newLine);
       }
     }
 
+    // 2b. Load Circles (including Semicircles)
     if (data.contains("circles")) {
       for (const auto& jCircle : data["circles"]) {
+        int id = jCircle.value("id", -1);
         int centerId = jCircle.value("centerPointID", -1);
         int radiusPtId = jCircle.value("radiusPointID", -1);
         double radius = jCircle.value("radiusValue", jCircle.value("radius", 10.0));
-        int id = jCircle.value("id", -1);
 
-        if (!pointMap.count(centerId)) continue;
+        auto centerPt = getPoint(centerId);
+        if (!centerPt) {
+          std::cerr << "[Deserializer] Warning: Circle " << id
+                    << " missing center point (" << centerId << ")"
+                    << std::endl;
+          continue;
+        }
 
         sf::Color color = sf::Color::Black;
         if (jCircle.contains("color")) {
           color = colorFromJson(jCircle["color"], color);
         }
 
-        std::shared_ptr<Point> radiusPt = nullptr;
-        if (radiusPtId != -1 && pointMap.count(radiusPtId)) {
-          radiusPt = pointMap[radiusPtId];
-        }
+        std::shared_ptr<Point> radiusPt = getPoint(radiusPtId);
 
-        auto newCircle = std::make_shared<Circle>(pointMap[centerId].get(), radiusPt, radius, color);
-        if (id != -1) newCircle->setID(static_cast<unsigned int>(id));
-        editor.circles.push_back(newCircle);
+        auto newCircle =
+            std::make_shared<Circle>(centerPt.get(), radiusPt, radius, color);
+        if (id > 0)
+          newCircle->setID(static_cast<unsigned int>(id));
 
-        newCircle->setThickness(jCircle.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        newCircle->setThickness(
+            jCircle.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
 
-        if (jCircle.contains("transformType")) {
-          newCircle->setTransformType(
-              static_cast<TransformationType>(jCircle["transformType"].get<int>()));
-          newCircle->setParentSourceID(jCircle.value("parentSourceID", 0u));
-          newCircle->setAuxObjectID(jCircle.value("auxObjectID", 0u));
-        }
-        if (jCircle.contains("transformValue")) {
-          newCircle->setTransformValue(jCircle["transformValue"].get<double>());
-        }
+        applyTransformMetadata(jCircle, newCircle);
 
+        // Handle Semicircle
         bool isSemi = jCircle.value("isSemicircle", false);
         newCircle->setSemicircle(isSemi);
         if (isSemi) {
           int p1Id = jCircle.value("diameterP1ID", -1);
           int p2Id = jCircle.value("diameterP2ID", -1);
-          if (pointMap.count(p1Id) && pointMap.count(p2Id)) {
-            newCircle->setSemicircleDiameterPoints(pointMap[p1Id], pointMap[p2Id]);
+          auto p1 = getPoint(p1Id);
+          auto p2 = getPoint(p2Id);
+          if (p1 && p2) {
+            newCircle->setSemicircleDiameterPoints(p1, p2);
           }
         }
 
-        if (id != -1) registerObject(static_cast<unsigned int>(id), newCircle);
+        editor.circles.push_back(newCircle);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), newCircle);
       }
     }
 
+    // 2c. Load Rectangles
     if (data.contains("rectangles")) {
       for (const auto& rectJson : data["rectangles"]) {
         if (!rectJson.contains("vertices")) continue;
@@ -298,40 +421,43 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         int id = rectJson.value("id", -1);
         bool isRotatable = rectJson.value("isRotatable", false);
         double height = rectJson.value("height", 0.0);
+        // Note: width is not needed as rectangle is reconstructed from corners
 
-        auto rect = std::make_shared<Rectangle>(Point_2(x1, y1), Point_2(x2, y2), isRotatable, color,
-                                                static_cast<unsigned int>(std::max(id, 0)));
-        rect->setThickness(rectJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
-        if (isRotatable) {
+        auto rect = std::make_shared<Rectangle>(
+            Point_2(x1, y1), Point_2(x2, y2), isRotatable, color,
+            static_cast<unsigned int>(std::max(id, 0)));
+
+        rect->setThickness(
+            rectJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+        // Restore rotatable rectangle dimensions
+        if (isRotatable && height > 0) {
           rect->setHeight(height);
         }
 
-        if (rectJson.contains("transformType")) {
-          rect->setTransformType(
-              static_cast<TransformationType>(rectJson["transformType"].get<int>()));
-          rect->setParentSourceID(rectJson.value("parentSourceID", 0u));
-          rect->setAuxObjectID(rectJson.value("auxObjectID", 0u));
-        }
-        if (rectJson.contains("transformValue")) {
-          rect->setTransformValue(rectJson["transformValue"].get<double>());
-        }
+        applyTransformMetadata(rectJson, rect);
 
         editor.rectangles.push_back(rect);
-        if (id != -1) registerObject(static_cast<unsigned int>(id), rect);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), rect);
       }
     }
 
+    // 2d. Load Polygons
     if (data.contains("polygons")) {
       for (const auto& polyJson : data["polygons"]) {
         if (!polyJson.contains("vertices")) continue;
+
         std::vector<Point_2> vertices;
         for (const auto& vJson : polyJson["vertices"]) {
           if (vJson.is_array() && vJson.size() >= 2) {
-            vertices.emplace_back(vJson[0].get<double>(), vJson[1].get<double>());
+            vertices.emplace_back(vJson[0].get<double>(),
+                                  vJson[1].get<double>());
           } else if (vJson.is_object()) {
             vertices.emplace_back(vJson.value("x", 0.0), vJson.value("y", 0.0));
           }
         }
+
+        if (vertices.size() < 3) continue;
 
         sf::Color color = sf::Color::Black;
         if (polyJson.contains("color")) {
@@ -339,25 +465,20 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         }
 
         int id = polyJson.value("id", -1);
-        auto polygon = std::make_shared<Polygon>(vertices, color,
-                                                 static_cast<unsigned int>(std::max(id, 0)));
-        polygon->setThickness(polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        auto polygon = std::make_shared<Polygon>(
+            vertices, color, static_cast<unsigned int>(std::max(id, 0)));
 
-        if (polyJson.contains("transformType")) {
-          polygon->setTransformType(
-              static_cast<TransformationType>(polyJson["transformType"].get<int>()));
-          polygon->setParentSourceID(polyJson.value("parentSourceID", 0u));
-          polygon->setAuxObjectID(polyJson.value("auxObjectID", 0u));
-        }
-        if (polyJson.contains("transformValue")) {
-          polygon->setTransformValue(polyJson["transformValue"].get<double>());
-        }
+        polygon->setThickness(
+            polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+        applyTransformMetadata(polyJson, polygon);
 
         editor.polygons.push_back(polygon);
-        if (id != -1) registerObject(static_cast<unsigned int>(id), polygon);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), polygon);
       }
     }
 
+    // 2e. Load Triangles
     if (data.contains("triangles")) {
       for (const auto& triJson : data["triangles"]) {
         if (!triJson.contains("vertices")) continue;
@@ -367,9 +488,11 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         std::vector<Point_2> pts;
         for (int i = 0; i < 3; ++i) {
           if (verticesJson[i].is_array()) {
-            pts.emplace_back(verticesJson[i][0].get<double>(), verticesJson[i][1].get<double>());
+            pts.emplace_back(verticesJson[i][0].get<double>(),
+                             verticesJson[i][1].get<double>());
           } else {
-            pts.emplace_back(verticesJson[i].value("x", 0.0), verticesJson[i].value("y", 0.0));
+            pts.emplace_back(verticesJson[i].value("x", 0.0),
+                             verticesJson[i].value("y", 0.0));
           }
         }
 
@@ -379,25 +502,21 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         }
 
         int id = triJson.value("id", -1);
-        auto triangle = std::make_shared<Triangle>(pts[0], pts[1], pts[2], color,
-                                                   static_cast<unsigned int>(std::max(id, 0)));
-        triangle->setThickness(triJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        auto triangle = std::make_shared<Triangle>(
+            pts[0], pts[1], pts[2], color,
+            static_cast<unsigned int>(std::max(id, 0)));
 
-        if (triJson.contains("transformType")) {
-          triangle->setTransformType(
-              static_cast<TransformationType>(triJson["transformType"].get<int>()));
-          triangle->setParentSourceID(triJson.value("parentSourceID", 0u));
-          triangle->setAuxObjectID(triJson.value("auxObjectID", 0u));
-        }
-        if (triJson.contains("transformValue")) {
-          triangle->setTransformValue(triJson["transformValue"].get<double>());
-        }
+        triangle->setThickness(
+            triJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+        applyTransformMetadata(triJson, triangle);
 
         editor.triangles.push_back(triangle);
-        if (id != -1) registerObject(static_cast<unsigned int>(id), triangle);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), triangle);
       }
     }
 
+    // 2f. Load Regular Polygons
     if (data.contains("regularPolygons")) {
       for (const auto& rpolyJson : data["regularPolygons"]) {
         if (!rpolyJson.contains("vertices")) continue;
@@ -412,10 +531,10 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
           color = colorFromJson(rpolyJson["color"], color);
         }
 
-        double cx = 0.0;
-        double cy = 0.0;
-        double fx = 0.0;
-        double fy = 0.0;
+        // Calculate center and first vertex
+        double cx = 0.0, cy = 0.0;
+        double fx = 0.0, fy = 0.0;
+
         if (verticesJson[0].is_array()) {
           fx = verticesJson[0][0].get<double>();
           fy = verticesJson[0][1].get<double>();
@@ -436,30 +555,116 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         cx /= verticesJson.size();
         cy /= verticesJson.size();
 
-        auto rpoly = std::make_shared<RegularPolygon>(Point_2(cx, cy), Point_2(fx, fy), sides, color,
-                                                      static_cast<unsigned int>(std::max(id, 0)));
-        rpoly->setThickness(rpolyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        auto rpoly = std::make_shared<RegularPolygon>(
+            Point_2(cx, cy), Point_2(fx, fy), sides, color,
+            static_cast<unsigned int>(std::max(id, 0)));
 
-        if (rpolyJson.contains("transformType")) {
-          rpoly->setTransformType(
-              static_cast<TransformationType>(rpolyJson["transformType"].get<int>()));
-          rpoly->setParentSourceID(rpolyJson.value("parentSourceID", 0u));
-          rpoly->setAuxObjectID(rpolyJson.value("auxObjectID", 0u));
-        }
-        if (rpolyJson.contains("transformValue")) {
-          rpoly->setTransformValue(rpolyJson["transformValue"].get<double>());
-        }
+        rpoly->setThickness(
+            rpolyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+        applyTransformMetadata(rpolyJson, rpoly);
 
         editor.regularPolygons.push_back(rpoly);
-        if (id != -1) registerObject(static_cast<unsigned int>(id), rpoly);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), rpoly);
       }
     }
 
+    std::cout << "[Deserializer] Pass 2 Complete: " << objectMap.size()
+              << " total objects." << std::endl;
+
+    // ========================================================================
+    // PASS 3: RESTORE DEPENDENCIES (Transformations, Constraints, etc.)
+    // ========================================================================
+    std::cout << "[Deserializer] Pass 3: Restoring Dependencies..." << std::endl;
+
+    // 3a. Load Transformation Points (deferred from Pass 1)
+    for (const auto& jPoint : deferredTransformPoints) {
+      int id = jPoint.value("id", -1);
+      if (id == -1) continue;
+
+      sf::Color color = sf::Color::Black;
+      if (jPoint.contains("color")) {
+        color = colorFromJson(jPoint["color"], color);
+      }
+
+      if (!jPoint.contains("transform")) continue;
+      const auto& t = jPoint["transform"];
+      std::string type = t.value("type", "");
+
+      std::shared_ptr<Point> newPoint;
+
+      if (type == "ReflectLine") {
+        int srcId = t.value("sourceId", -1);
+        int lineId = t.value("lineId", -1);
+        auto srcPt = getPoint(srcId);
+        auto lineObj = std::dynamic_pointer_cast<Line>(getObject(lineId));
+        if (srcPt && lineObj) {
+          newPoint = std::make_shared<ReflectLine>(srcPt, lineObj, color);
+        }
+      } else if (type == "ReflectPoint") {
+        int srcId = t.value("sourceId", -1);
+        int centerId = t.value("centerId", -1);
+        auto srcPt = getPoint(srcId);
+        auto centerPt = getPoint(centerId);
+        if (srcPt && centerPt) {
+          newPoint = std::make_shared<ReflectPoint>(srcPt, centerPt, color);
+        }
+      } else if (type == "ReflectCircle") {
+        int srcId = t.value("sourceId", -1);
+        int circleId = t.value("circleId", -1);
+        auto srcPt = getPoint(srcId);
+        auto circleObj = std::dynamic_pointer_cast<Circle>(getObject(circleId));
+        if (srcPt && circleObj) {
+          newPoint = std::make_shared<ReflectCircle>(srcPt, circleObj, color);
+        }
+      } else if (type == "RotatePoint") {
+        int srcId = t.value("sourceId", -1);
+        int centerId = t.value("centerId", -1);
+        double angleDeg = t.value("angleDeg", 0.0);
+        auto srcPt = getPoint(srcId);
+        auto centerPt = getPoint(centerId);
+        if (srcPt && centerPt) {
+          newPoint =
+              std::make_shared<RotatePoint>(srcPt, centerPt, angleDeg, color);
+        }
+      } else if (type == "TranslateVector") {
+        int srcId = t.value("sourceId", -1);
+        int vStartId = t.value("vecStartId", -1);
+        int vEndId = t.value("vecEndId", -1);
+        auto srcPt = getPoint(srcId);
+        auto vStart = getPoint(vStartId);
+        auto vEnd = getPoint(vEndId);
+        if (srcPt && vStart && vEnd) {
+          newPoint =
+              std::make_shared<TranslateVector>(srcPt, vStart, vEnd, color);
+        }
+      } else if (type == "DilatePoint") {
+        int srcId = t.value("sourceId", -1);
+        int centerId = t.value("centerId", -1);
+        double factor = t.value("factor", 1.0);
+        auto srcPt = getPoint(srcId);
+        auto centerPt = getPoint(centerId);
+        if (srcPt && centerPt) {
+          newPoint =
+              std::make_shared<DilatePoint>(srcPt, centerPt, factor, color);
+        }
+      }
+
+      if (newPoint) {
+        newPoint->setID(static_cast<unsigned int>(id));
+        applyCommonPointFields(jPoint, newPoint);
+        editor.points.push_back(newPoint);
+        registerObject(static_cast<unsigned int>(id), newPoint);
+      }
+    }
+
+    // 3b. Load ObjectPoints
     if (data.contains("objectPoints")) {
       for (const auto& opJson : data["objectPoints"]) {
         int id = opJson.value("id", -1);
         int hostId = opJson.value("hostId", -1);
-        int hostTypeInt = opJson.value("hostType", static_cast<int>(ObjectType::None));
+        int hostTypeInt =
+            opJson.value("hostType", static_cast<int>(ObjectType::None));
         double t = opJson.value("t", 0.0);
         size_t edgeIndex = static_cast<size_t>(opJson.value("edgeIndex", 0));
         double edgeRel = opJson.value("edgeRel", t);
@@ -473,36 +678,45 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         ObjectType hostType = static_cast<ObjectType>(hostTypeInt);
         std::shared_ptr<ObjectPoint> newObjPoint = nullptr;
 
-        if (objectMap.count(static_cast<unsigned int>(hostId))) {
-          auto hostShape = objectMap[static_cast<unsigned int>(hostId)];
-          if (hostType == ObjectType::Line) {
-            auto hostLine = std::dynamic_pointer_cast<Line>(hostShape);
-            if (hostLine) newObjPoint = ObjectPoint::create(hostLine, t, color);
-          } else if (hostType == ObjectType::Circle) {
-            auto hostCircle = std::dynamic_pointer_cast<Circle>(hostShape);
-            if (hostCircle) newObjPoint = ObjectPoint::create(hostCircle, t, color);
-          } else if (hostType == ObjectType::Rectangle || hostType == ObjectType::Triangle ||
-                     hostType == ObjectType::Polygon || hostType == ObjectType::RegularPolygon) {
-            newObjPoint = ObjectPoint::createOnShapeEdge(hostShape, edgeIndex, edgeRel, color);
-          }
+        auto hostObj = getObject(hostId);
+        if (!hostObj) continue;
+
+        if (hostType == ObjectType::Line) {
+          auto hostLine = std::dynamic_pointer_cast<Line>(hostObj);
+          if (hostLine) newObjPoint = ObjectPoint::create(hostLine, t, color);
+        } else if (hostType == ObjectType::Circle) {
+          auto hostCircle = std::dynamic_pointer_cast<Circle>(hostObj);
+          if (hostCircle)
+            newObjPoint = ObjectPoint::create(hostCircle, t, color);
+        } else if (hostType == ObjectType::Rectangle ||
+                   hostType == ObjectType::Triangle ||
+                   hostType == ObjectType::Polygon ||
+                   hostType == ObjectType::RegularPolygon) {
+          newObjPoint =
+              ObjectPoint::createOnShapeEdge(hostObj, edgeIndex, edgeRel, color);
         }
 
         if (newObjPoint) {
-          if (id != -1) newObjPoint->setID(static_cast<unsigned int>(id));
+          if (id > 0) newObjPoint->setID(static_cast<unsigned int>(id));
           newObjPoint->setVisible(visible);
-          if (opJson.contains("label")) newObjPoint->setLabel(opJson.value("label", ""));
-          if (opJson.contains("showLabel")) newObjPoint->setShowLabel(opJson.value("showLabel", true));
-          if (opJson.contains("labelOffset") && opJson["labelOffset"].is_array() &&
+          if (opJson.contains("label"))
+            newObjPoint->setLabel(opJson.value("label", ""));
+          if (opJson.contains("showLabel"))
+            newObjPoint->setShowLabel(opJson.value("showLabel", true));
+          if (opJson.contains("labelOffset") &&
+              opJson["labelOffset"].is_array() &&
               opJson["labelOffset"].size() >= 2) {
-            newObjPoint->setLabelOffset(sf::Vector2f(opJson["labelOffset"][0], opJson["labelOffset"][1]));
+            newObjPoint->setLabelOffset(sf::Vector2f(opJson["labelOffset"][0],
+                                                     opJson["labelOffset"][1]));
           }
 
           editor.ObjectPoints.push_back(newObjPoint);
-          if (id != -1) registerObject(static_cast<unsigned int>(id), newObjPoint);
+          if (id > 0) registerObject(static_cast<unsigned int>(id), newObjPoint);
         }
       }
     }
 
+    // 3c. Load Tangent Lines
     if (data.contains("tangentLines")) {
       for (const auto& tJson : data["tangentLines"]) {
         int id = tJson.value("id", -1);
@@ -510,24 +724,29 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         int circleId = tJson.value("circleID", -1);
         int solutionIndex = tJson.value("solutionIndex", 0);
 
-        if (pointMap.count(externalId) && objectMap.count(static_cast<unsigned int>(circleId))) {
-          auto circlePtr = std::dynamic_pointer_cast<Circle>(objectMap[static_cast<unsigned int>(circleId)]);
-          if (!circlePtr) continue;
+        auto externalPt = getPoint(externalId);
+        auto circleObj = std::dynamic_pointer_cast<Circle>(getObject(circleId));
 
-          sf::Color color = sf::Color::Black;
-          if (tJson.contains("color")) {
-            color = colorFromJson(tJson["color"], color);
-          }
+        if (!externalPt || !circleObj) continue;
 
-          auto tangent = std::make_shared<TangentLine>(pointMap[externalId], circlePtr, solutionIndex,
-                                                       static_cast<unsigned int>(std::max(id, 0)), color);
-          tangent->setThickness(static_cast<float>(tJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT)));
-          editor.lines.push_back(tangent);
-          if (id != -1) registerObject(static_cast<unsigned int>(id), tangent);
+        sf::Color color = sf::Color::Black;
+        if (tJson.contains("color")) {
+          color = colorFromJson(tJson["color"], color);
         }
+
+        auto tangent = std::make_shared<TangentLine>(
+            externalPt, circleObj, solutionIndex,
+            static_cast<unsigned int>(std::max(id, 0)), color);
+
+        tangent->setThickness(static_cast<float>(
+            tJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT)));
+
+        editor.lines.push_back(tangent);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), tangent);
       }
     }
 
+    // 3d. Load Angles
     if (data.contains("angles")) {
       for (const auto& aJson : data["angles"]) {
         int id = aJson.value("id", -1);
@@ -536,162 +755,182 @@ bool Deserializer::loadProject(GeometryEditor& editor, const std::string& filepa
         int bId = aJson.value("pointBID", -1);
         bool reflex = aJson.value("reflex", false);
 
-        if (pointMap.count(aId) && pointMap.count(vId) && pointMap.count(bId)) {
-          sf::Color color = sf::Color(255, 200, 0);
-          if (aJson.contains("color")) {
-            color = colorFromJson(aJson["color"], color);
-          }
+        auto pA = getPoint(aId);
+        auto pV = getPoint(vId);
+        auto pB = getPoint(bId);
 
-          auto angle = std::make_shared<Angle>(pointMap[aId], pointMap[vId], pointMap[bId], reflex, color);
-          if (id != -1) angle->setID(static_cast<unsigned int>(id));
+        if (!pA || !pV || !pB) continue;
 
-          if (aJson.contains("radius")) angle->setRadius(aJson.value("radius", angle->getRadius()));
-          if (aJson.contains("showLabel")) angle->setShowLabel(aJson.value("showLabel", true));
-          if (aJson.contains("labelOffset") && aJson["labelOffset"].is_array() &&
-              aJson["labelOffset"].size() >= 2) {
-            angle->setLabelOffset(sf::Vector2f(aJson["labelOffset"][0], aJson["labelOffset"][1]));
-          }
-
-          editor.angles.push_back(angle);
-          if (id != -1) registerObject(static_cast<unsigned int>(id), angle);
+        sf::Color color = sf::Color(255, 200, 0);
+        if (aJson.contains("color")) {
+          color = colorFromJson(aJson["color"], color);
         }
+
+        auto angle = std::make_shared<Angle>(pA, pV, pB, reflex, color);
+        if (id > 0) angle->setID(static_cast<unsigned int>(id));
+
+        if (aJson.contains("radius"))
+          angle->setRadius(aJson.value("radius", angle->getRadius()));
+        if (aJson.contains("showLabel"))
+          angle->setShowLabel(aJson.value("showLabel", true));
+        if (aJson.contains("labelOffset") && aJson["labelOffset"].is_array() &&
+            aJson["labelOffset"].size() >= 2) {
+          angle->setLabelOffset(
+              sf::Vector2f(aJson["labelOffset"][0], aJson["labelOffset"][1]));
+        }
+
+        editor.angles.push_back(angle);
+        if (id > 0) registerObject(static_cast<unsigned int>(id), angle);
       }
     }
 
+    // 3e. Register Intersection Constraints
     if (data.contains("intersections")) {
       for (const auto& cJson : data["intersections"]) {
         int aId = cJson.value("aId", -1);
         int bId = cJson.value("bId", -1);
-        if (!objectMap.count(static_cast<unsigned int>(aId)) ||
-            !objectMap.count(static_cast<unsigned int>(bId))) {
-          continue;
-        }
 
-        auto A = objectMap[static_cast<unsigned int>(aId)];
-        auto B = objectMap[static_cast<unsigned int>(bId)];
+        auto A = getObject(aId);
+        auto B = getObject(bId);
+
+        if (!A || !B) continue;
 
         std::vector<std::shared_ptr<Point>> createdPoints;
         if (cJson.contains("points") && cJson["points"].is_array()) {
           for (const auto& pJson : cJson["points"]) {
-            int id = pJson.value("id", -1);
-            if (id != -1 && pointMap.count(id)) {
-              createdPoints.push_back(pointMap[id]);
+            int ptId = pJson.value("id", -1);
+            auto pt = getPoint(ptId);
+            if (pt) {
+              createdPoints.push_back(pt);
             }
           }
         }
 
         if (!createdPoints.empty()) {
-          DynamicIntersection::registerIntersectionConstraint(A, B, createdPoints);
+          DynamicIntersection::registerIntersectionConstraint(A, B,
+                                                              createdPoints);
         }
       }
     }
 
+    // 3f. Restore Line Constraints (Parallel/Perpendicular)
     if (data.contains("lines")) {
       for (const auto& jLine : data["lines"]) {
         int id = jLine.value("id", -1);
-        if (id == -1) continue;
+        if (id <= 0) continue;
 
-        auto it = objectMap.find(static_cast<unsigned int>(id));
-        if (it == objectMap.end()) continue;
+        auto lineObj = std::dynamic_pointer_cast<Line>(getObject(id));
+        if (!lineObj) continue;
 
-        if (it->second->getType() == ObjectType::Line) {
-          auto linePtr = std::dynamic_pointer_cast<Line>(it->second);
-          bool isParallel = jLine.value("isParallel", false);
-          bool isPerp = jLine.value("isPerpendicular", false);
+        bool isParallel = jLine.value("isParallel", false);
+        bool isPerp = jLine.value("isPerpendicular", false);
 
-          if ((isParallel || isPerp) && jLine.contains("constraintRefId")) {
-            int refId = jLine["constraintRefId"];
-            int edgeIndex = jLine.value("constraintRefEdgeIndex", -1);
-            auto refIt = objectMap.find(static_cast<unsigned int>(refId));
-            if (refIt != objectMap.end()) {
-              Point_2 s = linePtr->getStartPoint();
-              Point_2 e = linePtr->getEndPoint();
-              Vector_2 dir(e.x() - s.x(), e.y() - s.y());
-              if (isParallel) linePtr->setAsParallelLine(refIt->second, edgeIndex, dir);
-              else linePtr->setAsPerpendicularLine(refIt->second, edgeIndex, dir);
-            }
+        if ((isParallel || isPerp) && jLine.contains("constraintRefId")) {
+          int refId = jLine["constraintRefId"];
+          int edgeIndex = jLine.value("constraintRefEdgeIndex", -1);
+
+          auto refObj = getObject(refId);
+          if (refObj) {
+            Point_2 s = lineObj->getStartPoint();
+            Point_2 e = lineObj->getEndPoint();
+            Vector_2 dir(e.x() - s.x(), e.y() - s.y());
+
+            if (isParallel)
+              lineObj->setAsParallelLine(refObj, edgeIndex, dir);
+            else
+              lineObj->setAsPerpendicularLine(refObj, edgeIndex, dir);
           }
         }
       }
     }
 
-    // =========================================================
-    // PASS 3: RESTORE TRANSFORMATIONS (JSON-driven)
-    // =========================================================
+    // 3g. Restore Transformation Links for ALL objects
     auto restoreTransformForJson = [&](const json& objJson) {
       int id = objJson.value("id", -1);
-      if (id == -1) return;
+      if (id <= 0) return;
       if (!objJson.contains("transformType")) return;
-      int typeInt = objJson.value("transformType", static_cast<int>(TransformationType::None));
+
+      int typeInt =
+          objJson.value("transformType", static_cast<int>(TransformationType::None));
       if (typeInt == static_cast<int>(TransformationType::None)) return;
 
-      auto it = objectMap.find(static_cast<unsigned int>(id));
-      if (it == objectMap.end()) return;
+      auto obj = getObject(id);
+      if (!obj) return;
 
       unsigned int parentId = objJson.value("parentSourceID", 0u);
       unsigned int auxId = objJson.value("auxObjectID", 0u);
-      std::shared_ptr<GeometricObject> parent = nullptr;
-      std::shared_ptr<GeometricObject> aux = nullptr;
-      if (parentId != 0 && objectMap.count(parentId)) parent = objectMap[parentId];
-      if (auxId != 0 && objectMap.count(auxId)) aux = objectMap[auxId];
 
-      it->second->restoreTransformation(parent, aux,
-                                        static_cast<TransformationType>(typeInt));
+      auto parent = (parentId != 0) ? getObject(static_cast<int>(parentId)) : nullptr;
+      auto aux = (auxId != 0) ? getObject(static_cast<int>(auxId)) : nullptr;
+
+      obj->restoreTransformation(parent, aux,
+                                 static_cast<TransformationType>(typeInt));
     };
 
+    // Apply to all shape types
     if (data.contains("points")) {
-      for (const auto& jPoint : data["points"]) restoreTransformForJson(jPoint);
+      for (const auto& j : data["points"]) restoreTransformForJson(j);
     }
     if (data.contains("lines")) {
-      for (const auto& jLine : data["lines"]) restoreTransformForJson(jLine);
+      for (const auto& j : data["lines"]) restoreTransformForJson(j);
     }
     if (data.contains("circles")) {
-      for (const auto& jCircle : data["circles"]) restoreTransformForJson(jCircle);
+      for (const auto& j : data["circles"]) restoreTransformForJson(j);
     }
     if (data.contains("rectangles")) {
-      for (const auto& rectJson : data["rectangles"]) restoreTransformForJson(rectJson);
+      for (const auto& j : data["rectangles"]) restoreTransformForJson(j);
     }
     if (data.contains("polygons")) {
-      for (const auto& polyJson : data["polygons"]) restoreTransformForJson(polyJson);
+      for (const auto& j : data["polygons"]) restoreTransformForJson(j);
     }
     if (data.contains("triangles")) {
-      for (const auto& triJson : data["triangles"]) restoreTransformForJson(triJson);
+      for (const auto& j : data["triangles"]) restoreTransformForJson(j);
     }
     if (data.contains("regularPolygons")) {
-      for (const auto& rpolyJson : data["regularPolygons"]) restoreTransformForJson(rpolyJson);
+      for (const auto& j : data["regularPolygons"]) restoreTransformForJson(j);
     }
 
-    // =========================================================
-    // PASS 4: UPDATE ALL OBJECTS
-    // =========================================================
+    std::cout << "[Deserializer] Pass 3 Complete." << std::endl;
+
+    // ========================================================================
+    // PASS 4: FORCE UPDATE ALL OBJECTS
+    // ========================================================================
+    std::cout << "[Deserializer] Pass 4: Updating All Objects..." << std::endl;
+
     for (auto& [id, obj] : objectMap) {
       if (obj) obj->update();
     }
 
-    // Restore axes visibility and ensure axes are present
+    // Restore axes visibility
     if (editor.getXAxisShared()) {
       editor.getXAxisShared()->setVisible(axesVisible);
-      if (std::find(editor.lines.begin(), editor.lines.end(), editor.getXAxisShared()) ==
-          editor.lines.end()) {
+      if (std::find(editor.lines.begin(), editor.lines.end(),
+                    editor.getXAxisShared()) == editor.lines.end()) {
         editor.lines.push_back(editor.getXAxisShared());
       }
     }
     if (editor.getYAxisShared()) {
       editor.getYAxisShared()->setVisible(axesVisible);
-      if (std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxisShared()) ==
-          editor.lines.end()) {
+      if (std::find(editor.lines.begin(), editor.lines.end(),
+                    editor.getYAxisShared()) == editor.lines.end()) {
         editor.lines.push_back(editor.getYAxisShared());
       }
     }
 
+    // Final updates
     DynamicIntersection::updateAllIntersections(editor);
+    for (auto& ag : editor.angles) {
+      if (ag) ag->update();
+    }
 
     editor.objectIdCounter = maxId + 1;
-    std::cout << "Project loaded. Counter: " << editor.objectIdCounter << std::endl;
+    std::cout << "[Deserializer] Load Complete. ID Counter: "
+              << editor.objectIdCounter << std::endl;
     return true;
 
   } catch (const std::exception& e) {
-    std::cerr << "Deserializer::loadProject: Exception: " << e.what() << std::endl;
+    std::cerr << "Deserializer::loadProject: Exception: " << e.what()
+              << std::endl;
     return false;
   }
 }
