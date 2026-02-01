@@ -341,6 +341,64 @@ static std::shared_ptr<Line> getOrCreateHelperLineForEdge(GeometryEditor& editor
   size_t n = shape->getEdges().size();
   if (n == 0) return nullptr;
 
+  // For rectangles, use edge-attached ObjectPoints to avoid vertex-order mismatches
+  if (shape->getType() == ObjectType::Rectangle || shape->getType() == ObjectType::RectangleRotatable) {
+    std::shared_ptr<ObjectPoint> op1;
+    std::shared_ptr<ObjectPoint> op2;
+    for (auto& op : editor.ObjectPoints) {
+      if (!op || op->getHostObject() != shape.get() || !op->isShapeEdgeAttachment()) continue;
+      if (op->getEdgeIndex() == edgeIndex && std::abs(op->getEdgeRelativePosition()) < 0.0001) {
+        op1 = op;
+      } else if (op->getEdgeIndex() == edgeIndex && std::abs(op->getEdgeRelativePosition() - 1.0) < 0.0001) {
+        op2 = op;
+      }
+    }
+
+    if (!op1) {
+      op1 = ObjectPoint::createOnShapeEdge(shape, edgeIndex, 0.0);
+      if (op1) {
+        op1->setVisible(false);
+        op1->setDependent(true);
+        op1->setShowLabel(false);
+        editor.ObjectPoints.push_back(op1);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(op1)));
+      }
+    }
+    if (!op2) {
+      op2 = ObjectPoint::createOnShapeEdge(shape, edgeIndex, 1.0);
+      if (op2) {
+        op2->setVisible(false);
+        op2->setDependent(true);
+        op2->setShowLabel(false);
+        editor.ObjectPoints.push_back(op2);
+        editor.commandManager.pushHistoryOnly(
+            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(op2)));
+      }
+    }
+
+    auto p1 = std::static_pointer_cast<Point>(op1);
+    auto p2 = std::static_pointer_cast<Point>(op2);
+    if (!p1 || !p2) return nullptr;
+
+    // Try to find an existing line representing this edge
+    for (auto& ln : editor.lines) {
+      if (!ln) continue;
+      auto s = ln->getStartPointObjectShared();
+      auto e = ln->getEndPointObjectShared();
+      if ((s == p1 && e == p2) || (s == p2 && e == p1)) return ln;
+    }
+
+    auto newLine = std::make_shared<Line>(p1, p2, true, shape->getColor());
+    newLine->setVisible(false);
+    newLine->setLocked(true);
+    newLine->setDependent(true); // Prevent accidental cleanup
+    newLine->setThickness(1.0f);
+    editor.lines.push_back(newLine);
+    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+    return newLine;
+  }
+
   auto p1 = getPointForShapeVertex(editor, shape, edgeIndex);
   auto p2 = getPointForShapeVertex(editor, shape, (edgeIndex + 1) % n);
   if (!p1 || !p2) return nullptr;
@@ -606,6 +664,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
                                    const std::shared_ptr<Circle>& circleObj,
                                    const std::shared_ptr<Point>& vecStart,
                                    const std::shared_ptr<Point>& vecEnd) -> bool {
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::K)) return false; // Force whole-shape mode
     if (!g_transformEdgeSelection || !sourceShape) return false;
     if (g_transformEdgeSelection->host != sourceShape.get()) return false;
 
@@ -840,6 +899,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], editor.getCurrentColor(), editor.objectIdCounter++);
         newTri->setThickness(tri->getThickness());
         newTri->setDependent(true);
+        attachTransformMetadata(sourceShared, newTri, tool, nullptr, v1, v2);
         editor.triangles.push_back(newTri);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
         editor.setGUIMessage("Translated triangle created.");
@@ -857,6 +917,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), editor.getCurrentColor(), editor.objectIdCounter++);
         newRPoly->setThickness(rpoly->getThickness());
         newRPoly->setDependent(true);
+        attachTransformMetadata(sourceShared, newRPoly, tool, nullptr, v1, v2);
         editor.regularPolygons.push_back(newRPoly);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
         editor.setGUIMessage("Translated regular polygon created.");
@@ -946,19 +1007,40 @@ bool handleTransformationCreation(GeometryEditor& editor,
   std::shared_ptr<Circle> circleObj;
 
   if (tool == ObjectType::ReflectAboutLine) {
-    std::vector<ObjectType> axisTypes = {ObjectType::Line, ObjectType::LineSegment, ObjectType::Rectangle,
-                      ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::Polygon,
-                      ObjectType::RegularPolygon};
-    GeometricObject* hitAxis = editor.lookForObjectAt(worldPos_sfml, tolerance, axisTypes);
-    if (!hitAxis) return false;
-    
-    if (hitAxis->getType() == ObjectType::Line || hitAxis->getType() == ObjectType::LineSegment) {
-      lineObj = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitAxis));
+    GeometricObject* hitLine = editor.lookForObjectAt(
+        worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
+    if (hitLine) {
+      lineObj = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitLine));
     } else {
+      std::vector<ObjectType> axisTypes = {ObjectType::Rectangle, ObjectType::RectangleRotatable,
+                        ObjectType::Triangle, ObjectType::Polygon, ObjectType::RegularPolygon};
+      GeometricObject* hitAxis = editor.lookForObjectAt(worldPos_sfml, tolerance, axisTypes);
+      if (!hitAxis) return false;
       // It's a shape. Try to get an edge.
       auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
       if (edgeHit && edgeHit->host == hitAxis) {
         lineObj = getOrCreateHelperLineForEdge(editor, editor.findSharedPtr(hitAxis), edgeHit->edgeIndex);
+      } else {
+        // Fallback: choose closest edge on the clicked shape even if not within tolerance
+        auto shapeShared = editor.findSharedPtr(hitAxis);
+        if (shapeShared) {
+          auto edges = shapeShared->getEdges();
+          if (!edges.empty()) {
+            Point_2 mousePos(FT(worldPos_sfml.x), FT(worldPos_sfml.y));
+            double bestDist = std::numeric_limits<double>::max();
+            size_t bestIndex = 0;
+            for (size_t i = 0; i < edges.size(); ++i) {
+              Point_2 proj;
+              double rel;
+              double dist = PointUtils::projectPointOntoSegment(mousePos, edges[i], proj, rel);
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestIndex = i;
+              }
+            }
+            lineObj = getOrCreateHelperLineForEdge(editor, shapeShared, bestIndex);
+          }
+        }
       }
     }
   } else if (tool == ObjectType::ReflectAboutCircle) {
@@ -1131,6 +1213,15 @@ bool handleTransformationCreation(GeometryEditor& editor,
       auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], tri->getColor(), editor.objectIdCounter++);
       newTri->setThickness(tri->getThickness());
       newTri->setDependent(true);
+      std::shared_ptr<GeometricObject> auxObj;
+      if (tool == ObjectType::ReflectAboutLine) {
+        auxObj = lineObj;
+      } else if (tool == ObjectType::ReflectAboutCircle) {
+        auxObj = circleObj;
+      } else if (tool == ObjectType::ReflectAboutPoint || tool == ObjectType::RotateAroundPoint || tool == ObjectType::DilateFromPoint) {
+        auxObj = pivotPoint;
+      }
+      attachTransformMetadata(sourceShared, newTri, tool, auxObj, nullptr, nullptr);
       editor.triangles.push_back(newTri);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
       editor.setGUIMessage("Transformed triangle created.");
@@ -1148,6 +1239,15 @@ bool handleTransformationCreation(GeometryEditor& editor,
       auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), rpoly->getColor(), editor.objectIdCounter++);
       newRPoly->setThickness(rpoly->getThickness());
       newRPoly->setDependent(true);
+      std::shared_ptr<GeometricObject> auxObj;
+      if (tool == ObjectType::ReflectAboutLine) {
+        auxObj = lineObj;
+      } else if (tool == ObjectType::ReflectAboutCircle) {
+        auxObj = circleObj;
+      } else if (tool == ObjectType::ReflectAboutPoint || tool == ObjectType::RotateAroundPoint || tool == ObjectType::DilateFromPoint) {
+        auxObj = pivotPoint;
+      }
+      attachTransformMetadata(sourceShared, newRPoly, tool, auxObj, nullptr, nullptr);
       editor.regularPolygons.push_back(newRPoly);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
       editor.setGUIMessage("Transformed regular polygon created.");
@@ -1177,7 +1277,18 @@ bool handleTransformationCreation(GeometryEditor& editor,
       newVerts.push_back(vt);
     }
     auto newPoly = std::make_shared<Polygon>(newVerts, poly->getColor());
+    newPoly->setThickness(poly->getThickness());
     newPoly->setDependent(true);
+    std::shared_ptr<GeometricObject> auxObj;
+    if (tool == ObjectType::ReflectAboutLine) {
+      auxObj = lineObj;
+    } else if (tool == ObjectType::ReflectAboutCircle) {
+      auxObj = circleObj;
+    } else if (tool == ObjectType::ReflectAboutPoint || tool == ObjectType::RotateAroundPoint ||
+               tool == ObjectType::DilateFromPoint) {
+      auxObj = pivotPoint;
+    }
+    attachTransformMetadata(sourceShared, newPoly, tool, auxObj, nullptr, nullptr);
     editor.polygons.push_back(newPoly);
     editor.commandManager.pushHistoryOnly(
         std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));

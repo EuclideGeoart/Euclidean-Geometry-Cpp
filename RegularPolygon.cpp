@@ -1,5 +1,7 @@
 #include "RegularPolygon.h"
 #include "Point.h"
+#include "Line.h"
+#include "Circle.h"
 #include "VertexLabelManager.h"
 #include <cmath>
 RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
@@ -128,6 +130,116 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
 }
 
 void RegularPolygon::update() {
+  if (isDependent()) {
+    updateDependentShape();
+  } else {
+    updateSFMLShape();
+    updateHostedPoints();
+  }
+}
+
+void RegularPolygon::updateDependentShape() {
+  auto parent = m_parentSource.lock();
+  if (!parent || !parent->isValid()) {
+    updateSFMLShape();
+    updateHostedPoints();
+    return;
+  }
+
+  auto sourcePoly = std::dynamic_pointer_cast<RegularPolygon>(parent);
+  if (!sourcePoly || !sourcePoly->isValid()) {
+    updateSFMLShape();
+    updateHostedPoints();
+    return;
+  }
+
+  auto aux = m_auxObject.lock();
+
+  auto reflectAcrossLine = [](const Point_2& p, const std::shared_ptr<Line>& line) -> Point_2 {
+    Point_2 a = line->getStartPoint();
+    Point_2 b = line->getEndPoint();
+
+    Vector_2 ab = b - a;
+    double abLenSq = CGAL::to_double(ab.squared_length());
+    if (abLenSq < 1e-12) {
+      return p;
+    }
+
+    Vector_2 ap = p - a;
+    FT t = (ap * ab) / ab.squared_length();
+    Point_2 h = a + ab * t;
+    return p + (h - p) * FT(2.0);
+  };
+
+  auto transformPoint = [&](const Point_2& p) -> std::optional<Point_2> {
+    switch (m_transformType) {
+      case TransformationType::Reflect: {
+        auto line = std::dynamic_pointer_cast<Line>(aux);
+        if (!line || !line->isValid()) return std::nullopt;
+        return reflectAcrossLine(p, line);
+      }
+      case TransformationType::ReflectPoint: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        return c + (c - p);
+      }
+      case TransformationType::ReflectCircle: {
+        auto circle = std::dynamic_pointer_cast<Circle>(aux);
+        if (!circle || !circle->isValid()) return std::nullopt;
+        Point_2 o = circle->getCenterPoint();
+        double r = circle->getRadius();
+        Vector_2 op = p - o;
+        double opLenSq = CGAL::to_double(op.squared_length());
+        if (opLenSq < 1e-12) return std::nullopt;
+        double scale = (r * r) / opLenSq;
+        return o + op * FT(scale);
+      }
+      case TransformationType::Translate: {
+        return p + m_translationVector;
+      }
+      case TransformationType::Rotate: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        double rad = m_transformValue * 3.14159265358979323846 / 180.0;
+        double s = std::sin(rad);
+        double c_val = std::cos(rad);
+        double dx = CGAL::to_double(p.x() - c.x());
+        double dy = CGAL::to_double(p.y() - c.y());
+        return Point_2(c.x() + FT(dx * c_val - dy * s),
+                       c.y() + FT(dx * s + dy * c_val));
+      }
+      case TransformationType::Dilate: {
+        auto center = std::dynamic_pointer_cast<Point>(aux);
+        if (!center || !center->isValid()) return std::nullopt;
+        Point_2 c = center->getCGALPosition();
+        double scale = m_transformValue;
+        return c + (p - c) * FT(scale);
+      }
+      default:
+        return p;
+    }
+  };
+
+  auto srcCenter = sourcePoly->getCenter();
+  auto srcFirst = sourcePoly->getFirstVertexPoint();
+  if (!srcFirst) {
+    setVisible(false);
+    return;
+  }
+
+  auto newCenter = transformPoint(srcCenter);
+  auto newFirst = transformPoint(srcFirst->getCGALPosition());
+  if (!newCenter.has_value() || !newFirst.has_value()) {
+    setVisible(false);
+    return;
+  }
+
+  if (m_centerPoint) m_centerPoint->setCGALPosition(*newCenter);
+  if (m_firstVertexPoint) m_firstVertexPoint->setCGALPosition(*newFirst);
+
+  setVisible(true);
   updateSFMLShape();
   updateHostedPoints();
 }

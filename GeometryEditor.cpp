@@ -2323,6 +2323,7 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
 // ============================================================================
 
 #include "ProjectSerializer.h"
+#include "Deserializer.h"
 
 void GeometryEditor::clearScene() {
   std::cout << "GeometryEditor::clearScene: Clearing all objects..." << std::endl;
@@ -2354,7 +2355,7 @@ void GeometryEditor::saveProject(const std::string& filepath) {
 }
 
 void GeometryEditor::loadProject(const std::string& filepath) {
-  if (ProjectSerializer::loadProject(*this, filepath)) {
+  if (Deserializer::loadProject(*this, filepath)) {
     setGUIMessage("Project loaded: " + filepath);
   } else {
     setGUIMessage("Error loading project!");

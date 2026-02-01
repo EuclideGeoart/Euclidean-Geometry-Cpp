@@ -37,6 +37,7 @@ class RegularPolygon : public GeometricObject {
   // GeometricObject interface
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   virtual void update() override;
+  virtual void updateDependentShape() override;
   virtual void setColor(const sf::Color &color) override;
   virtual bool contains(const sf::Vector2f &screenPos, float tolerance) const override;
   virtual std::string getTypeString() const { return "RegularPolygon"; }
