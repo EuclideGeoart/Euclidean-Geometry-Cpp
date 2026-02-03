@@ -316,17 +316,46 @@ bool Circle::isValid() const {
 }
 
 void Circle::update() {
+  // 1. Dependent Shape Logic (Transforms)
+  if (isDependent()) {
+    // This function handles Position, Radius (including Dilation), and Visibility
+    updateDependentShape(); 
+    
+    // FIX: Force Radius Sync for Rigid Transformations (Rotate, Reflect, Translate)
+    // We EXCLUDE Dilate and ReflectCircle because they have their own radius math.
+    if (m_transformType != TransformationType::Dilate && 
+        m_transformType != TransformationType::ReflectCircle) {
+        
+        auto parent = m_parentSource.lock();
+        // Ensure parent exists and is actually a Circle
+        if (parent && parent->getType() == ObjectType::Circle) {
+            // Use static_pointer_cast since we checked getType()
+            auto parentCircle = std::static_pointer_cast<Circle>(parent);
+            setRadius(parentCircle->getRadius());
+        }
+    }
+
+    // Note: updateDependentShape() already calls updateSFMLShape(), 
+    // but calling it again here ensures the visual mesh is definitely in sync.
+    updateSFMLShape();
+    updateHostedPoints();
+    return;
+  }
+
+  // 2. Semicircle Logic (Independent)
   if (m_isSemicircle && m_diameterP1 && m_diameterP2) {
     if (!m_diameterP1->isValid() || !m_diameterP2->isValid()) return;
 
     Point_2 p1 = m_diameterP1->getCGALPosition();
     Point_2 p2 = m_diameterP2->getCGALPosition();
 
+    // Calculate Center
     Point_2 newCenter((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
     if (m_centerPoint) {
       m_centerPoint->setCGALPosition(newCenter);
     }
 
+    // Calculate Radius
     double distSq = CGAL::to_double(CGAL::squared_distance(p1, p2));
     if (!std::isfinite(distSq) || distSq <= 0.0) return;
     m_radius = std::sqrt(distSq) * 0.5;
@@ -335,6 +364,7 @@ void Circle::update() {
     m_semicircleEnd = p2;
   }
 
+  // 3. Standard Logic
   if (!isValid()) return;
   updateSFMLShape();
   updateHostedPoints();
