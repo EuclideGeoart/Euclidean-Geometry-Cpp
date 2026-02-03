@@ -28,6 +28,8 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <set>
+#include <cmath>
 #include <iomanip>
 #include "SVGWriter.h"
 #include <cmath>
@@ -1644,12 +1646,19 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
         double pointRadius = 2.0 * pixelToWorldScale;       
         double gridStrokeWidth = 1.0 * pixelToWorldScale; 
 
-        // Grid
+        // Grid (Adaptive Spacing matched to Editor)
         double adaptiveGridStep = Constants::GRID_SIZE;
-        double maxDimension = std::max(width, height);
-        if (maxDimension / adaptiveGridStep > 200.0) {
-            adaptiveGridStep = maxDimension / 200.0;
-        }
+        // Logic ported from Grid::update
+        double minScreenGap = 50.0;
+        double minWorldGap = minScreenGap * pixelToWorldScale;
+        
+        double magnitude = std::pow(10.0, std::floor(std::log10(minWorldGap)));
+        double residual = minWorldGap / magnitude;
+        
+        if (residual > 5.0) adaptiveGridStep = 10.0 * magnitude;
+        else if (residual > 2.0) adaptiveGridStep = 5.0 * magnitude;
+        else if (residual > 1.0) adaptiveGridStep = 2.0 * magnitude;
+        else adaptiveGridStep = 1.0 * magnitude;
 
         // Draw Grid Lines (Direct World Coordinates)
         if (editor.isGridVisible()) {
@@ -1774,19 +1783,23 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
              }
         }
 
-        // Draw Points
-         for (const auto& pt : editor.points) {
-             if (pt && pt->isValid() && pt->isVisible()) {
-                 Point_2 pos = pt->getCGALPosition();
-                 SVGWriter::Style style;
-                 style.fill = colorToHex(pt->getColor());
-                 style.stroke = "none";
-                 svg.drawCircle(CGAL::to_double(pos.x()), CGAL::to_double(pos.y()), pointRadius, style);
+
+
+         // Collect ALL points for unified rendering (Points, ObjectPoints, Shape Corners)
+         std::set<std::shared_ptr<Point>> uniquePoints;
+         for (const auto& pt : editor.points) uniquePoints.insert(pt);
+         for (const auto& pt : editor.ObjectPoints) uniquePoints.insert(pt);
+         for (const auto& rect : editor.rectangles) {
+             if (rect && rect->isValid()) {
+                 if (auto p = rect->getCorner1Point()) uniquePoints.insert(p);
+                 if (auto p = rect->getCorner2Point()) uniquePoints.insert(p);
+                 if (auto p = rect->getCornerBPoint()) uniquePoints.insert(p);
+                 if (auto p = rect->getCornerDPoint()) uniquePoints.insert(p);
              }
          }
-
-         // Draw ObjectPoints (constrained points, e.g. rectangle corners)
-         for (const auto& pt : editor.ObjectPoints) {
+ 
+         // Draw All Points
+         for (const auto& pt : uniquePoints) {
              if (pt && pt->isValid() && pt->isVisible()) {
                  Point_2 pos = pt->getCGALPosition();
                  SVGWriter::Style style;
@@ -1798,8 +1811,8 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
          
          svg.endGroup(); // End Geometry Group (Labels are drawn OUTSIDE to keep text upright)
 
-         // Labels (Corrected for Flipped Geometry)
-         for (const auto& pt : editor.points) {
+         // Labels for All Points
+         for (const auto& pt : uniquePoints) {
              if (!pt || !pt->isValid() || !pt->isVisible()) continue;
              if (!pt->getShowLabel()) continue;
              const std::string& label = pt->getLabel();
@@ -1811,26 +1824,6 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
              // Calculate Screen Coordinates directly
              // Point is flipped: screenY = (minY + maxY) - worldY
              // Label Offset is in screen pixels (relative to point)
-             double sx = CGAL::to_double(pos.x()) + offset.x;
-             double sy = (minY + maxY - CGAL::to_double(pos.y())) + offset.y;
-
-             SVGWriter::Style textStyle;
-             textStyle.fill = "black";
-             textStyle.stroke = "none";
-             textStyle.fontSize = 14.0 * pixelToWorldScale;
-             svg.drawText(sx, sy, label, textStyle);
-         }
-
-         // Labels for ObjectPoints
-         for (const auto& pt : editor.ObjectPoints) {
-             if (!pt || !pt->isValid() || !pt->isVisible()) continue;
-             if (!pt->getShowLabel()) continue;
-             const std::string& label = pt->getLabel();
-             if (label.empty()) continue;
-
-             Point_2 pos = pt->getCGALPosition();
-             sf::Vector2f offset = pt->getLabelOffset();
-             
              double sx = CGAL::to_double(pos.x()) + offset.x;
              double sy = (minY + maxY - CGAL::to_double(pos.y())) + offset.y;
 
@@ -1854,3 +1847,6 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
     }
 }
 // End exportSVG
+
+// Standard geometric labels for a quad
+//const char* labels[] = {"A", "B", "C", "D"};

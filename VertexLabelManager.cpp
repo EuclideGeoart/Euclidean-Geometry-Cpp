@@ -30,6 +30,22 @@ bool VertexLabelManager::initFont() {
   return true;
 }
 
+std::string VertexLabelManager::getNextLabel() {
+  // Try to find the first unused letter from A to Z
+  for (char c = 'A'; c <= 'Z'; ++c) {
+    std::string s(1, c);
+    // Check count without modifying if possible, but operator[] creates entry.
+    // However, if it creates entry with 0, registerLabel(s) handles count==0 correctly.
+    if (m_labelCounts[s] == 0) {
+      return registerLabel(s);
+    }
+  }
+  
+  // If all A-Z are used, fallback to "A" which will trigger subscript logic (A_1, A_2...)
+  // Or could search AA..ZZ.
+  return registerLabel("A");
+}
+
 std::string VertexLabelManager::registerLabel(const std::string& baseLabel) {
   if (baseLabel.empty()) return "?";
   

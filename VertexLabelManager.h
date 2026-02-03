@@ -27,6 +27,12 @@ public:
   unsigned int getFontSize() const { return m_fontSize; }
 
   /**
+   * @brief Get the next available unique label (A-Z, then subscripts)
+   * @return Unique label like "A", "B", ...
+   */
+  std::string getNextLabel();
+
+  /**
    * @brief Get a unique label, adding subscript if duplicate
    * @param baseLabel The base label (e.g., "A", "P")
    * @return Unique label with subscript if needed (e.g., "A", "A₁", "A₂")

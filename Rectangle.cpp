@@ -21,6 +21,24 @@ Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRota
       m_center(FT(0), FT(0)) {
   m_color.a = 0;
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
+  
+  // Generate unique labels
+  for (int i=0; i<4; ++i) {
+      std::string lbl = VertexLabelManager::instance().getNextLabel();
+      m_generatedLabels.push_back(lbl);
+  }
+  
+  // Initialize B and D
+  // Initial positions will be synced immediately below
+  m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+  m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+
+  // Set Labels
+  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
+  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
+  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
+  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
+
   updateDimensionsFromCorners();
   updateSFMLShape();
 }
@@ -40,6 +58,22 @@ Rectangle::Rectangle(const std::shared_ptr<Point>& corner1,
       m_center(FT(0), FT(0)) {
   m_color.a = 0;
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
+
+  // Generate unique labels
+  for (int i=0; i<4; ++i) {
+      std::string lbl = VertexLabelManager::instance().getNextLabel();
+      m_generatedLabels.push_back(lbl);
+  }
+  
+  // Initialize B and D
+  m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+  m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+
+  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
+  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
+  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
+  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
+
   updateDimensionsFromCorners();
   updateSFMLShape();
 }
@@ -55,6 +89,21 @@ Rectangle::Rectangle(const Point_2& corner, const Point_2& adjacentPoint, double
       m_center(FT(0), FT(0)) {
   m_color.a = 0;
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
+  
+  // Generate unique labels
+  for (int i=0; i<4; ++i) {
+      std::string lbl = VertexLabelManager::instance().getNextLabel();
+      m_generatedLabels.push_back(lbl);
+  }
+  
+  m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+  m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+
+  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
+  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
+  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
+  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
+
   syncRotatableFromAnchors();
 
   updateSFMLShape();
@@ -75,6 +124,21 @@ Rectangle::Rectangle(const std::shared_ptr<Point>& corner,
       m_center(FT(0), FT(0)) {
   m_color.a = 0;
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
+
+  // Generate unique labels
+  for (int i=0; i<4; ++i) {
+      std::string lbl = VertexLabelManager::instance().getNextLabel();
+      m_generatedLabels.push_back(lbl);
+  }
+  
+  m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+  m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+
+  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
+  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
+  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
+  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
+
   syncRotatableFromAnchors();
   updateSFMLShape();
 }
@@ -366,6 +430,12 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
     }
   }
 
+  // Delegate drawing to the constituent points
+  if (m_corner1) m_corner1->draw(window, scale, forceVisible);
+  if (m_cornerB) m_cornerB->draw(window, scale, forceVisible);
+  if (m_corner2) m_corner2->draw(window, scale, forceVisible);
+  if (m_cornerD) m_cornerD->draw(window, scale, forceVisible);
+
   drawVertexHandles(window, scale);
 }
 
@@ -513,10 +583,12 @@ void Rectangle::update() {
 
   // Suppress point labels favoring the Rectangle's own screen-space labels
   // This prevents duplication where both GeometryEditor and Rectangle draw labels
-  if (m_corner1) m_corner1->setShowLabel(false);
-  if (m_corner2) m_corner2->setShowLabel(false);
-  if (m_cornerB) m_cornerB->setShowLabel(false);
-  if (m_cornerD) m_cornerD->setShowLabel(false);
+  // CHANGED: We now want points to manage their own labels for Global Consistency and SVG export.
+  // NO OP.
+  // if (m_corner1) m_corner1->setShowLabel(false);
+  // if (m_corner2) m_corner2->setShowLabel(false);
+  // if (m_cornerB) m_cornerB->setShowLabel(false);
+  // if (m_cornerD) m_cornerD->setShowLabel(false);
 }
 
 void Rectangle::setColor(const sf::Color& color) {
@@ -794,34 +866,14 @@ void Rectangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
 }
 
 void Rectangle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
-  // Check visibility. (Removed !m_isRotatable so standard rects can also have labels if desired)
   if (!m_visible) return;
-
-  auto verts = getVerticesSFML();
+  // if (!m_showLabel) return; // REMOVED: This prevents vertex labels from showing!
   
-  // Standard geometric labels for a quad
-  const char* labels[] = {"A", "B", "C", "D"};
-
-  // Assumes 'window' is currently set to the Default/Overlay View (1:1 with pixels).
-  // We use 'worldView' only to calculate where the geometric points are on screen.
-  
-  for (size_t i = 0; i < verts.size() && i < 4; ++i) {
-      sf::Vector2f worldPos = verts[i];
-
-      // 1. Project World Coordinate -> Screen Pixel (Integer)
-      // This calculates exactly where the vertex is on your monitor based on the camera zoom/pan.
-      sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, worldView);
-
-      // 2. Map Pixel -> Current View Coordinate
-      // Since we are drawing UI/Text, we map back to the current view (likely the DefaultView).
-      sf::Vector2f drawPos = window.mapPixelToCoords(screenPos, window.getView());
-
-      // 3. Apply custom label offset (stored in screen pixels)
-      drawPos += getVertexLabelOffset(i);
-
-      // 4. Draw the label with custom offset
-      VertexLabelManager::instance().drawLabel(window, drawPos, labels[i]);
-  }
+  // Delegate label drawing to the constituent points
+  if (m_corner1) m_corner1->drawLabel(window, worldView);
+  if (m_cornerB) m_cornerB->drawLabel(window, worldView);
+  if (m_corner2) m_corner2->drawLabel(window, worldView);
+  if (m_cornerD) m_cornerD->drawLabel(window, worldView);
 }
 
 std::vector<Point_2> Rectangle::getInteractableVertices() const {
@@ -862,6 +914,11 @@ void Rectangle::setVertexLabelOffset(size_t vertexIndex, const sf::Vector2f& off
   }
   if (vertexIndex < 4) {
     m_vertexLabelOffsets[vertexIndex] = offset;
+    // Sync to Point if exists
+    if (vertexIndex == 0 && m_corner1) m_corner1->setLabelOffset(offset);
+    if (vertexIndex == 1 && m_cornerB) m_cornerB->setLabelOffset(offset);
+    if (vertexIndex == 2 && m_corner2) m_corner2->setLabelOffset(offset);
+    if (vertexIndex == 3 && m_cornerD) m_cornerD->setLabelOffset(offset);
   }
 }
 

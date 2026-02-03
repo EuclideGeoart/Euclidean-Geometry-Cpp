@@ -256,6 +256,7 @@ std::optional<EdgeHitResult> PointUtils::findNearestEdge(
   checkShapeEdges(editor.polygons);
   checkShapeEdges(editor.regularPolygons);
   checkShapeEdges(editor.triangles);
+  checkShapeEdges(editor.lines);
   
   // Check circle circumference
   for (auto& circlePtr : editor.circles) {
