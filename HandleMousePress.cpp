@@ -153,21 +153,60 @@ static GeometricObject* findClosestObject(GeometryEditor& editor, const sf::Vect
   double bestDistSq = static_cast<double>(tolerance) * static_cast<double>(tolerance);
   Point_2 cgalPos = editor.toCGALPoint(worldPos_sfml);
 
-  auto considerPoint = [&](GeometricObject* obj) {
+  // 1. POINTS - SCORIED PRIORITY SEARCH
+  // Priority: 
+  // Score 3: Independent Point (Source A/C)
+  // Score 2: Dependent Point on Independent Host (Source B/D - "Derived")
+  // Score 1: Dependent Point on Dependent Host (Result A'/B'/C'/D')
+
+  GeometricObject* bestObj = nullptr;
+  int bestScore = -1;
+  // bestDistSq is already initialized to tolerance^2
+
+  auto checkCandidate = [&](GeometricObject* obj) {
     if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return;
-    auto* pt = dynamic_cast<Point*>(obj);
-    if (!pt) return;
-    double distSq = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), cgalPos));
-    if (distSq <= bestDistSq) {
-      bestDistSq = distSq;
-      closest = obj;
+    
+    Point_2 objPos;
+    if (obj->getType() == ObjectType::Point || obj->getType() == ObjectType::ObjectPoint || obj->getType() == ObjectType::IntersectionPoint) {
+         objPos = static_cast<Point*>(obj)->getCGALPosition();
+    } else {
+         return; 
+    }
+
+    double d = CGAL::to_double(CGAL::squared_distance(objPos, cgalPos));
+    if (d > bestDistSq) return; // Optimization: Ignore if further than current best
+
+    // 2. Calculate Score
+    int score = 1; // Default: Low Priority (Dependent Result)
+
+    if (!obj->isDependent()) {
+        score = 3; // Tier 1: Independent Point
+    } 
+    else if (obj->getType() == ObjectType::ObjectPoint) {
+        // Tier 2: Dependent Point on Source Shape
+        auto op = dynamic_cast<ObjectPoint*>(obj);
+        if (op && op->getHostObject() && !op->getHostObject()->isDependent()) {
+            score = 2; 
+        }
+    }
+
+    // 3. Selection Winner?
+    if (score > bestScore) {
+        bestScore = score;
+        bestObj = obj;
+        bestDistSq = d; 
+    } else if (score == bestScore) {
+        if (d < bestDistSq) {
+            bestObj = obj;
+            bestDistSq = d;
+        }
     }
   };
 
-  for (auto& objPointPtr : editor.ObjectPoints) considerPoint(objPointPtr.get());
-  for (auto& pointPtr : editor.points) considerPoint(pointPtr.get());
+  for (auto& objPointPtr : editor.ObjectPoints) checkCandidate(objPointPtr.get());
+  for (auto& pointPtr : editor.points) checkCandidate(pointPtr.get());
 
-  if (closest) return closest;
+  if (bestObj) return bestObj;
 
   auto considerVertices = [&](GeometricObject* obj, const std::vector<Point_2>& verts) {
     if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return;
@@ -582,6 +621,49 @@ bool handleTransformationCreation(GeometryEditor& editor,
                                   std::vector<GeometricObject*>& tempSelectedObjects,
                                   const sf::Vector2f& worldPos_sfml,
                                   float tolerance) {
+  auto findTopNonDependentAt = [&](const sf::Vector2f& pos, float tol) -> GeometricObject* {
+    auto isCandidate = [&](GeometricObject* obj) {
+      if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return false;
+      if (obj->isDependent()) return false;
+      return true;
+    };
+
+    // ObjectPoints
+    for (auto it = editor.ObjectPoints.rbegin(); it != editor.ObjectPoints.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+
+    // Points
+    for (auto it = editor.points.rbegin(); it != editor.points.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+
+    // Shapes
+    for (auto it = editor.triangles.rbegin(); it != editor.triangles.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+    for (auto it = editor.regularPolygons.rbegin(); it != editor.regularPolygons.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+    for (auto it = editor.polygons.rbegin(); it != editor.polygons.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+    for (auto it = editor.rectangles.rbegin(); it != editor.rectangles.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+
+    // Lines (including Ray/Vector)
+    for (auto it = editor.lines.rbegin(); it != editor.lines.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+
+    // Circles
+    for (auto it = editor.circles.rbegin(); it != editor.circles.rend(); ++it) {
+      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+    }
+
+    return nullptr;
+  };
   auto clearSelection = [&]() {
     for (auto* obj : tempSelectedObjects) {
       if (obj) obj->setSelected(false);
@@ -657,6 +739,30 @@ bool handleTransformationCreation(GeometryEditor& editor,
     }
   };
 
+  auto ensureHoverVector = [&](const std::shared_ptr<Point>& vStart,
+                               const std::shared_ptr<Point>& vEnd) -> std::shared_ptr<Line> {
+    if (!vStart || !vEnd) return nullptr;
+
+    for (const auto& ln : editor.lines) {
+      if (!ln || !ln->isValid()) continue;
+      if (ln->getType() != ObjectType::Vector) continue;
+      auto s = ln->getStartPointObjectShared();
+      auto e = ln->getEndPointObjectShared();
+      if ((s == vStart && e == vEnd) || (s == vEnd && e == vStart)) {
+        return ln;
+      }
+    }
+
+    auto vecLine = std::make_shared<Line>(vStart, vEnd, true, sf::Color(0, 0, 0, 0));
+    vecLine->setLineType(Line::LineType::Vector);
+    vecLine->setVisible(true);
+    vecLine->setThickness(editor.currentThickness);
+    editor.lines.push_back(vecLine);
+    editor.commandManager.pushHistoryOnly(
+        std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(vecLine)));
+    return vecLine;
+  };
+
   auto tryTransformShapeEdge = [&](ObjectType activeTool,
                                    const std::shared_ptr<GeometricObject>& sourceShape,
                                    const std::shared_ptr<Point>& pivot,
@@ -727,12 +833,35 @@ bool handleTransformationCreation(GeometryEditor& editor,
 
   // Step 1: Source object
   if (tempSelectedObjects.empty()) {
-    GeometricObject* hitObj = editor.lookForObjectAt(
-        worldPos_sfml, tolerance,
-        {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint, ObjectType::Line,
-         ObjectType::LineSegment, ObjectType::Circle, ObjectType::Polygon, ObjectType::Rectangle,
-         ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::RegularPolygon});
+    GeometricObject* hitObj = nullptr;
+    if (editor.hoveredObject && editor.hoveredObject->isValid() && editor.hoveredObject->isVisible()) {
+      ObjectType hoveredType = editor.hoveredObject->getType();
+      const std::vector<ObjectType> allowedTypes = {
+          ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint, ObjectType::Line,
+          ObjectType::LineSegment, ObjectType::Circle, ObjectType::Polygon, ObjectType::Rectangle,
+          ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::RegularPolygon};
+      if (std::find(allowedTypes.begin(), allowedTypes.end(), hoveredType) != allowedTypes.end()) {
+        if (editor.hoveredObject->contains(worldPos_sfml, tolerance)) {
+          hitObj = editor.hoveredObject;
+        }
+      }
+    }
+
+    if (!hitObj) {
+      hitObj = editor.lookForObjectAt(
+          worldPos_sfml, tolerance,
+          {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint, ObjectType::Line,
+           ObjectType::LineSegment, ObjectType::Circle, ObjectType::Polygon, ObjectType::Rectangle,
+           ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::RegularPolygon});
+    }
     if (!hitObj) return false;
+
+    // Prefer the original (non-dependent) source if a transformed result is on top
+    if (hitObj->isDependent()) {
+      if (auto nonDependent = findTopNonDependentAt(worldPos_sfml, tolerance)) {
+        hitObj = nonDependent;
+      }
+    }
 
     g_transformEdgeSelection.reset();
     // Prioritize edge selection for shapes that support it, unless Alt is held
@@ -854,6 +983,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, circle->getRadius(), editor.getCurrentColor());
       newCircle->setThickness(circle->getThickness());
       newCircle->setDependent(true);
+      attachTransformMetadata(sourceShared, newCircle, tool, nullptr, v1, v2);
       editor.circles.push_back(newCircle);
       editor.commandManager.pushHistoryOnly(
           std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
@@ -874,15 +1004,16 @@ bool handleTransformationCreation(GeometryEditor& editor,
       }
     }
     if (!vectorAux) {
-      auto vLine = std::make_shared<Line>(v1, v2, true, sf::Color::Transparent);
+      auto vLine = std::make_shared<Line>(v1, v2, true, sf::Color(0, 0, 0, 0));
       vLine->setLineType(Line::LineType::Vector);
-      vLine->setVisible(false);
+      vLine->setVisible(true);
       vLine->setDependent(true);
       editor.lines.push_back(vLine);
       vectorAux = vLine;
     }
 
-    if (sourceShared->getType() == ObjectType::Rectangle) {
+    if (sourceShared->getType() == ObjectType::Rectangle ||
+        sourceShared->getType() == ObjectType::RectangleRotatable) {
       auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
       auto V0 = getPointForShapeVertex(editor, rect, 0);
       auto V1 = getPointForShapeVertex(editor, rect, 1);
@@ -1016,6 +1147,8 @@ bool handleTransformationCreation(GeometryEditor& editor,
       editor.setGUIMessage("Error: Invalid translation vector.");
       return false;
     }
+
+    ensureHoverVector(v1, v2);
 
     return applyVectorTranslation(v1, v2);
   }
@@ -1156,16 +1289,36 @@ bool handleTransformationCreation(GeometryEditor& editor,
       return false;
     }
     registerPoint(newCenter);
+    
+    // NEW: Handled specific radius logic based on transformation
     double newRadius = circle->getRadius();
     if (tool == ObjectType::DilateFromPoint) {
       newRadius = circle->getRadius() * g_transformDilationFactor;
     }
+    // Note: Rotation and Reflection preserve radius. 
+    
+    // Create new Circle object
     auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, newRadius, circle->getColor());
     newCircle->setDependent(true);
+    
+    // Determine generic Aux object for metadata attachment
+    std::shared_ptr<GeometricObject> genericAux = nullptr;
+    if (tool == ObjectType::RotateAroundPoint || tool == ObjectType::DilateFromPoint) genericAux = pivotPoint;
+    else if (tool == ObjectType::ReflectAboutLine) genericAux = lineObj;
+    else if (tool == ObjectType::ReflectAboutCircle) genericAux = circleObj;
+    
+    // ATTACH METADATA
+    attachTransformMetadata(sourceShared, newCircle, tool, genericAux, nullptr, nullptr);
+    
+    // Force update to calculate initial position/state correctly
+    newCircle->updateDependentShape(); 
+    
     editor.circles.push_back(newCircle);
     editor.commandManager.pushHistoryOnly(
         std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
     editor.setGUIMessage("Transformed circle created.");
+    clearSelection();
+    return true;
     clearSelection();
     return true;
   }

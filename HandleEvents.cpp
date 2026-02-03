@@ -1847,6 +1847,20 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
       auto considerCandidate = [&](GeometricObject* obj, double dist, int priority, int edgeIndex = -1) {
         if (!obj) return;
         if (dist > tolerance) return;
+
+        // Always prefer non-dependent (source) objects over dependent results
+        if (bestObj) {
+          if (bestObj->isDependent() && !obj->isDependent()) {
+            bestObj = obj;
+            bestDist = dist;
+            bestPriority = priority;
+            bestEdgeIndex = edgeIndex;
+            return;
+          }
+          if (!bestObj->isDependent() && obj->isDependent()) {
+            return;
+          }
+        }
         
         // First candidate becomes best by default
         if (!bestObj) {
