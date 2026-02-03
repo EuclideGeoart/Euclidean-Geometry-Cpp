@@ -110,6 +110,11 @@ void applyCommonPointFields(const json& jPoint,
 void applyTransformMetadata(const json& jObj,
                             const std::shared_ptr<GeometricObject>& obj) {
   if (!obj) return;
+
+  if (jObj.contains("isDependent")) {
+      obj->setDependent(jObj["isDependent"].get<bool>());
+  }
+
   if (jObj.contains("transformType")) {
     obj->setTransformType(
         static_cast<TransformationType>(jObj["transformType"].get<int>()));
@@ -118,6 +123,11 @@ void applyTransformMetadata(const json& jObj,
   }
   if (jObj.contains("transformValue")) {
     obj->setTransformValue(jObj["transformValue"].get<double>());
+  }
+  
+  if (jObj.contains("translationVectorX") && jObj.contains("translationVectorY")) {
+      Vector_2 v(jObj["translationVectorX"].get<double>(), jObj["translationVectorY"].get<double>());
+      obj->setTranslationVector(v);
   }
 }
 
@@ -403,6 +413,14 @@ bool Deserializer::loadProject(GeometryEditor& editor,
       }
     }
 
+        // Helper to check if any vertex ID is in deferredTransformPoints
+        auto isVertexPending = [&](int vId) -> bool {
+            for (const auto& dp : deferredTransformPoints) {
+                if (dp.value("id", -1) == vId) return true;
+            }
+            return false;
+        };
+
     // 2c. Load Rectangles
     if (data.contains("rectangles")) {
       for (const auto& rectJson : data["rectangles"]) {
@@ -459,12 +477,18 @@ bool Deserializer::loadProject(GeometryEditor& editor,
       for (const auto& polyJson : data["polygons"]) {
         std::vector<std::shared_ptr<Point>> vertexPoints;
 
+        bool deferPoly = false;
         if (polyJson.contains("vertexIds") && polyJson["vertexIds"].is_array()) {
           for (const auto& idJson : polyJson["vertexIds"]) {
             int vId = idJson.get<int>();
+            if (isVertexPending(vId)) {
+                deferPoly = true;
+                break;
+            }
             auto vPtr = getPoint(vId);
             if (!vPtr) {
-              vertexPoints.clear();
+              // vertex missing entirely (yet), so must defer
+              deferPoly = true; 
               break;
             }
             vertexPoints.push_back(vPtr);
@@ -492,7 +516,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
           }
         }
 
-        if (vertexPoints.size() < 3) {
+        if (deferPoly || vertexPoints.size() < 3) {
           pendingPolygons.push_back(polyJson);
           continue;
         }
@@ -616,84 +640,101 @@ bool Deserializer::loadProject(GeometryEditor& editor,
     std::cout << "[Deserializer] Pass 3: Restoring Dependencies..." << std::endl;
 
     // 3a. Load Transformation Points (deferred from Pass 1)
-    for (const auto& jPoint : deferredTransformPoints) {
-      int id = jPoint.value("id", -1);
-      if (id == -1) continue;
+    // We use a retry loop to handle chained dependencies (e.g. ReflectPoint -> ReflectPoint)
+    std::set<int> processedDeferredPoints;
+    bool progress = true;
+    while (progress) {
+        progress = false;
+        
+        for (const auto& jPoint : deferredTransformPoints) {
+            int id = jPoint.value("id", -1);
+            if (id == -1 || processedDeferredPoints.count(id)) continue;
 
-      sf::Color color = sf::Color::Black;
-      if (jPoint.contains("color")) {
-        color = colorFromJson(jPoint["color"], color);
-      }
+            sf::Color color = sf::Color::Black;
+            if (jPoint.contains("color")) {
+                color = colorFromJson(jPoint["color"], color);
+            }
 
-      if (!jPoint.contains("transform")) continue;
-      const auto& t = jPoint["transform"];
-      std::string type = t.value("type", "");
+            if (!jPoint.contains("transform")) continue;
+            const auto& t = jPoint["transform"];
+            std::string type = t.value("type", "");
 
-      std::shared_ptr<Point> newPoint;
+            std::shared_ptr<Point> newPoint;
 
-      if (type == "ReflectLine") {
-        int srcId = t.value("sourceId", -1);
-        int lineId = t.value("lineId", -1);
-        auto srcPt = getPoint(srcId);
-        auto lineObj = std::dynamic_pointer_cast<Line>(getObject(lineId));
-        if (srcPt && lineObj) {
-          newPoint = std::make_shared<ReflectLine>(srcPt, lineObj, color);
-        }
-      } else if (type == "ReflectPoint") {
-        int srcId = t.value("sourceId", -1);
-        int centerId = t.value("centerId", -1);
-        auto srcPt = getPoint(srcId);
-        auto centerPt = getPoint(centerId);
-        if (srcPt && centerPt) {
-          newPoint = std::make_shared<ReflectPoint>(srcPt, centerPt, color);
-        }
-      } else if (type == "ReflectCircle") {
-        int srcId = t.value("sourceId", -1);
-        int circleId = t.value("circleId", -1);
-        auto srcPt = getPoint(srcId);
-        auto circleObj = std::dynamic_pointer_cast<Circle>(getObject(circleId));
-        if (srcPt && circleObj) {
-          newPoint = std::make_shared<ReflectCircle>(srcPt, circleObj, color);
-        }
-      } else if (type == "RotatePoint") {
-        int srcId = t.value("sourceId", -1);
-        int centerId = t.value("centerId", -1);
-        double angleDeg = t.value("angleDeg", 0.0);
-        auto srcPt = getPoint(srcId);
-        auto centerPt = getPoint(centerId);
-        if (srcPt && centerPt) {
-          newPoint =
-              std::make_shared<RotatePoint>(srcPt, centerPt, angleDeg, color);
-        }
-      } else if (type == "TranslateVector") {
-        int srcId = t.value("sourceId", -1);
-        int vStartId = t.value("vecStartId", -1);
-        int vEndId = t.value("vecEndId", -1);
-        auto srcPt = getPoint(srcId);
-        auto vStart = getPoint(vStartId);
-        auto vEnd = getPoint(vEndId);
-        if (srcPt && vStart && vEnd) {
-          newPoint =
-              std::make_shared<TranslateVector>(srcPt, vStart, vEnd, color);
-        }
-      } else if (type == "DilatePoint") {
-        int srcId = t.value("sourceId", -1);
-        int centerId = t.value("centerId", -1);
-        double factor = t.value("factor", 1.0);
-        auto srcPt = getPoint(srcId);
-        auto centerPt = getPoint(centerId);
-        if (srcPt && centerPt) {
-          newPoint =
-              std::make_shared<DilatePoint>(srcPt, centerPt, factor, color);
-        }
-      }
+            if (type == "ReflectLine") {
+                int srcId = t.value("sourceId", -1);
+                int lineId = t.value("lineId", -1);
+                auto srcPt = getPoint(srcId);
+                auto lineObj = std::dynamic_pointer_cast<Line>(getObject(lineId));
+                if (srcPt && lineObj) {
+                    newPoint = std::make_shared<ReflectLine>(srcPt, lineObj, color);
+                }
+            } else if (type == "ReflectPoint") {
+                int srcId = t.value("sourceId", -1);
+                int centerId = t.value("centerId", -1);
+                auto srcPt = getPoint(srcId);
+                auto centerPt = getPoint(centerId);
+                if (srcPt && centerPt) {
+                    newPoint = std::make_shared<ReflectPoint>(srcPt, centerPt, color);
+                }
+            } else if (type == "ReflectCircle") {
+                int srcId = t.value("sourceId", -1);
+                int circleId = t.value("circleId", -1);
+                auto srcPt = getPoint(srcId);
+                auto circleObj = std::dynamic_pointer_cast<Circle>(getObject(circleId));
+                if (srcPt && circleObj) {
+                    newPoint = std::make_shared<ReflectCircle>(srcPt, circleObj, color);
+                }
+            } else if (type == "RotatePoint") {
+                int srcId = t.value("sourceId", -1);
+                int centerId = t.value("centerId", -1);
+                double angleDeg = t.value("angleDeg", 0.0);
+                auto srcPt = getPoint(srcId);
+                auto centerPt = getPoint(centerId);
+                if (srcPt && centerPt) {
+                    newPoint = std::make_shared<RotatePoint>(srcPt, centerPt, angleDeg, color);
+                }
+            } else if (type == "TranslateVector") {
+                int srcId = t.value("sourceId", -1);
+                int vStartId = t.value("vecStartId", -1);
+                int vEndId = t.value("vecEndId", -1);
+                auto srcPt = getPoint(srcId);
+                auto vStart = getPoint(vStartId);
+                auto vEnd = getPoint(vEndId);
+                if (srcPt && vStart && vEnd) {
+                    newPoint = std::make_shared<TranslateVector>(srcPt, vStart, vEnd, color);
+                }
+            } else if (type == "DilatePoint") {
+                int srcId = t.value("sourceId", -1);
+                int centerId = t.value("centerId", -1);
+                double factor = t.value("factor", 1.0);
+                auto srcPt = getPoint(srcId);
+                auto centerPt = getPoint(centerId);
+                if (srcPt && centerPt) {
+                    newPoint = std::make_shared<DilatePoint>(srcPt, centerPt, factor, color);
+                }
+            }
 
-      if (newPoint) {
-        newPoint->setID(static_cast<unsigned int>(id));
-        applyCommonPointFields(jPoint, newPoint);
-        editor.points.push_back(newPoint);
-        registerObject(static_cast<unsigned int>(id), newPoint);
-      }
+            if (newPoint) {
+                newPoint->setID(static_cast<unsigned int>(id));
+                applyCommonPointFields(jPoint, newPoint);
+                
+                // REPLACEMENT LOGIC:
+                auto it = std::find_if(editor.points.begin(), editor.points.end(), 
+                    [&](const std::shared_ptr<Point>& p) { return p->getID() == static_cast<unsigned int>(id); });
+                    
+                if (it != editor.points.end()) {
+                    *it = newPoint; // Replace existing base point with ReflectPoint
+                } else {
+                    editor.points.push_back(newPoint);
+                }
+                
+                registerObject(static_cast<unsigned int>(id), newPoint);
+                processedDeferredPoints.insert(id);
+                progress = true; // Made progress, might unlock others
+            }
+        }
+        if (!progress) break; // No progress made, stop to avoid infinite loop (if dependencies missing)
     }
 
     // 3a.1 Resolve pending circles (after transform points exist)
@@ -802,13 +843,8 @@ bool Deserializer::loadProject(GeometryEditor& editor,
           }
         }
       }
-
-      if (vertexPoints.size() < 3) {
-        int id = polyJson.value("id", -1);
-        std::cerr << "[Deserializer] Warning: Polygon " << id
-                  << " missing valid vertex references. Skipped." << std::endl;
-        continue;
-      }
+        
+      if (vertexPoints.size() < 3) continue;
 
       sf::Color color = sf::Color::Black;
       if (polyJson.contains("color")) {
@@ -818,7 +854,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
       int id = polyJson.value("id", -1);
       auto polygon = std::make_shared<Polygon>(
           vertexPoints, color, static_cast<unsigned int>(std::max(id, 0)));
-
+          
       polygon->setThickness(
           polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
 
@@ -826,7 +862,47 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
       editor.polygons.push_back(polygon);
       if (id > 0) registerObject(static_cast<unsigned int>(id), polygon);
+
     }
+
+    // ========================================================================
+    // PASS 3b: RESTORE TRANSFORMATIONS (SHAPES & DEPENDENCIES)
+    // ========================================================================
+    std::cout << "[Deserializer] Pass 3b: Restoring Transformation Dependency Graph..." << std::endl;
+    
+    // Iterate all objects to re-link dependencies
+    for (auto& [id, obj] : objectMap) {
+        if (!obj) continue;
+        
+        // Skip Points (handled in deferred transform points or as base objects)
+        // We focus on higher-order shapes that lost their links
+        if (obj->getType() == ObjectType::Point) continue;
+
+        // Only process objects with a valid transform type
+        // Note: We ignore isDependent() check here because legacy/tool-created shapes
+        // might have transformType set but isDependent=false. We want to restore them.
+        if (obj->getTransformType() != TransformationType::None) {
+            unsigned int parentID = obj->getParentSourceID();
+            unsigned int auxID = obj->getAuxObjectID();
+
+            auto parent = getObject(parentID);
+            auto aux = getObject(auxID); // Can be null for some transforms
+
+            // CRITICAL: Ensure we don't self-reference or loop
+            if (parent && parent->getID() != obj->getID()) {
+                // Force dependent flag to true since it has a transform
+                obj->setDependent(true);
+                
+                // Restore the connection
+                // This re-registers observers and sets internal pointers
+                obj->restoreTransformation(parent, aux, obj->getTransformType());
+                
+                // Force an update to ensure geometry matches parents
+                obj->update(); 
+            }
+        }
+    }
+
 
     // 3b. Load ObjectPoints
     if (data.contains("objectPoints")) {
@@ -1099,7 +1175,6 @@ bool Deserializer::loadProject(GeometryEditor& editor,
     std::cout << "[Deserializer] Load Complete. ID Counter: "
               << editor.objectIdCounter << std::endl;
     return true;
-
   } catch (const std::exception& e) {
     std::cerr << "Deserializer::loadProject: Exception: " << e.what()
               << std::endl;
