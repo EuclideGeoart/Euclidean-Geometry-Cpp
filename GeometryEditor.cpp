@@ -634,9 +634,7 @@ void GeometryEditor::render() {
     
     for (const auto &pt : points) drawLabel(pt);
     for (const auto &op : ObjectPoints) drawLabel(op);
-    for (const auto& rect : rectangles) {
-    rect->drawLabel(window, drawingView);
-}
+    for (const auto &rect : rectangles) drawLabel(rect);
     for (const auto &reg : regularPolygons) drawLabel(reg);
     for (const auto &tri : triangles) drawLabel(tri);
     for (const auto &poly : polygons) drawLabel(poly);

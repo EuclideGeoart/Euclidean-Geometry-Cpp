@@ -122,6 +122,7 @@ class Rectangle : public GeometricObject {
   int m_hoveredVertex = -1;
   int m_activeVertex = -1;
   std::vector<sf::Vector2f> m_vertexLabelOffsets;  // Per-vertex label offsets (screen pixels)
+  std::vector<std::string> m_generatedLabels;      // Explicit labels for the 4 vertices (A, B, C, D replacement)
 
   // Helper methods
   void updateSFMLShape();

@@ -74,7 +74,8 @@ static std::shared_ptr<Point> createSmartPointFromClick(GeometryEditor& editor, 
       return std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
     }
 
-    if (hitObj->getType() == ObjectType::Line || hitObj->getType() == ObjectType::LineSegment) {
+    if (hitObj->getType() == ObjectType::Line || hitObj->getType() == ObjectType::LineSegment ||
+        hitObj->getType() == ObjectType::Ray) {
       auto linePtr = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitObj));
       if (linePtr && linePtr->isValid()) {
         Point_2 startPos = linePtr->getStartPoint();
@@ -1884,7 +1885,7 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
     sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
     sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
 
-    const float MAX_COORD = 1e15f;
+    const float MAX_COORD = 1e25f;
     if (!std::isfinite(worldPos_sfml.x) || !std::isfinite(worldPos_sfml.y) || std::abs(worldPos_sfml.x) > MAX_COORD ||
         std::abs(worldPos_sfml.y) > MAX_COORD) {
       std::cerr << "handleLineCreation: Mouse coordinates out of bounds" << std::endl;
@@ -2013,7 +2014,7 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
           return;
         }
 
-        const double MAX_COORD_SAFE = 1e8;
+        const double MAX_COORD_SAFE = 1e15;
         if (std::abs(p1_x_final) > MAX_COORD_SAFE || std::abs(p1_y_final) > MAX_COORD_SAFE || std::abs(p2_x_final) > MAX_COORD_SAFE ||
             std::abs(p2_y_final) > MAX_COORD_SAFE) {
           std::cerr << "Error: Line coordinates exceed safe range" << std::endl;
@@ -2224,248 +2225,41 @@ void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseBu
         return;
       }
 
-      Point_2 anchorPos_cgal = cgalWorldPos;
-      std::shared_ptr<Point> clickedExistingPt = nullptr;
+        // --- Standardized Point Selection (Step 2) ---
+        Point_2 anchorPos_cgal = cgalWorldPos;
+        std::shared_ptr<Point> clickedExistingPt = nullptr;
 
-      if (!clickedExistingPt) {
-        // Prefer snapping to lines (infinite/segment/ray) over nearby points
-        for (auto& linePtr : editor.lines) {
-          if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
-          if (!linePtr->contains(worldPos_sfml, tolerance)) continue;
-
-          try {
-            Point_2 startPos = linePtr->getStartPoint();
-            Point_2 endPos = linePtr->getEndPoint();
-            double relativePos = ProjectionUtils::getRelativePositionOnLine(
-                cgalWorldPos, startPos, endPos, linePtr->isSegment());
-            auto objPoint = ObjectPoint::create(linePtr, relativePos, Constants::OBJECT_POINT_DEFAULT_COLOR);
-            if (objPoint && objPoint->isValid()) {
-              editor.ObjectPoints.push_back(objPoint);
-              editor.commandManager.pushHistoryOnly(
-                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
-              clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-              anchorPos_cgal = clickedExistingPt->getCGALPosition();
-              std::cout << "Parallel Tool: Snapped to line." << std::endl;
-              break;
-            }
-          } catch (const std::exception& e) {
-            std::cerr << "Parallel Tool: Error snapping to line: " << e.what() << std::endl;
-          }
+        std::shared_ptr<Point> finalPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+        if (!finalPoint) {
+        editor.resetParallelLineToolState();
+        return;
         }
-      }
 
-      if (!clickedExistingPt) {
-        std::shared_ptr<Point> anchor = PointUtils::findAnchorPoint(editor, worldPos_sfml, tolerance * 1.5f);
-        if (anchor) {
-          clickedExistingPt = anchor;
-          anchorPos_cgal = anchor->getCGALPosition();
-
-          bool exists = false;
-          for (const auto& p : editor.points) {
-            if (p == clickedExistingPt) {
-              exists = true;
-              break;
-            }
-          }
-          if (!exists) {
-            for (const auto& p : editor.ObjectPoints) {
-              if (p == clickedExistingPt) {
-                exists = true;
-                break;
-              }
-            }
-          }
-          if (!exists) {
-            if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedExistingPt)) {
-              editor.ObjectPoints.push_back(objPt);
-            }
-          }
-        }
-      }
-
-      if (clickedExistingPt && !clickedExistingPt->isValid()) {
-        clickedExistingPt.reset();
-      }
-
-      if (!clickedExistingPt) {
-        auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance * 2.0f);
-        if (edgeHit.has_value()) {
-          const auto& hit = edgeHit.value();
-
-          if (Circle* circle = dynamic_cast<Circle*>(hit.host)) {
-            for (auto& circlePtr : editor.circles) {
-              if (circlePtr.get() == circle) {
-                auto objPoint = ObjectPoint::create(circlePtr, hit.relativePosition * 2.0 * M_PI,
-                                                    Constants::OBJECT_POINT_DEFAULT_COLOR);
-                if (objPoint && objPoint->isValid()) {
-                  editor.ObjectPoints.push_back(objPoint);
-                  clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
-                }
-                break;
-              }
-            }
-          } else {
-            std::shared_ptr<GeometricObject> hostPtr = nullptr;
-            auto findHost = [&](auto& container) {
-              for (auto& shape : container) {
-                if (shape.get() == hit.host) {
-                  hostPtr = std::static_pointer_cast<GeometricObject>(shape);
-                  return true;
-                }
-              }
-              return false;
-            };
-
-            if (findHost(editor.rectangles) || findHost(editor.polygons) || findHost(editor.regularPolygons) ||
-                findHost(editor.triangles)) {
-              if (hostPtr) {
-                auto objPoint = ObjectPoint::createOnShapeEdge(hostPtr, hit.edgeIndex, hit.relativePosition);
-                if (objPoint && objPoint->isValid()) {
-                  editor.ObjectPoints.push_back(objPoint);
-                  clickedExistingPt = objPoint;
-                  anchorPos_cgal = clickedExistingPt->getCGALPosition();
-                }
-              }
-            }
-          }
-        }
-      }
-
-      if (!clickedExistingPt) {
-        // Check for infinite lines and create ObjectPoint if near one
-        for (auto& linePtr : editor.lines) {
-          if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
-
-          // Skip the reference line itself if one is set
-          if (auto refObj = editor.m_parallelReference.lock()) {
-            if (linePtr.get() == refObj.get()) continue;
-          }
-
-          if (!linePtr->contains(worldPos_sfml, tolerance)) continue;
-
-          try {
-            Point_2 startP = linePtr->getStartPoint();
-            Point_2 endP = linePtr->getEndPoint();
-            Line_2 hostLine = linePtr->getCGALLine();
-            Point_2 projectedPoint = hostLine.projection(cgalWorldPos);
-
-            Vector_2 lineVec = endP - startP;
-            double lineLenSq = CGAL::to_double(lineVec.squared_length());
-            double t = 0.0;
-            if (lineLenSq > 0.0) {
-              Vector_2 toProj = projectedPoint - startP;
-              t = CGAL::to_double(toProj * lineVec) / lineLenSq;
-              if (linePtr->isSegment()) {
-                t = std::max(0.0, std::min(1.0, t));
-              }
-            }
-
-            auto objPoint = ObjectPoint::create(linePtr, t, Constants::OBJECT_POINT_DEFAULT_COLOR);
-            if (objPoint && objPoint->isValid()) {
-              objPoint->setDependent(true);
-              objPoint->setLabel(LabelManager::getNextLabel(editor.points));
-              objPoint->setShowLabel(true);
-              editor.ObjectPoints.push_back(objPoint);
-              editor.commandManager.pushHistoryOnly(
-                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
-              clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-              anchorPos_cgal = clickedExistingPt->getCGALPosition();
-              std::cout << "Parallel Tool: Created ObjectPoint on line." << std::endl;
-              break;
-            }
-          } catch (const std::exception& e) {
-            std::cerr << "Error checking line for ObjectPoint creation: " << e.what() << std::endl;
-          }
-        }
-      }
+        clickedExistingPt = finalPoint;
+        anchorPos_cgal = clickedExistingPt->getCGALPosition();
 
       Vector_2 unit_construction_dir;
       try {
         unit_construction_dir = CGALSafeUtils::normalize_vector_robust(editor.m_parallelReferenceDirection,
                                                                        "ParallelCreate_normalize_ref_dir");
       } catch (const std::runtime_error& e) {
-        std::cerr << "CRITICAL_ERROR (Parallel): Normalizing construction direction: " << e.what() << std::endl;
+        std::cerr << "CRITICAL (Parallel): Normalizing dir: " << e.what() << std::endl;
         editor.resetParallelLineToolState();
         return;
       }
-
       Kernel::FT constructionLength_ft = Kernel::FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
 
-      Point_2 p1_final_pos = anchorPos_cgal;
-      Point_2 p2_final_pos = anchorPos_cgal + (unit_construction_dir * constructionLength_ft * 0.5);
-
-      std::shared_ptr<Point> finalStartPoint = nullptr;
+      // Proceed to create P2 and Line
+      std::shared_ptr<Point> finalStartPoint = clickedExistingPt;
+      Point_2 p2_final_pos = finalStartPoint->getCGALPosition() + (unit_construction_dir * constructionLength_ft);
       std::shared_ptr<Point> finalEndPoint = nullptr;
 
-      if (clickedExistingPt) {
-        finalStartPoint = clickedExistingPt;
-        p2_final_pos = finalStartPoint->getCGALPosition() + (unit_construction_dir * constructionLength_ft);
-
-        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-        if (!newP2 || !newP2->isValid()) {
-          std::cerr << "CRITICAL_ERROR (Parallel): Failed to create valid newP2." << std::endl;
-          editor.resetParallelLineToolState();
-          return;
-        }
-        newP2->setVisible(false);
-        editor.points.push_back(newP2);
-        editor.commandManager.pushHistoryOnly(
-            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
-        finalEndPoint = newP2;
-      }
-
-      if (!clickedExistingPt) {
-          // New: Try to find an edge to snap to
-          auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
-          if (edgeHit && edgeHit->host) {
-              auto hostPtr = editor.findSharedPtr(edgeHit->host);
-              if (hostPtr) {
-                  std::shared_ptr<ObjectPoint> objPoint = nullptr;
-                  if (hostPtr->getType() == ObjectType::Line || hostPtr->getType() == ObjectType::LineSegment) {
-                      if (auto linePtr = std::dynamic_pointer_cast<Line>(hostPtr)) {
-                          objPoint = ObjectPoint::create(linePtr, edgeHit->relativePosition, Constants::OBJECT_POINT_DEFAULT_COLOR);
-                      }
-                  } else {
-                      objPoint = ObjectPoint::createOnShapeEdge(hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
-                  }
-
-                  if (objPoint && objPoint->isValid()) {
-                      objPoint->setLabel(LabelManager::getNextLabel(editor.points));
-                      objPoint->setShowLabel(true);
-                       // We must add it to the editor immediately so it persists
-                      editor.ObjectPoints.push_back(objPoint);
-                      editor.commandManager.pushHistoryOnly(
-                          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
-                      
-                      clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-                      std::cout << "Parallel Tool: Snapped to edge/line." << std::endl;
-                  }
-              }
-          }
-      }
-
-      if (!clickedExistingPt) {
-        auto newP1 = editor.createPoint(p1_final_pos);
-        if (newP1) newP1->setColor(Constants::POINT_DEFAULT_COLOR);
-        
-        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-
-        if (!newP1 || !newP1->isValid() || !newP2 || !newP2->isValid()) {
-          std::cerr << "CRITICAL_ERROR (Parallel): Failed to create valid points." << std::endl;
-          editor.resetParallelLineToolState();
-          return;
-        }
-        newP2->setVisible(false);
-        // editor.points.push_back(newP1); // createPoint adds it
-        editor.points.push_back(newP2);
-
-        editor.commandManager.pushHistoryOnly(
-            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP1)));
-        editor.commandManager.pushHistoryOnly(
-            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
-        finalStartPoint = newP1;
-        finalEndPoint = newP2;
+      std::shared_ptr<Point> newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+      if (newP2 && newP2->isValid()) {
+           newP2->setVisible(false);
+           editor.points.push_back(newP2);
+           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
+           finalEndPoint = newP2;
       }
 
       if (finalStartPoint && finalEndPoint && finalStartPoint->isValid() && finalEndPoint->isValid()) {
@@ -2626,133 +2420,18 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
         return;
       }
 
-      Point_2 anchorPos_cgal = cgalWorldPos;
-      std::shared_ptr<Point> clickedExistingPt = nullptr;
+        // --- Standardized Point Selection (Step 2) ---
+        Point_2 anchorPos_cgal = cgalWorldPos;
+        std::shared_ptr<Point> clickedExistingPt = nullptr;
 
-      if (!clickedExistingPt) {
-        // Prefer snapping to lines (infinite/segment/ray) over nearby points
-        for (auto& linePtr : editor.lines) {
-          if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
-          if (!linePtr->contains(worldPos_sfml, tolerance)) continue;
-
-          try {
-            Point_2 startPos = linePtr->getStartPoint();
-            Point_2 endPos = linePtr->getEndPoint();
-            double relativePos = ProjectionUtils::getRelativePositionOnLine(
-                cgalWorldPos, startPos, endPos, linePtr->isSegment());
-            auto objPoint = ObjectPoint::create(linePtr, relativePos, Constants::OBJECT_POINT_DEFAULT_COLOR);
-            if (objPoint && objPoint->isValid()) {
-              editor.ObjectPoints.push_back(objPoint);
-              editor.commandManager.pushHistoryOnly(
-                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
-              clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-              anchorPos_cgal = clickedExistingPt->getCGALPosition();
-              std::cout << "Perp Tool: Snapped to line." << std::endl;
-              break;
-            }
-          } catch (const std::exception& e) {
-            std::cerr << "Perp Tool: Error snapping to line: " << e.what() << std::endl;
-          }
+        std::shared_ptr<Point> finalPoint = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
+        if (!finalPoint) {
+        editor.resetPerpendicularLineToolState();
+        return;
         }
-      }
 
-      if (!clickedExistingPt) {
-        GeometricObject* hitObj = editor.lookForObjectAt(
-            worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
-        if (hitObj) {
-          clickedExistingPt = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitObj));
-          if (clickedExistingPt) std::cout << "Perp Tool: Snapped to existing point." << std::endl;
-        }
-      }
-
-      if (clickedExistingPt && !clickedExistingPt->isValid()) {
-        clickedExistingPt.reset();
-      }
-
-      if (!clickedExistingPt) {
-          // New: Try to find an edge to snap to
-          auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
-          if (edgeHit && edgeHit->host) {
-              auto hostPtr = editor.findSharedPtr(edgeHit->host);
-              if (hostPtr) {
-                  std::shared_ptr<ObjectPoint> objPoint = nullptr;
-                  if (hostPtr->getType() == ObjectType::Line || hostPtr->getType() == ObjectType::LineSegment) {
-                      if (auto linePtr = std::dynamic_pointer_cast<Line>(hostPtr)) {
-                          objPoint = ObjectPoint::create(linePtr, edgeHit->relativePosition, Constants::OBJECT_POINT_DEFAULT_COLOR);
-                      }
-                  } else {
-                      objPoint = ObjectPoint::createOnShapeEdge(hostPtr, edgeHit->edgeIndex, edgeHit->relativePosition);
-                  }
-
-                  if (objPoint && objPoint->isValid()) {
-                      objPoint->setLabel(LabelManager::getNextLabel(editor.points));
-                      objPoint->setShowLabel(true);
-                      // We must add it to the editor immediately so it persists
-                      editor.ObjectPoints.push_back(objPoint);
-                      editor.commandManager.pushHistoryOnly(
-                          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
-                      
-                      clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-                      std::cout << "Perp Tool: Snapped to edge/line." << std::endl;
-                  }
-              }
-          }
-      }
-
-      if (!clickedExistingPt) {
-        // Check for infinite lines and create ObjectPoint if near one
-        for (auto& linePtr : editor.lines) {
-          if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
-
-          // Skip the reference line itself if one is set
-          if (auto refObj = editor.m_perpendicularReference.lock()) {
-            if (linePtr.get() == refObj.get()) continue;
-          }
-
-          if (!linePtr->contains(worldPos_sfml, tolerance)) continue;
-
-          try {
-            Point_2 startP = linePtr->getStartPoint();
-            Point_2 endP = linePtr->getEndPoint();
-            Line_2 hostLine = linePtr->getCGALLine();
-            Point_2 projectedPoint = hostLine.projection(cgalWorldPos);
-
-            Vector_2 lineVec = endP - startP;
-            double lineLenSq = CGAL::to_double(lineVec.squared_length());
-            double t = 0.0;
-            if (lineLenSq > 0.0) {
-              Vector_2 toProj = projectedPoint - startP;
-              t = CGAL::to_double(toProj * lineVec) / lineLenSq;
-              if (linePtr->isSegment()) {
-                t = std::max(0.0, std::min(1.0, t));
-              }
-            }
-
-            auto objPoint = ObjectPoint::create(linePtr, t, Constants::OBJECT_POINT_DEFAULT_COLOR);
-            if (objPoint && objPoint->isValid()) {
-              objPoint->setDependent(true);
-              objPoint->setLabel(LabelManager::getNextLabel(editor.points));
-              objPoint->setShowLabel(true);
-              editor.ObjectPoints.push_back(objPoint);
-              editor.commandManager.pushHistoryOnly(
-                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
-              clickedExistingPt = std::static_pointer_cast<Point>(objPoint);
-              std::cout << "Perp Tool: Created ObjectPoint on line." << std::endl;
-              break;
-            }
-          } catch (const std::exception& e) {
-            std::cerr << "Error checking line for ObjectPoint creation: " << e.what() << std::endl;
-          }
-        }
-      }
-
-      if (!clickedExistingPt) {
-        clickedExistingPt = PointUtils::createSmartPoint(editor, worldPos_sfml, tolerance);
-      }
-
-      if (clickedExistingPt) {
+        clickedExistingPt = finalPoint;
         anchorPos_cgal = clickedExistingPt->getCGALPosition();
-      }
 
       Vector_2 perp_to_ref_dir(-editor.m_perpendicularReferenceDirection.y(), editor.m_perpendicularReferenceDirection.x());
 
@@ -2766,46 +2445,17 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
       }
 
       Kernel::FT constructionLength_ft = Kernel::FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
+      Point_2 p2_final_pos = anchorPos_cgal + (unit_construction_dir * constructionLength_ft);
 
-      Point_2 p1_final_pos = anchorPos_cgal;
-      Point_2 p2_final_pos = anchorPos_cgal + (unit_construction_dir * constructionLength_ft * 0.5);
-
-      std::shared_ptr<Point> finalStartPoint = nullptr;
+      std::shared_ptr<Point> finalStartPoint = clickedExistingPt;
       std::shared_ptr<Point> finalEndPoint = nullptr;
-
-      if (clickedExistingPt) {
-        finalStartPoint = clickedExistingPt;
-        p2_final_pos = finalStartPoint->getCGALPosition() + (unit_construction_dir * constructionLength_ft);
-
-        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-        if (!newP2 || !newP2->isValid()) {
-          std::cerr << "CRITICAL_ERROR (Perp): Failed to create valid newP2." << std::endl;
-          editor.resetPerpendicularLineToolState();
-          return;
-        }
-        newP2->setVisible(false);
-        editor.points.push_back(newP2);
-        editor.commandManager.pushHistoryOnly(
-            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
-        finalEndPoint = newP2;
-      } else {
-        auto newP1 = std::make_shared<Point>(p1_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-        auto newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-
-        if (!newP1 || !newP1->isValid() || !newP2 || !newP2->isValid()) {
-          std::cerr << "CRITICAL_ERROR (Perp): Failed to create valid points." << std::endl;
-          editor.resetPerpendicularLineToolState();
-          return;
-        }
-        newP2->setVisible(false);
-        editor.points.push_back(newP1);
-        editor.points.push_back(newP2);
-        editor.commandManager.pushHistoryOnly(
-            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP1)));
-        editor.commandManager.pushHistoryOnly(
-            std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
-        finalStartPoint = newP1;
-        finalEndPoint = newP2;
+      
+      std::shared_ptr<Point> newP2 = std::make_shared<Point>(p2_final_pos, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
+      if (newP2 && newP2->isValid()) {
+           newP2->setVisible(false);
+           editor.points.push_back(newP2);
+           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
+           finalEndPoint = newP2;
       }
 
       if (finalStartPoint && finalEndPoint && finalStartPoint->isValid() && finalEndPoint->isValid()) {
@@ -4568,10 +4218,92 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
         sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
         sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+        Point_2 cgalWorldPos = editor.toCGALPoint(worldPos);
         float tolerance = getDynamicSnapTolerance(editor);
 
-        // Try to snap
-        std::shared_ptr<Point> clickedPoint = createSmartPointFromClick(editor, worldPos, tolerance);
+        std::shared_ptr<Point> clickedPoint = nullptr;
+
+        // Prioritize line snapping over point snapping (same as parallel/perpendicular tools)
+        for (auto& linePtr : editor.lines) {
+          if (!linePtr || !linePtr->isValid() || !linePtr->isVisible()) continue;
+          if (!linePtr->contains(worldPos, tolerance)) continue;
+
+          try {
+            // Prefer snapping to existing line/segment endpoints (and ray start) if close
+            auto startPoint = linePtr->getStartPointObjectShared();
+            if (startPoint && startPoint->isValid()) {
+              sf::Vector2f startSFML = Point::cgalToSFML(startPoint->getCGALPosition());
+              sf::Vector2f delta = worldPos - startSFML;
+              float distSq = delta.x * delta.x + delta.y * delta.y;
+              if (distSq <= tolerance * tolerance) {
+                clickedPoint = startPoint;
+                break;
+              }
+            }
+
+            auto endPoint = linePtr->getEndPointObjectShared();
+            if (endPoint && endPoint->isValid()) {
+              sf::Vector2f endSFML = Point::cgalToSFML(endPoint->getCGALPosition());
+              sf::Vector2f delta = worldPos - endSFML;
+              float distSq = delta.x * delta.x + delta.y * delta.y;
+              if (distSq <= tolerance * tolerance) {
+                clickedPoint = endPoint;
+                break;
+              }
+            }
+
+            Point_2 startPos = linePtr->getStartPoint();
+            Point_2 endPos = linePtr->getEndPoint();
+            double relativePos = ProjectionUtils::getRelativePositionOnLine(
+                cgalWorldPos, startPos, endPos, linePtr->isSegment());
+            auto objPoint = ObjectPoint::create(linePtr, relativePos, Constants::OBJECT_POINT_DEFAULT_COLOR);
+            if (objPoint && objPoint->isValid()) {
+              editor.ObjectPoints.push_back(objPoint);
+              editor.commandManager.pushHistoryOnly(
+                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(objPoint)));
+              clickedPoint = std::static_pointer_cast<Point>(objPoint);
+              break;
+            }
+          } catch (...) {
+            continue;
+          }
+        }
+
+        // Fallback to anchor point snapping if no line was hit
+        if (!clickedPoint) {
+          clickedPoint = PointUtils::findAnchorPoint(editor, worldPos, tolerance * 1.5f);
+          if (clickedPoint) {
+            // Check if point already exists in editor collections
+            bool exists = false;
+            for (const auto& p : editor.points) {
+              if (p == clickedPoint) { exists = true; break; }
+            }
+            if (!exists) {
+              for (const auto& p : editor.ObjectPoints) {
+                if (p == clickedPoint) { exists = true; break; }
+              }
+            }
+            // Add to appropriate collection if not exists
+            if (!exists) {
+              if (auto objPt = std::dynamic_pointer_cast<ObjectPoint>(clickedPoint)) {
+                editor.ObjectPoints.push_back(objPt);
+              } else {
+                editor.points.push_back(clickedPoint);
+              }
+              editor.commandManager.pushHistoryOnly(
+                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(clickedPoint)));
+            }
+          } else {
+            // Create new free point
+            auto newPoint = editor.createPoint(cgalWorldPos);
+            if (newPoint) {
+              editor.commandManager.pushHistoryOnly(
+                  std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+              clickedPoint = newPoint;
+            }
+          }
+        }
+
         if (!clickedPoint) return;
 
         if (!isCreatingRay) {
