@@ -349,7 +349,7 @@ public:
                  std::sqrt(CGAL::to_double(CGAL::squared_distance(radP1->getCGALPosition(), radP2->getCGALPosition()))),
                  color),
           centerPt(center), radiusP1(radP1), radiusP2(radP2) {
-          // Circle does not have setDependent
+          setDependent(true);
     }
 
     // Constructor: Center + Line/Segment for Radius
@@ -358,38 +358,75 @@ public:
                  std::sqrt(CGAL::to_double(CGAL::squared_distance(radLine->getStartPoint(), radLine->getEndPoint()))),
                  color),
           centerPt(center), radiusLine(radLine) {
+          setDependent(true);
+    }
+
+    // Override this to tell the Editor "Don't try to resize me"
+    virtual bool isResizable() const override { return false; }
+
+    void setRadius(double r) override {
+        // 1. Check if we are a "Live" Compass (bound to parents)
+        bool hasParents = (radiusP1 && radiusP2) || (radiusLine);
+
+        if (hasParents) {
+            // IGNORE the resize request. 
+            // Our radius is determined strictly by our parents.
+            return; 
+        }
+
+        // 2. If we are a "broken" compass (static), behave like a normal circle
+        Circle::setRadius(r);
     }
 
     void update() override {
-        if (!centerPt || !centerPt->isValid() || !centerPt->isVisible()) {
-            setVisible(false);
-            return;
+    if (!centerPt || !centerPt->isValid() || !centerPt->isVisible()) {
+        setVisible(false);
+        return;
+    }
+
+    // --- FIX 1: FLATTEN THE CENTER POINT (Prevents Stack Overflow) ---
+    // We get the raw position, convert to double, and make a NEW point.
+    // This strips away the massive "history tree" that causes the crash.
+    Point_2 rawPos = centerPt->getCGALPosition();
+    Point_2 flatCenter(CGAL::to_double(rawPos.x()), CGAL::to_double(rawPos.y()));
+
+    // Use the Base Class setter to avoid any overrides
+    Circle::setCenter(flatCenter); 
+    // ---------------------------------------------------------------
+
+    double newRadius = 0.0;
+    bool radValid = false;
+
+    // Calculate Radius (The math here converts to double, so it is already "flat")
+    if (radiusLine) {
+        if (radiusLine->isValid() && radiusLine->isVisible()) {
+            // Optimization: Use getSquaredLength() if available on your Line class
+            newRadius = std::sqrt(CGAL::to_double(CGAL::squared_distance(radiusLine->getStartPoint(), radiusLine->getEndPoint())));
+            radValid = true;
         }
-
-        double newRadius = 0.0;
-        bool radValid = false;
-
-        if (radiusLine) {
-            if (radiusLine->isValid() && radiusLine->isVisible()) {
-                newRadius = std::sqrt(CGAL::to_double(CGAL::squared_distance(radiusLine->getStartPoint(), radiusLine->getEndPoint())));
-                radValid = true;
-            }
-        } else if (radiusP1 && radiusP2) {
-            if (radiusP1->isValid() && radiusP2->isValid()) {
-                newRadius = std::sqrt(CGAL::to_double(CGAL::squared_distance(radiusP1->getCGALPosition(), radiusP2->getCGALPosition())));
-                radValid = true;
-            }
-        }
-
-        if (radValid && newRadius > Constants::EPSILON_LENGTH_CONSTRUCTION) {
-            setCenter(centerPt->getCGALPosition());
-            setRadius(newRadius);
-            setVisible(true);
-            Circle::update();
-        } else {
-            setVisible(false);
+    } else if (radiusP1 && radiusP2) {
+        if (radiusP1->isValid() && radiusP2->isValid()) {
+            newRadius = std::sqrt(CGAL::to_double(CGAL::squared_distance(radiusP1->getCGALPosition(), radiusP2->getCGALPosition())));
+            radValid = true;
         }
     }
+
+    if (radValid && newRadius > Constants::EPSILON_LENGTH_CONSTRUCTION) {
+        
+        // --- FIX 2: APPLY RADIUS DIRECTLY ---
+        // We call the Base Class setRadius to bypass the "Block" we added to CompassCircle.
+        Circle::setRadius(newRadius);
+        
+        setVisible(true);
+        
+        // Update the visual representation (SFML shape)
+        // If Circle::update() calls updateSFMLShape(), this is fine.
+        // Otherwise, call updateSFMLShape() directly.
+        Circle::updateSFMLShape(); 
+    } else {
+        setVisible(false);
+    }
+}
 
 private:
     std::shared_ptr<Point> centerPt;

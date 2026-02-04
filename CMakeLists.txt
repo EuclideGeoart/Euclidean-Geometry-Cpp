@@ -93,6 +93,7 @@ set(SOURCES
     HandleEvents.cpp
     HandleMousePress.cpp
     Transforms.cpp
+    IntersectionPoint.cpp
     Intersection.cpp
     IntersectionSystem.cpp
     GMP_exception_handler.cpp

@@ -1196,6 +1196,52 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     }
   }
 
+  // Handle Compass Tool Preview
+  if (shouldUpdatePreview && editor.getCurrentTool() == ObjectType::Compass) {
+    double radius = 0.0;
+    bool radiusDefined = false;
+
+    if (editor.m_compassSelection.size() == 1 && editor.m_compassSelection[0]->getType() == ObjectType::LineSegment) {
+       auto line = static_cast<Line*>(editor.m_compassSelection[0]);
+       radius = std::sqrt(CGAL::to_double(CGAL::squared_distance(line->getStartPoint(), line->getEndPoint())));
+       radiusDefined = true;
+    } else if (editor.m_compassSelection.size() == 2) {
+       auto p1 = static_cast<Point*>(editor.m_compassSelection[0]); 
+       auto p2 = static_cast<Point*>(editor.m_compassSelection[1]);
+       if (p1 && p2) {
+          radius = std::sqrt(CGAL::to_double(CGAL::squared_distance(p1->getCGALPosition(), p2->getCGALPosition())));
+          radiusDefined = true;
+       }
+    }
+
+    if (radiusDefined) {
+      if (!editor.m_previewCompassCenter) {
+           editor.m_previewCompassCenter = std::make_shared<Point>(cgalWorldPos, 4.0f, sf::Color::Transparent);
+           editor.m_previewCompassCenter->setVisible(false); // Hide the point itself, only show circle
+      } else {
+           editor.m_previewCompassCenter->setCGALPosition(cgalWorldPos);
+      }
+
+      if (!editor.previewCircle) {
+         // Create visual only circle - center is our temp point
+         editor.previewCircle = std::make_shared<Circle>(editor.m_previewCompassCenter.get(), nullptr, radius, editor.getCurrentColor());
+      } else {
+         // Update existing preview
+         // Since center point is shared, moving m_previewCompassCenter should update circle effectively
+         // But we might need to update radius if it changed (e.g. if user is somehow modifying selection? unlikely here but safe)
+          editor.previewCircle->setRadius(radius);
+         
+         // If previewCircle was created differently, ensure it uses our center
+         if (editor.previewCircle->getCenterPointObject() != editor.m_previewCompassCenter.get()) {
+              editor.previewCircle = std::make_shared<Circle>(editor.m_previewCompassCenter.get(), nullptr, radius, editor.getCurrentColor());
+         }
+      }
+    } else {
+        editor.previewCircle.reset();
+        editor.m_previewCompassCenter.reset();
+    }
+  }
+
   // Handle dragging
   if (editor.isDragging) {
     if (editor.selectedObject && editor.selectedObject->isLocked()) {
@@ -1207,6 +1253,11 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     QUICK_PROFILE("DragOperations");
     // 1. Calculate Raw World Position from Mouse
     Point_2 targetPos = editor.toCGALPoint(worldPos);
+    
+    // =========================================================
+    // FIX: Flatten the point immediately to prevent Stack Overflow
+    // =========================================================
+    targetPos = flattenPoint(targetPos); 
 
     // 2a. ATOMIC TOPOLOGICAL TRANSLATION (Gather → Move → Update)
     if (editor.selectedObjects.size() > 1) {
@@ -1699,6 +1750,13 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Circle) {
           Circle* selectedCircle = static_cast<Circle*>(editor.selectedObject);
           if (!selectedCircle || !selectedCircle->isValid()) return;
+          
+          // FIX: Prevent dragging of dependent circles (like CompassCircle)
+          // Users should move the defining points instead.
+          if (selectedCircle->isDependent()) {
+              return;
+          }
+
           // Translate continuously while dragging to avoid jitter from hover checks
           sf::Vector2f delta_sfml = worldPos - editor.lastMousePos_sfml;
           Vector_2 delta_cgal = editor.toCGALVector(delta_sfml);

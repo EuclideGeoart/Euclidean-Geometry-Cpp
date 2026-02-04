@@ -231,6 +231,10 @@ class GeometryEditor {
   bool showRegularPolygonSidesPopup = false;
   std::shared_ptr<RegularPolygon> previewRegularPolygon;  // Preview during creation
 
+  // Compass Tool State
+  std::vector<GeometricObject*> m_compassSelection;
+  std::shared_ptr<Point> m_previewCompassCenter;
+
   // Triangle Creation
   bool isCreatingTriangle = false;        // Flag indicating if a triangle is being created
   std::vector<Point_2> triangleVertices;  // Vertices being added to triangle (up to 3)

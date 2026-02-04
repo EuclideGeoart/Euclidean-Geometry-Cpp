@@ -98,6 +98,9 @@ class GeometricObject {
   // Locking
   virtual void setLocked(bool locked);
   virtual bool isLocked() const;
+  
+  // Resizability
+  virtual bool isResizable() const { return true; }
   virtual void lock() { setLocked(true); }
   virtual void unlock() { setLocked(false); }
   virtual void setDependent(bool dependent) { m_isDependent = dependent; }
