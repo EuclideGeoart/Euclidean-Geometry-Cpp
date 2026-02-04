@@ -156,12 +156,46 @@ static std::optional<IntersectionHit> getHoveredIntersection(
 /**
  * @brief Utility for automatic label generation
  */
+/**
+ * @brief Utility for automatic label generation
+ */
 class LabelManager {
 public:
+    static LabelManager& instance() {
+        static LabelManager inst;
+        return inst;
+    }
+
+    // Visibility toggle
+    void setVisible(bool visible) { m_visible = visible; }
+    bool isVisible() const { return m_visible; }
+    void toggleVisible() { m_visible = !m_visible; }
+
+    // Font size control
+    void setFontSize(unsigned int size) { m_fontSize = size; }
+    unsigned int getFontSize() const { return m_fontSize; }
+
     /**
-     * @brief Generates the next available label (A..Z, A'..Z', A_1..Z_1)
+     * @brief Generates the next available label (A..Z, A₁..Z₁, A₂..Z₂)
      * @param existingPoints Collection of points to check for collision
      * @return Unique label string
      */
-    static std::string getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints);
+    std::string getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints);
+
+    /**
+     * @brief Generates multiple unique labels at once
+     * @param count Number of labels needed
+     * @param existingPoints Collection of points to check for collision
+     * @return Vector of unique label strings
+     */
+    std::vector<std::string> getNextLabels(int count, const std::vector<std::shared_ptr<Point>>& existingPoints);
+
+private:
+    LabelManager() : m_visible(true), m_fontSize(18) {}
+    ~LabelManager() = default;
+    LabelManager(const LabelManager&) = delete;
+    LabelManager& operator=(const LabelManager&) = delete;
+
+    bool m_visible;
+    unsigned int m_fontSize;
 };

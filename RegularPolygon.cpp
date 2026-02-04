@@ -2,28 +2,25 @@
 #include "Point.h"
 #include "Line.h"
 #include "Circle.h"
-#include "VertexLabelManager.h"
 #include <cmath>
 RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
                                const sf::Color &color, unsigned int id)
     : GeometricObject(ObjectType::RegularPolygon, color, id),
-  m_centerPoint(std::make_shared<Point>(center, 1.0f)),
-  m_firstVertexPoint(std::make_shared<Point>(firstVertex, 1.0f)),
+      m_centerPoint(std::make_shared<Point>(center, 1.0f)),
+      m_firstVertexPoint(std::make_shared<Point>(firstVertex, 1.0f)),
       m_numSides(numSides),
       m_rotationAngle(0) {
-  m_color.a = 0;  // Default to transparent fill
+  m_color.a = 0; // Default transparent fill
   if (m_numSides < 3) m_numSides = 3;
 
-  // Calculate radius from center to first vertex
   double dx = CGAL::to_double(firstVertex.x()) - CGAL::to_double(center.x());
   double dy = CGAL::to_double(firstVertex.y()) - CGAL::to_double(center.y());
   m_radius = std::sqrt(dx * dx + dy * dy);
-
-  // Calculate initial rotation angle
   m_rotationAngle = std::atan2(dy, dx);
 
   generateVertices();
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
@@ -35,8 +32,11 @@ RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
                                      : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
       m_numSides(numSides),
       m_rotationAngle(0) {
-  m_color.a = 0;
+  m_color.a = 0; // Default transparent fill
   if (m_numSides < 3) m_numSides = 3;
+
+  if (m_centerPoint) m_centerPoint->addDependent(m_selfHandle);
+  if (m_firstVertexPoint) m_firstVertexPoint->addDependent(m_selfHandle);
 
   Point_2 centerPos = m_centerPoint->getCGALPosition();
   Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
@@ -47,6 +47,7 @@ RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
 
   generateVertices();
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 void RegularPolygon::generateVertices() {
@@ -157,7 +158,20 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
     }
   }
 
+  // Delegate drawing to key points
+  if (m_centerPoint) m_centerPoint->draw(window, scale, forceVisible);
+  if (m_firstVertexPoint) m_firstVertexPoint->draw(window, scale, forceVisible);
+
   drawVertexHandles(window, scale);
+}
+
+// RegularPolygon-specific drawing passers for labels
+void RegularPolygon::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
+    if (!m_visible) return;
+    
+    // Delegate label drawing to center and first vertex if they exist
+    if (m_centerPoint) m_centerPoint->drawLabelExplicit(window, worldView);
+    if (m_firstVertexPoint) m_firstVertexPoint->drawLabelExplicit(window, worldView);
 }
 
 void RegularPolygon::update() {

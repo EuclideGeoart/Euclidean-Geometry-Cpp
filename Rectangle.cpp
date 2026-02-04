@@ -1,14 +1,14 @@
 #include "Rectangle.h"
-// Force recompile to resolve vtable linker error.
 
+#include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <optional>
 
-#include "Point.h"
-#include "Line.h"
 #include "Circle.h"
-#include "VertexLabelManager.h"
-
+#include "Constants.h"
+#include "Line.h"
+#include "Point.h"
 
 Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRotatable, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Rectangle, color, id),
@@ -19,28 +19,16 @@ Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRota
       m_height(0),
       m_rotationAngle(0),
       m_center(FT(0), FT(0)) {
-  m_color.a = 0;
+  m_color.a = 0;  // Default transparent fill
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
-  
-  // Generate unique labels
-  for (int i=0; i<4; ++i) {
-      std::string lbl = VertexLabelManager::instance().getNextLabel();
-      m_generatedLabels.push_back(lbl);
-  }
-  
+
   // Initialize B and D
-  // Initial positions will be synced immediately below
   m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
-  // Set Labels
-  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
-  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
-  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
-  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
-
   updateDimensionsFromCorners();
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 Rectangle::Rectangle(const std::shared_ptr<Point>& corner1,
@@ -56,26 +44,15 @@ Rectangle::Rectangle(const std::shared_ptr<Point>& corner1,
       m_height(0),
       m_rotationAngle(0),
       m_center(FT(0), FT(0)) {
-  m_color.a = 0;
+  m_color.a = 0;  // Default transparent fill
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
 
-  // Generate unique labels
-  for (int i=0; i<4; ++i) {
-      std::string lbl = VertexLabelManager::instance().getNextLabel();
-      m_generatedLabels.push_back(lbl);
-  }
-  
-  // Initialize B and D
   m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
-  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
-  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
-  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
-  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
-
   updateDimensionsFromCorners();
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 Rectangle::Rectangle(const Point_2& corner, const Point_2& adjacentPoint, double width, const sf::Color& color, unsigned int id)
@@ -87,26 +64,15 @@ Rectangle::Rectangle(const Point_2& corner, const Point_2& adjacentPoint, double
       m_height(width),
       m_rotationAngle(0),
       m_center(FT(0), FT(0)) {
-  m_color.a = 0;
+  m_color.a = 0;  // Default transparent fill
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
-  
-  // Generate unique labels
-  for (int i=0; i<4; ++i) {
-      std::string lbl = VertexLabelManager::instance().getNextLabel();
-      m_generatedLabels.push_back(lbl);
-  }
-  
+
   m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
-  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
-  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
-  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
-  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
-
   syncRotatableFromAnchors();
-
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 Rectangle::Rectangle(const std::shared_ptr<Point>& corner,
@@ -122,25 +88,15 @@ Rectangle::Rectangle(const std::shared_ptr<Point>& corner,
       m_height(width),
       m_rotationAngle(0),
       m_center(FT(0), FT(0)) {
-  m_color.a = 0;
+  m_color.a = 0;  // Default transparent fill
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
 
-  // Generate unique labels
-  for (int i=0; i<4; ++i) {
-      std::string lbl = VertexLabelManager::instance().getNextLabel();
-      m_generatedLabels.push_back(lbl);
-  }
-  
   m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
-  if(m_corner1) { m_corner1->setLabel(m_generatedLabels[0]); m_corner1->setShowLabel(true); }
-  if(m_cornerB) { m_cornerB->setLabel(m_generatedLabels[1]); m_cornerB->setShowLabel(true); }
-  if(m_corner2) { m_corner2->setLabel(m_generatedLabels[2]); m_corner2->setShowLabel(true); }
-  if(m_cornerD) { m_cornerD->setLabel(m_generatedLabels[3]); m_cornerD->setShowLabel(true); }
-
   syncRotatableFromAnchors();
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 Point_2 Rectangle::getCorner1() const { return getCorner1Position(); }
@@ -390,43 +346,43 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
     window.draw(highlight);
   } else if (isHovered()) {
     // If specific edge hovered, highlight ONLY that edge, OR highlight shape + edge
-    // User requested "highlighted separately from whole shape". 
+    // User requested "highlighted separately from whole shape".
     // We'll draw the whole shape with thinner/alpha cyan, and the edge with thick distinct color.
-    
+
     sf::RectangleShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
-    highlight.setOutlineThickness(1.0f * scale);  
-    highlight.setOutlineColor(sf::Color(0, 255, 255, 100)); // Dim Cyan
+    highlight.setOutlineThickness(1.0f * scale);
+    highlight.setOutlineColor(sf::Color(0, 255, 255, 100));  // Dim Cyan
     if (getHoveredEdge() == -1) {
-        highlight.setOutlineThickness(2.0f * scale);
-        highlight.setOutlineColor(sf::Color::Cyan); // Full Cyan if generic hover
+      highlight.setOutlineThickness(2.0f * scale);
+      highlight.setOutlineColor(sf::Color::Cyan);  // Full Cyan if generic hover
     }
     window.draw(highlight);
 
     if (getHoveredEdge() >= 0) {
-        auto verts = getVerticesSFML();
-        int idx = getHoveredEdge();
-        if (idx >= 0 && idx < static_cast<int>(verts.size())) {
-            sf::Vector2f p1 = verts[idx];
-            sf::Vector2f p2 = verts[(idx + 1) % verts.size()];
-            
-            sf::Vector2f dir = p2 - p1;
-            float len = std::sqrt(dir.x*dir.x + dir.y*dir.y);
-            if (len > 0.1f) {
-                dir /= len;
-                sf::Vector2f perp(-dir.y, dir.x);
-                float thickness = 4.0f * scale; 
-                
-                sf::ConvexShape thickLine;
-                thickLine.setPointCount(4);
-                thickLine.setPoint(0, p1 + perp * thickness * 0.5f);
-                thickLine.setPoint(1, p2 + perp * thickness * 0.5f);
-                thickLine.setPoint(2, p2 - perp * thickness * 0.5f);
-                thickLine.setPoint(3, p1 - perp * thickness * 0.5f);
-                thickLine.setFillColor(sf::Color(255, 100, 50, 200)); // Red-Orange with alpha
-                window.draw(thickLine);
-            }
+      auto verts = getVerticesSFML();
+      int idx = getHoveredEdge();
+      if (idx >= 0 && idx < static_cast<int>(verts.size())) {
+        sf::Vector2f p1 = verts[idx];
+        sf::Vector2f p2 = verts[(idx + 1) % verts.size()];
+
+        sf::Vector2f dir = p2 - p1;
+        float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len > 0.1f) {
+          dir /= len;
+          sf::Vector2f perp(-dir.y, dir.x);
+          float thickness = 4.0f * scale;
+
+          sf::ConvexShape thickLine;
+          thickLine.setPointCount(4);
+          thickLine.setPoint(0, p1 + perp * thickness * 0.5f);
+          thickLine.setPoint(1, p2 + perp * thickness * 0.5f);
+          thickLine.setPoint(2, p2 - perp * thickness * 0.5f);
+          thickLine.setPoint(3, p1 - perp * thickness * 0.5f);
+          thickLine.setFillColor(sf::Color(255, 100, 50, 200));  // Red-Orange with alpha
+          window.draw(thickLine);
         }
+      }
     }
   }
 
@@ -514,8 +470,7 @@ void Rectangle::updateDependentShape() {
         double c_val = std::cos(rad);
         double dx = CGAL::to_double(p.x() - c.x());
         double dy = CGAL::to_double(p.y() - c.y());
-        return Point_2(c.x() + FT(dx * c_val - dy * s),
-                       c.y() + FT(dx * s + dy * c_val));
+        return Point_2(c.x() + FT(dx * c_val - dy * s), c.y() + FT(dx * s + dy * c_val));
       }
       case TransformationType::Dilate: {
         auto center = std::dynamic_pointer_cast<Point>(aux);
@@ -865,15 +820,15 @@ void Rectangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
   }
 }
 
-void Rectangle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
+void Rectangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
   if (!m_visible) return;
-  // if (!m_showLabel) return; // REMOVED: This prevents vertex labels from showing!
-  
-  // Delegate label drawing to the constituent points
-  if (m_corner1) m_corner1->drawLabel(window, worldView);
-  if (m_cornerB) m_cornerB->drawLabel(window, worldView);
-  if (m_corner2) m_corner2->drawLabel(window, worldView);
-  if (m_cornerD) m_cornerD->drawLabel(window, worldView);
+
+  // Delegate label drawing to the constituent points using Explicit mode
+  // because points might be globally marked as hidden to avoid double-draw.
+  if (m_corner1) m_corner1->drawLabelExplicit(window, worldView);
+  if (m_cornerB) m_cornerB->drawLabelExplicit(window, worldView);
+  if (m_corner2) m_corner2->drawLabelExplicit(window, worldView);
+  if (m_cornerD) m_cornerD->drawLabelExplicit(window, worldView);
 }
 
 std::vector<Point_2> Rectangle::getInteractableVertices() const {

@@ -908,49 +908,61 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
 
 // --- LabelManager Implementation ---
 
+static std::string toUnicodeSubscript(int number) {
+    if (number <= 0) return "";
+    
+    // Unicode subscript digits: ₀₁₂₃₄₅₆₇₈₉
+    static const std::string subscripts[] = {"₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"};
+    
+    std::string result;
+    std::string numStr = std::to_string(number);
+    for (char c : numStr) {
+        if (c >= '0' && c <= '9') {
+            result += subscripts[c - '0'];
+        }
+    }
+    return result;
+}
+
 std::string LabelManager::getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints) {
-    // Collect specific used names for fast lookup
-    std::unordered_set<std::string> usedNames;
-    for (const auto& pt : existingPoints) {
-        if (pt) {
-            std::string label = pt->getLabel();
-            if (!label.empty()) {
-                usedNames.insert(label);
-            }
+    auto labels = getNextLabels(1, existingPoints);
+    return labels.empty() ? "" : labels[0];
+}
+
+std::vector<std::string> LabelManager::getNextLabels(int count, const std::vector<std::shared_ptr<Point>>& existingPoints) {
+    if (count <= 0) return {};
+    
+    std::vector<std::string> result;
+    result.reserve(count);
+    
+    // Create a set of already used labels for faster lookup
+    std::set<std::string> usedLabels;
+    for (const auto& p : existingPoints) {
+        if (p && !p->getLabel().empty()) {
+            usedLabels.insert(p->getLabel());
         }
     }
-
-    // Generator sequences
-    // 1. A..Z
-    for (char c = 'A'; c <= 'Z'; ++c) {
-        std::string candidate(1, c);
-        if (usedNames.find(candidate) == usedNames.end()) {
-            return candidate;
+    
+    int index = 0;
+    while (result.size() < static_cast<size_t>(count)) {
+        std::string label;
+        char base = 'A' + (index % 26);
+        int subscript = index / 26;
+        
+        label += base;
+        if (subscript > 0) {
+            label += toUnicodeSubscript(subscript);
         }
-    }
-
-    // 2. A'..Z'
-    for (char c = 'A'; c <= 'Z'; ++c) {
-        std::string candidate(1, c);
-        candidate += "'";
-        if (usedNames.find(candidate) == usedNames.end()) {
-            return candidate;
+        
+        if (usedLabels.find(label) == usedLabels.end()) {
+            result.push_back(label);
+            usedLabels.insert(label); // Don't reuse the same label in this batch
         }
+        index++;
+        
+        // Safety break
+        if (index > 1000) break;
     }
-
-    // 3. A_1..Z_1, A_2..Z_2, etc. (Fallback)
-    int subscript = 1;
-    while (true) {
-        for (char c = 'A'; c <= 'Z'; ++c) {
-            std::string candidate(1, c);
-            candidate += "_" + std::to_string(subscript);
-            if (usedNames.find(candidate) == usedNames.end()) {
-                return candidate;
-            }
-        }
-        subscript++;
-        if (subscript > 1000) break; // Safety break
-    }
-
-    return "P?"; // Fallback (should rarely reach here)
+    
+    return result;
 }

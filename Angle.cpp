@@ -15,7 +15,6 @@ Angle::Angle(const std::shared_ptr<Point> &a, const std::shared_ptr<Point> &vert
       m_isReflex(reflex) {
   // Init colors
   m_fillColor = color;
-  m_fillColor.a = 50;
   m_outlineColor = color;
   m_outlineColor.a = 255;
       
@@ -492,7 +491,6 @@ void Angle::setColor(const sf::Color& c) {
 
     // Update visual components
     m_fillColor = c;
-    m_fillColor.a = 50; // Force low alpha for the wedge/fill
 
     m_outlineColor = c;
     m_outlineColor.a = 255; // Full alpha for the arc line

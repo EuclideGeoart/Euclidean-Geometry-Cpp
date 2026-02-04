@@ -16,7 +16,7 @@
 #include "GeometryEditor.h"      // Include the full definition of GeometryEditor
 #include "LineToolMode.h"        // Include this to access LineToolMode enum and globals
 #include "ObjectType.h"          // Include the definition for ObjectType enum
-#include "VertexLabelManager.h"  // For font size control
+#include "PointUtils.h"  // For font size control
 
 float g_transformRotationDegrees = 45.0f;
 float g_transformDilationFactor = 2.0f;
@@ -1015,7 +1015,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         ImGui::GetIO().FontGlobalScale = editor.guiFontSize / 13.0f;
       }
       if (ImGui::SliderFloat("Drawing Labels", &editor.drawingFontSize, 8.0f, 48.0f, "%.0f")) {
-        VertexLabelManager::instance().setFontSize(static_cast<unsigned int>(editor.drawingFontSize));
+        LabelManager::instance().setFontSize(static_cast<unsigned int>(editor.drawingFontSize));
       }
     }
   }

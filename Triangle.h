@@ -42,6 +42,7 @@ public:
 
     // GeometricObject interface
     virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+    virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
     virtual void update() override;
     virtual void updateDependentShape() override;
     virtual void setColor(const sf::Color& color) override;

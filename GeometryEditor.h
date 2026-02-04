@@ -102,6 +102,8 @@ class GeometryEditor {
   sf::Color getCurrentColor() const { return currentColor; }
   void changeSelectedObjectColor(sf::Color newColor);
 
+  std::vector<std::shared_ptr<Point>> getAllPoints() const;
+
   float currentThickness = Constants::LINE_THICKNESS_DEFAULT;
   float currentPointSize = 4.0f;
   float guiFontSize = 13.0f;        // Font size for ImGui interface
