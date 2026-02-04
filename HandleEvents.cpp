@@ -1244,6 +1244,19 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // Handle dragging
   if (editor.isDragging) {
+    const bool creationModeActive =
+        (editor.m_currentToolType != ObjectType::None) ||
+        editor.isCreatingCircle || editor.isCreatingCircle3P || editor.isCreatingSemicircle ||
+        editor.isCreatingPerpendicularBisector || editor.isCreatingAngleBisector || editor.isCreatingTangent ||
+        editor.isCreatingRectangle || editor.isCreatingRotatableRectangle || editor.isCreatingPolygon ||
+        editor.isCreatingRegularPolygon || editor.isCreatingTriangle || editor.m_isPlacingParallel ||
+        editor.m_isPlacingPerpendicular;
+    if (creationModeActive) {
+      editor.dragMode = DragMode::None;
+      editor.m_selectedEndpoint = EndpointSelection::None;
+      editor.isDragging = false;
+      return;
+    }
     if (editor.selectedObject && editor.selectedObject->isLocked()) {
       editor.dragMode = DragMode::None;
       editor.m_selectedEndpoint = EndpointSelection::None;

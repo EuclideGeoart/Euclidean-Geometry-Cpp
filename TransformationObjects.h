@@ -54,9 +54,10 @@ class ReflectLine : public Point {
       setVisible(false);
       return;
     }
-
+    // Project point p onto line ab to find foot of perpendicular h
     Vector_2 ap = p - a;
     FT t = (ap * ab) / ab.squared_length();
+    // t is the parameter along ab where the projection falls
     Point_2 h = a + ab * t;
     Point_2 pPrime = p + (h - p) * FT(2.0);
 

@@ -25,4 +25,7 @@ void markObjectForDeletion(GeometricObject* obj);
 void unmarkObjectForDeletion(GeometricObject* obj);
 bool isObjectBeingDeleted(GeometricObject *obj);
 void clearAllDeletionTracking();
+
+// Clears transient selection used by construction/transformation tools
+void clearTempSelectedObjects();
 #endif // HANDLE_EVENTS_H

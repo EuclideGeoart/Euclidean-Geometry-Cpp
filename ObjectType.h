@@ -70,7 +70,8 @@ enum class DragMode {
   CreateCircleCenter,
   CreateLineP1,
   RotatedRectP2,
-  RotatedRectHeight
+  RotatedRectHeight,
+  CreatingRectangle
 };
 
 // Defined here for convenience since it's related to drag operations
