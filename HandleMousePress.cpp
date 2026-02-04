@@ -585,17 +585,28 @@ static std::shared_ptr<Point> createTransformedPoint(GeometryEditor& editor,
   std::string baseLabel = source->getLabel();
   bool sourceShowLabel = source->getShowLabel();
 
+  // If source has a label, transform it (A -> A')
   if (!baseLabel.empty()) {
     std::string primeLabel = getPrimeLabel(baseLabel);
-    if (!primeLabel.empty()) {
-      newPoint->setLabel(primeLabel);
-    } else {
-      newPoint->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
+    // If getPrimeLabel fails or returns empty (it shouldn't if base is valid), fallback
+    if (primeLabel.empty()) {
+       // Just append reasonable suffix if getPrimeLabel is dumb
+       primeLabel = baseLabel + "'"; 
     }
-    newPoint->setShowLabel(sourceShowLabel);
+    newPoint->setLabel(primeLabel);
+    
+    // Often we want to show the label of a transformed point even if source was hidden (e.g. shape vertex),
+    // but sticking to "inherit" behavior is safer unless it's a construction.
+    // However, for explicit TRANSFORMATIONS, users usually want to see the result label.
+    // If source was a shape vertex (hidden label), the new point is also a vertex of a new shape?
+    // If this function is creating a point for a new shape, we might hide it later.
+    // If it's a free point transform, we show it.
+    newPoint->setShowLabel(true); 
   } else {
-    // If source had no label, don't show one on transformed point
-    newPoint->setShowLabel(false);
+    // Source had no label.
+    // Generate new label from sequence (A, B, C...)
+    newPoint->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
+    newPoint->setShowLabel(true);
   }
 
   return newPoint;
@@ -748,205 +759,546 @@ static void handleCompassToolClick(GeometryEditor& editor, GeometricObject* clic
   }
 }
 
+static GeometricObject* findTopNonDependentAt(GeometryEditor& editor, const sf::Vector2f& pos, float tol) {
+  auto isCandidate = [&](GeometricObject* obj) {
+    if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return false;
+    if (obj->isDependent()) return false;
+    return true;
+  };
+
+  // ObjectPoints
+  for (auto it = editor.ObjectPoints.rbegin(); it != editor.ObjectPoints.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+
+  // Points
+  for (auto it = editor.points.rbegin(); it != editor.points.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+
+  // Shapes
+  for (auto it = editor.triangles.rbegin(); it != editor.triangles.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+  for (auto it = editor.regularPolygons.rbegin(); it != editor.regularPolygons.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+  for (auto it = editor.polygons.rbegin(); it != editor.polygons.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+  for (auto it = editor.rectangles.rbegin(); it != editor.rectangles.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+
+  // Lines (including Ray/Vector)
+  for (auto it = editor.lines.rbegin(); it != editor.lines.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+
+  // Circles
+  for (auto it = editor.circles.rbegin(); it != editor.circles.rend(); ++it) {
+    if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
+  }
+
+  return nullptr;
+}
+
+static void clearTransformSelection(std::vector<GeometricObject*>& tempSelectedObjects) {
+  for (auto* obj : tempSelectedObjects) {
+    if (obj) obj->setSelected(false);
+  }
+  tempSelectedObjects.clear();
+  g_transformEdgeSelection.reset();
+}
+
+static void registerTransformPoint(GeometryEditor& editor, const std::shared_ptr<Point>& newPoint) {
+  if (!newPoint) return;
+  editor.points.push_back(newPoint);
+  editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+  if (newPoint->isVisible()) {
+    newPoint->setSelected(true);
+  }
+}
+
+static void registerHiddenTransformObjectPoint(GeometryEditor& editor, const std::shared_ptr<ObjectPoint>& newPoint) {
+  if (!newPoint) return;
+  newPoint->setVisible(false);
+  newPoint->setShowLabel(false);
+  newPoint->setDependent(true);
+  newPoint->setCreatedWithShape(true);
+  editor.ObjectPoints.push_back(newPoint);
+  editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
+}
+
+static void attachTransformMetadata(const std::shared_ptr<GeometricObject>& source,
+                                    const std::shared_ptr<GeometricObject>& created,
+                                    ObjectType activeTool,
+                                    const std::shared_ptr<GeometricObject>& aux,
+                                    const std::shared_ptr<Point>& vStart,
+                                    const std::shared_ptr<Point>& vEnd) {
+  if (!source || !created) return;
+
+  TransformationType t = TransformationType::None;
+  switch (activeTool) {
+    case ObjectType::ReflectAboutLine:
+      t = TransformationType::Reflect;
+      break;
+    case ObjectType::ReflectAboutPoint:
+      t = TransformationType::ReflectPoint;
+      break;
+    case ObjectType::ReflectAboutCircle:
+      t = TransformationType::ReflectCircle;
+      break;
+    case ObjectType::RotateAroundPoint:
+      t = TransformationType::Rotate;
+      break;
+    case ObjectType::TranslateByVector:
+      t = TransformationType::Translate;
+      break;
+    case ObjectType::DilateFromPoint:
+      t = TransformationType::Dilate;
+      break;
+    default:
+      t = TransformationType::None;
+      break;
+  }
+
+  created->setTransformType(t);
+  created->restoreTransformation(source, aux, t);
+  source->addDependent(created);
+
+  if (t == TransformationType::Translate && vStart && vEnd) {
+    Point_2 flatStart = flattenPoint(vStart->getCGALPosition());
+    Point_2 flatEnd = flattenPoint(vEnd->getCGALPosition());
+    created->setTranslationVector(flatEnd - flatStart);
+  } else if (t == TransformationType::Rotate) {
+    created->setTransformValue(g_transformRotationDegrees);
+  } else if (t == TransformationType::Dilate) {
+    created->setTransformValue(g_transformDilationFactor);
+  }
+}
+
+static std::shared_ptr<Line> ensureHoverVector(GeometryEditor& editor, const std::shared_ptr<Point>& vStart, const std::shared_ptr<Point>& vEnd) {
+  if (!vStart || !vEnd) return nullptr;
+
+  for (const auto& ln : editor.lines) {
+    if (!ln || !ln->isValid()) continue;
+    if (ln->getType() != ObjectType::Vector) continue;
+    auto s = ln->getStartPointObjectShared();
+    auto e = ln->getEndPointObjectShared();
+    if ((s == vStart && e == vEnd) || (s == vEnd && e == vStart)) {
+      return ln;
+    }
+  }
+
+  auto vecLine = std::make_shared<Line>(vStart, vEnd, true, sf::Color(0, 0, 0, 0));
+  vecLine->setLineType(Line::LineType::Vector);
+  vecLine->setVisible(true);
+  vecLine->setThickness(editor.currentThickness);
+  editor.lines.push_back(vecLine);
+  editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(vecLine)));
+  return vecLine;
+}
+
+static bool tryTransformShapeEdge(GeometryEditor& editor,
+                                  std::vector<GeometricObject*>& tempSelectedObjects,
+                                  ObjectType activeTool,
+                                  const std::shared_ptr<GeometricObject>& sourceShape,
+                                  const std::shared_ptr<Point>& pivot,
+                                  const std::shared_ptr<Line>& lineObj,
+                                  const std::shared_ptr<Circle>& circleObj,
+                                  const std::shared_ptr<Point>& vecStart,
+                                  const std::shared_ptr<Point>& vecEnd) {
+  if (sf::Keyboard::isKeyPressed(sf::Keyboard::K)) return false;  // Force whole-shape mode
+  if (!g_transformEdgeSelection || !sourceShape) return false;
+  if (g_transformEdgeSelection->host != sourceShape.get()) return false;
+
+  size_t edgeIndex = g_transformEdgeSelection->edgeIndex;
+  auto edgeStart = ObjectPoint::createOnShapeEdge(sourceShape, edgeIndex, 0.0);
+  auto edgeEnd = ObjectPoint::createOnShapeEdge(sourceShape, edgeIndex, 1.0);
+  if (!edgeStart || !edgeEnd) return false;
+
+  registerHiddenTransformObjectPoint(editor, edgeStart);
+  registerHiddenTransformObjectPoint(editor, edgeEnd);
+
+  auto p1t = createTransformedPoint(editor, edgeStart, activeTool, pivot, lineObj, circleObj, vecStart, vecEnd);
+  if (p1t) {
+    p1t->setColor(editor.getCurrentColor());
+    if (p1t->getLabel().empty()) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      p1t->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
+    }
+    p1t->setShowLabel(true);
+    registerTransformPoint(editor, p1t);
+  }
+
+  auto p2t = createTransformedPoint(editor, edgeEnd, activeTool, pivot, lineObj, circleObj, vecStart, vecEnd);
+  if (!p1t || !p2t) {
+    editor.setGUIMessage("Error: Invalid edge transformation selection.");
+    clearTransformSelection(tempSelectedObjects);
+    return true;
+  }
+
+  if (p2t) {
+    p2t->setColor(editor.getCurrentColor());
+    if (p2t->getLabel().empty()) {
+      std::vector<std::shared_ptr<Point>> labelPool = editor.points;
+      for (const auto& op : editor.ObjectPoints) {
+        labelPool.push_back(std::static_pointer_cast<Point>(op));
+      }
+      p2t->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
+    }
+    p2t->setShowLabel(true);
+    registerTransformPoint(editor, p2t);
+  }
+
+  auto newLine = std::make_shared<Line>(p1t, p2t, true, editor.getCurrentColor());
+  newLine->setThickness(editor.currentThickness);
+  newLine->setDependent(true);
+  editor.lines.push_back(newLine);
+  editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+  editor.setGUIMessage("Transformed edge created.");
+  clearTransformSelection(tempSelectedObjects);
+  return true;
+}
+
+static GeometricObject* findClosestPointCandidate(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance) {
+  GeometricObject* hit = findClosestObject(editor, worldPos_sfml, tolerance);
+  if (!hit) return nullptr;
+  if (hit->getType() == ObjectType::Point || hit->getType() == ObjectType::ObjectPoint ||
+      hit->getType() == ObjectType::IntersectionPoint) {
+    return hit;
+  }
+  return nullptr;
+}
+
+static std::shared_ptr<Point> getPointSharedFromHit(GeometryEditor& editor, GeometricObject* hit) {
+  if (!hit) return nullptr;
+  return std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hit));
+}
+
+static bool handleTranslationTool(GeometryEditor& editor,
+                                  std::vector<GeometricObject*>& tempSelectedObjects,
+                                  const std::shared_ptr<GeometricObject>& sourceShared,
+                                  const sf::Vector2f& worldPos_sfml,
+                                  float tolerance) {
+  ObjectType tool = editor.m_currentToolType;
+
+  auto applyVectorTranslation = [&](const std::shared_ptr<Point>& v1, const std::shared_ptr<Point>& v2) -> bool {
+    if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::RectangleRotatable ||
+        sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
+        sourceShared->getType() == ObjectType::RegularPolygon) {
+      if (tryTransformShapeEdge(editor, tempSelectedObjects, tool, sourceShared, nullptr, nullptr, nullptr, v1, v2)) {
+        return true;
+      }
+    }
+
+    auto sourcePoint = std::dynamic_pointer_cast<Point>(sourceShared);
+    if (sourcePoint) {
+      auto newPoint = createTransformedPoint(editor, sourcePoint, tool, nullptr, nullptr, nullptr, v1, v2);
+      if (!newPoint) {
+        editor.setGUIMessage("Error: Invalid translation.");
+        clearTransformSelection(tempSelectedObjects);
+        return false;
+      }
+      registerTransformPoint(editor, newPoint);
+      editor.setGUIMessage("Translated point created.");
+      clearTransformSelection(tempSelectedObjects);
+      return true;
+    }
+
+    if (sourceShared->getType() == ObjectType::Line || sourceShared->getType() == ObjectType::LineSegment) {
+      auto line = std::dynamic_pointer_cast<Line>(sourceShared);
+      if (!line) {
+        editor.setGUIMessage("Error: Invalid line.");
+        clearTransformSelection(tempSelectedObjects);
+        return false;
+      }
+
+      auto p1 = line->getStartPointObjectShared();
+      auto p2 = line->getEndPointObjectShared();
+      auto p1t = createTransformedPoint(editor, p1, tool, nullptr, nullptr, nullptr, v1, v2);
+      auto p2t = createTransformedPoint(editor, p2, tool, nullptr, nullptr, nullptr, v1, v2);
+      if (!p1t || !p2t) {
+        editor.setGUIMessage("Error: Invalid translation.");
+        clearTransformSelection(tempSelectedObjects);
+        return false;
+      }
+
+      registerTransformPoint(editor, p1t);
+      registerTransformPoint(editor, p2t);
+
+      auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), editor.getCurrentColor());
+      newLine->setThickness(line->getThickness());
+      newLine->setDependent(true);
+      editor.lines.push_back(newLine);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
+      editor.setGUIMessage("Translated line created.");
+      clearTransformSelection(tempSelectedObjects);
+      return true;
+    }
+
+    if (sourceShared->getType() == ObjectType::Circle) {
+      auto circle = std::dynamic_pointer_cast<Circle>(sourceShared);
+      if (!circle) {
+        editor.setGUIMessage("Error: Invalid circle.");
+        clearTransformSelection(tempSelectedObjects);
+        return false;
+      }
+      auto centerRaw = circle->getCenterPointObject();
+      auto centerShared = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(centerRaw));
+      auto newCenter = createTransformedPoint(editor, centerShared, tool, nullptr, nullptr, nullptr, v1, v2);
+      if (!newCenter) {
+        editor.setGUIMessage("Error: Invalid translation.");
+        clearTransformSelection(tempSelectedObjects);
+        return false;
+      }
+      registerTransformPoint(editor, newCenter);
+      auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, circle->getRadius(), editor.getCurrentColor());
+      newCircle->setThickness(circle->getThickness());
+      newCircle->setDependent(true);
+      attachTransformMetadata(sourceShared, newCircle, tool, nullptr, v1, v2);
+      editor.circles.push_back(newCircle);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
+      editor.setGUIMessage("Translated circle created.");
+      clearTransformSelection(tempSelectedObjects);
+      return true;
+    }
+
+    // Find or create a Vector/Line object to serve as the 'aux' object for dynamic updates
+    std::shared_ptr<GeometricObject> vectorAux = nullptr;
+    for (const auto& ln : editor.lines) {
+      if (!ln || !ln->isValid()) continue;
+      auto s = ln->getStartPointObjectShared();
+      auto e = ln->getEndPointObjectShared();
+      if ((s == v1 && e == v2) || (s == v2 && e == v1)) {
+        vectorAux = ln;
+        break;
+      }
+    }
+    if (!vectorAux) {
+      auto vLine = std::make_shared<Line>(v1, v2, true, sf::Color(0, 0, 0, 0));
+      vLine->setLineType(Line::LineType::Vector);
+      vLine->setVisible(true);
+      vLine->setDependent(true);
+      editor.lines.push_back(vLine);
+      vectorAux = vLine;
+    }
+
+    if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::RectangleRotatable) {
+      auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
+      auto V0 = getPointForShapeVertex(editor, rect, 0);
+      auto V1 = getPointForShapeVertex(editor, rect, 1);
+      auto V2 = getPointForShapeVertex(editor, rect, 2);
+      auto V3 = getPointForShapeVertex(editor, rect, 3);
+
+      auto V0t = createTransformedPoint(editor, V0, tool, nullptr, nullptr, nullptr, v1, v2);
+      auto V1t = createTransformedPoint(editor, V1, tool, nullptr, nullptr, nullptr, v1, v2);
+      auto V2t = createTransformedPoint(editor, V2, tool, nullptr, nullptr, nullptr, v1, v2);
+      auto V3t = createTransformedPoint(editor, V3, tool, nullptr, nullptr, nullptr, v1, v2);
+
+      if (V0t && V1t && V2t && V3t) {
+        registerTransformPoint(editor, V0t);
+        registerTransformPoint(editor, V1t);
+        registerTransformPoint(editor, V2t);
+        registerTransformPoint(editor, V3t);
+        
+        Point_2 p0 = flattenPoint(V0t->getCGALPosition());
+        Point_2 p3 = flattenPoint(V3t->getCGALPosition());
+        double h = std::sqrt(CGAL::to_double(CGAL::squared_distance(p0, p3)));
+        
+        auto newRect = std::make_shared<Rectangle>(V0t, V1t, h, editor.getCurrentColor(), editor.objectIdCounter++);
+        newRect->setThickness(rect->getThickness());
+        newRect->setDependent(true);
+        attachTransformMetadata(sourceShared, newRect, tool, vectorAux, v1, v2);
+        applyRectangleVertexLabels(editor, newRect);
+        editor.rectangles.push_back(newRect);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRect)));
+        editor.setGUIMessage("Translated rectangle created.");
+        clearTransformSelection(tempSelectedObjects);
+        return true;
+      }
+    }
+
+    if (sourceShared->getType() == ObjectType::Triangle) {
+      auto tri = std::dynamic_pointer_cast<Triangle>(sourceShared);
+      std::vector<std::shared_ptr<Point>> newPts;
+      for (size_t i = 0; i < 3; ++i) {
+        auto vt = createTransformedPoint(editor, tri->getVertexPoint(i), tool, nullptr, nullptr, nullptr, v1, v2);
+        if (vt) {
+          registerTransformPoint(editor, vt);
+          newPts.push_back(vt);
+        }
+      }
+      if (newPts.size() == 3) {
+        auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], editor.getCurrentColor(), editor.objectIdCounter++);
+        newTri->setThickness(tri->getThickness());
+        newTri->setDependent(true);
+        attachTransformMetadata(sourceShared, newTri, tool, vectorAux, v1, v2);
+        editor.triangles.push_back(newTri);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
+        editor.setGUIMessage("Translated triangle created.");
+        clearTransformSelection(tempSelectedObjects);
+        return true;
+      }
+    }
+
+    if (sourceShared->getType() == ObjectType::RegularPolygon) {
+      auto rpoly = std::dynamic_pointer_cast<RegularPolygon>(sourceShared);
+      auto ct = createTransformedPoint(editor, rpoly->getCenterPoint(), tool, nullptr, nullptr, nullptr, v1, v2);
+      auto vt = createTransformedPoint(editor, rpoly->getFirstVertexPoint(), tool, nullptr, nullptr, nullptr, v1, v2);
+      if (ct && vt) {
+        registerTransformPoint(editor, ct);
+        registerTransformPoint(editor, vt);
+        auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), editor.getCurrentColor(), editor.objectIdCounter++);
+        newRPoly->setThickness(rpoly->getThickness());
+        newRPoly->setDependent(true);
+        attachTransformMetadata(sourceShared, newRPoly, tool, vectorAux, v1, v2);
+        editor.regularPolygons.push_back(newRPoly);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
+        editor.setGUIMessage("Translated regular polygon created.");
+        clearTransformSelection(tempSelectedObjects);
+        return true;
+      }
+    }
+
+    if (sourceShared->getType() == ObjectType::Polygon) {
+      auto poly = std::dynamic_pointer_cast<Polygon>(sourceShared);
+      if (!poly) {
+        editor.setGUIMessage("Error: Invalid polygon.");
+        clearTransformSelection(tempSelectedObjects);
+        return false;
+      }
+      std::vector<std::shared_ptr<Point>> newVerts;
+      newVerts.reserve(poly->getVertexCount());
+      for (size_t i = 0; i < poly->getVertexCount(); ++i) {
+        auto v = poly->getVertexPoint(i);
+        auto vt = createTransformedPoint(editor, v, tool, nullptr, nullptr, nullptr, v1, v2);
+        if (!vt) {
+          editor.setGUIMessage("Error: Invalid translation.");
+          clearTransformSelection(tempSelectedObjects);
+          return false;
+        }
+        registerTransformPoint(editor, vt);
+        newVerts.push_back(vt);
+      }
+      auto newPoly = std::make_shared<Polygon>(newVerts, editor.getCurrentColor());
+      newPoly->setThickness(poly->getThickness());
+      newPoly->setDependent(true);
+      attachTransformMetadata(sourceShared, newPoly, tool, vectorAux, v1, v2);
+      editor.polygons.push_back(newPoly);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
+      editor.setGUIMessage("Translated polygon created.");
+      clearTransformSelection(tempSelectedObjects);
+      return true;
+    }
+    return false;
+  };
+
+  if (tempSelectedObjects.size() == 1) {
+    // NEW: Check for EXISTING VECTOR OBJECT
+    GeometricObject* vecObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Vector});
+    if (vecObj && vecObj->getType() == ObjectType::Vector) {
+      auto vecLine = dynamic_cast<Line*>(vecObj);
+      if (vecLine) {
+        auto v1 = vecLine->getStartPointObjectShared();
+        auto v2 = vecLine->getEndPointObjectShared();
+        if (v1 && v2) {
+          return applyVectorTranslation(v1, v2);
+        }
+      }
+    }
+
+    GeometricObject* vecStartRaw = findClosestPointCandidate(editor, worldPos_sfml, tolerance);
+    if (!vecStartRaw) return false;
+    tempSelectedObjects.push_back(vecStartRaw);
+    vecStartRaw->setSelected(true);
+    editor.setGUIMessage("Translate: Select vector end point.");
+    return true;
+  }
+
+  GeometricObject* vecEndRaw = findClosestPointCandidate(editor, worldPos_sfml, tolerance);
+  if (!vecEndRaw) return false;
+  tempSelectedObjects.push_back(vecEndRaw);
+
+  auto v1 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[1]));
+  auto v2 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[2]));
+  if (!v1 || !v2) {
+    clearTransformSelection(tempSelectedObjects);
+    editor.setGUIMessage("Error: Invalid translation vector.");
+    return false;
+  }
+
+  ensureHoverVector(editor, v1, v2);
+
+  return applyVectorTranslation(v1, v2);
+}
+
+static bool handleLineReflectionSelection(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance,
+                                          std::shared_ptr<Line>& lineObj) {
+  GeometricObject* hitLine = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
+  if (hitLine) {
+    lineObj = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitLine));
+    return (lineObj != nullptr);
+  }
+
+  std::vector<ObjectType> axisTypes = {ObjectType::Rectangle, ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::Polygon,
+                                       ObjectType::RegularPolygon};
+  GeometricObject* hitAxis = editor.lookForObjectAt(worldPos_sfml, tolerance, axisTypes);
+  if (!hitAxis) return false;
+  auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+  if (edgeHit && edgeHit->host == hitAxis) {
+    lineObj = getOrCreateHelperLineForEdge(editor, editor.findSharedPtr(hitAxis), edgeHit->edgeIndex);
+    return (lineObj != nullptr);
+  }
+
+  auto shapeShared = editor.findSharedPtr(hitAxis);
+  if (shapeShared) {
+    auto edges = shapeShared->getEdges();
+    if (!edges.empty()) {
+      Point_2 mousePos(FT(worldPos_sfml.x), FT(worldPos_sfml.y));
+      double bestDist = std::numeric_limits<double>::max();
+      size_t bestIndex = 0;
+      for (size_t i = 0; i < edges.size(); ++i) {
+        Point_2 proj;
+        double rel;
+        double dist = PointUtils::projectPointOntoSegment(mousePos, edges[i], proj, rel);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIndex = i;
+        }
+      }
+      lineObj = getOrCreateHelperLineForEdge(editor, shapeShared, bestIndex);
+      return (lineObj != nullptr);
+    }
+  }
+
+  return false;
+}
+
+static bool handleCircleReflectionSelection(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance,
+                                            std::shared_ptr<Circle>& circleObj) {
+  GeometricObject* hitCircle = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Circle});
+  if (!hitCircle) return false;
+  circleObj = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(hitCircle));
+  return (circleObj != nullptr);
+}
+
+static bool handlePointPivotSelection(GeometryEditor& editor, const sf::Vector2f& worldPos_sfml, float tolerance,
+                                      std::shared_ptr<Point>& pivotPoint) {
+  GeometricObject* hitPoint = findClosestPointCandidate(editor, worldPos_sfml, tolerance);
+  if (!hitPoint) return false;
+  pivotPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitPoint));
+  return (pivotPoint != nullptr);
+}
+
 bool handleTransformationCreation(GeometryEditor& editor,
                                   std::vector<GeometricObject*>& tempSelectedObjects,
                                   const sf::Vector2f& worldPos_sfml,
                                   float tolerance) {
-  auto findTopNonDependentAt = [&](const sf::Vector2f& pos, float tol) -> GeometricObject* {
-    auto isCandidate = [&](GeometricObject* obj) {
-      if (!obj || !obj->isValid() || !obj->isVisible() || obj->isLocked()) return false;
-      if (obj->isDependent()) return false;
-      return true;
-    };
-
-    // ObjectPoints
-    for (auto it = editor.ObjectPoints.rbegin(); it != editor.ObjectPoints.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-
-    // Points
-    for (auto it = editor.points.rbegin(); it != editor.points.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-
-    // Shapes
-    for (auto it = editor.triangles.rbegin(); it != editor.triangles.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-    for (auto it = editor.regularPolygons.rbegin(); it != editor.regularPolygons.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-    for (auto it = editor.polygons.rbegin(); it != editor.polygons.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-    for (auto it = editor.rectangles.rbegin(); it != editor.rectangles.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-
-    // Lines (including Ray/Vector)
-    for (auto it = editor.lines.rbegin(); it != editor.lines.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-
-    // Circles
-    for (auto it = editor.circles.rbegin(); it != editor.circles.rend(); ++it) {
-      if (isCandidate(it->get()) && (*it)->contains(pos, tol)) return it->get();
-    }
-
-    return nullptr;
-  };
-  auto clearSelection = [&]() {
-    for (auto* obj : tempSelectedObjects) {
-      if (obj) obj->setSelected(false);
-    }
-    tempSelectedObjects.clear();
-    g_transformEdgeSelection.reset();
-  };
-
-  auto registerPoint = [&](const std::shared_ptr<Point>& newPoint) {
-    if (!newPoint) return;
-    editor.points.push_back(newPoint);
-    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
-    if (newPoint->isVisible()) {
-      newPoint->setSelected(true);
-    }
-  };
-
-  auto registerHiddenObjectPoint = [&](const std::shared_ptr<ObjectPoint>& newPoint) {
-    if (!newPoint) return;
-    newPoint->setVisible(false);
-    newPoint->setShowLabel(false);
-    newPoint->setDependent(true);
-    newPoint->setCreatedWithShape(true);
-    editor.ObjectPoints.push_back(newPoint);
-    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
-  };
-
-  auto attachTransformMetadata = [&](const std::shared_ptr<GeometricObject>& source, const std::shared_ptr<GeometricObject>& created,
-                                     ObjectType activeTool, const std::shared_ptr<GeometricObject>& aux, const std::shared_ptr<Point>& vStart,
-                                     const std::shared_ptr<Point>& vEnd) {
-    if (!source || !created) return;
-
-    TransformationType t = TransformationType::None;
-    switch (activeTool) {
-      case ObjectType::ReflectAboutLine:
-        t = TransformationType::Reflect;
-        break;
-      case ObjectType::ReflectAboutPoint:
-        t = TransformationType::ReflectPoint;
-        break;
-      case ObjectType::ReflectAboutCircle:
-        t = TransformationType::ReflectCircle;
-        break;
-      case ObjectType::RotateAroundPoint:
-        t = TransformationType::Rotate;
-        break;
-      case ObjectType::TranslateByVector:
-        t = TransformationType::Translate;
-        break;
-      case ObjectType::DilateFromPoint:
-        t = TransformationType::Dilate;
-        break;
-      default:
-        t = TransformationType::None;
-        break;
-    }
-
-    created->setTransformType(t);
-    created->restoreTransformation(source, aux, t);
-    source->addDependent(created);
-
-    if (t == TransformationType::Translate && vStart && vEnd) {
-      created->setTranslationVector(vEnd->getCGALPosition() - vStart->getCGALPosition());
-    } else if (t == TransformationType::Rotate) {
-      created->setTransformValue(g_transformRotationDegrees);
-    } else if (t == TransformationType::Dilate) {
-      created->setTransformValue(g_transformDilationFactor);
-    }
-  };
-
-  auto ensureHoverVector = [&](const std::shared_ptr<Point>& vStart, const std::shared_ptr<Point>& vEnd) -> std::shared_ptr<Line> {
-    if (!vStart || !vEnd) return nullptr;
-
-    for (const auto& ln : editor.lines) {
-      if (!ln || !ln->isValid()) continue;
-      if (ln->getType() != ObjectType::Vector) continue;
-      auto s = ln->getStartPointObjectShared();
-      auto e = ln->getEndPointObjectShared();
-      if ((s == vStart && e == vEnd) || (s == vEnd && e == vStart)) {
-        return ln;
-      }
-    }
-
-    auto vecLine = std::make_shared<Line>(vStart, vEnd, true, sf::Color(0, 0, 0, 0));
-    vecLine->setLineType(Line::LineType::Vector);
-    vecLine->setVisible(true);
-    vecLine->setThickness(editor.currentThickness);
-    editor.lines.push_back(vecLine);
-    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(vecLine)));
-    return vecLine;
-  };
-
-  auto tryTransformShapeEdge = [&](ObjectType activeTool, const std::shared_ptr<GeometricObject>& sourceShape, const std::shared_ptr<Point>& pivot,
-                                   const std::shared_ptr<Line>& lineObj, const std::shared_ptr<Circle>& circleObj,
-                                   const std::shared_ptr<Point>& vecStart, const std::shared_ptr<Point>& vecEnd) -> bool {
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::K)) return false;  // Force whole-shape mode
-    if (!g_transformEdgeSelection || !sourceShape) return false;
-    if (g_transformEdgeSelection->host != sourceShape.get()) return false;
-
-    size_t edgeIndex = g_transformEdgeSelection->edgeIndex;
-    auto edgeStart = ObjectPoint::createOnShapeEdge(sourceShape, edgeIndex, 0.0);
-    auto edgeEnd = ObjectPoint::createOnShapeEdge(sourceShape, edgeIndex, 1.0);
-    if (!edgeStart || !edgeEnd) return false;
-
-    registerHiddenObjectPoint(edgeStart);
-    registerHiddenObjectPoint(edgeEnd);
-
-    auto p1t = createTransformedPoint(editor, edgeStart, activeTool, pivot, lineObj, circleObj, vecStart, vecEnd);
-    if (p1t) {
-      p1t->setColor(editor.getCurrentColor());
-      if (p1t->getLabel().empty()) {
-        std::vector<std::shared_ptr<Point>> labelPool = editor.points;
-        for (const auto& op : editor.ObjectPoints) {
-          labelPool.push_back(std::static_pointer_cast<Point>(op));
-        }
-        p1t->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
-      }
-      p1t->setShowLabel(true);
-      registerPoint(p1t);
-    }
-
-    auto p2t = createTransformedPoint(editor, edgeEnd, activeTool, pivot, lineObj, circleObj, vecStart, vecEnd);
-    if (!p1t || !p2t) {
-      editor.setGUIMessage("Error: Invalid edge transformation selection.");
-      // If p1t was registered but p2t failed, we might want to undo/remove p1t, but simple error return is safer for now.
-      // Ideally we'd wrap this in a transaction, but existing flow is simple.
-      clearSelection();
-      return true;
-    }
-
-    if (p2t) {
-      p2t->setColor(editor.getCurrentColor());
-      if (p2t->getLabel().empty()) {
-        std::vector<std::shared_ptr<Point>> labelPool = editor.points;
-        for (const auto& op : editor.ObjectPoints) {
-          labelPool.push_back(std::static_pointer_cast<Point>(op));
-        }
-        p2t->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
-      }
-      p2t->setShowLabel(true);
-      registerPoint(p2t);
-    }
-
-    auto newLine = std::make_shared<Line>(p1t, p2t, true, editor.getCurrentColor());
-    newLine->setThickness(editor.currentThickness);
-    newLine->setDependent(true);
-    editor.lines.push_back(newLine);
-    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
-    editor.setGUIMessage("Transformed edge created.");
-    clearSelection();
-    return true;
-  };
 
   ObjectType tool = editor.m_currentToolType;
 
@@ -967,16 +1319,21 @@ bool handleTransformationCreation(GeometryEditor& editor,
     }
 
     if (!hitObj) {
-      hitObj = editor.lookForObjectAt(
-          worldPos_sfml, tolerance,
-          {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint, ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle,
-           ObjectType::Polygon, ObjectType::Rectangle, ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::RegularPolygon});
+      GeometricObject* pointHit = findClosestPointCandidate(editor, worldPos_sfml, tolerance);
+      if (pointHit) {
+        hitObj = pointHit;
+      } else {
+        hitObj = editor.lookForObjectAt(
+            worldPos_sfml, tolerance,
+            {ObjectType::Line, ObjectType::LineSegment, ObjectType::Circle, ObjectType::Polygon, ObjectType::Rectangle,
+             ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::RegularPolygon});
+      }
     }
     if (!hitObj) return false;
 
     // Prefer the original (non-dependent) source if a transformed result is on top
     if (hitObj->isDependent()) {
-      if (auto nonDependent = findTopNonDependentAt(worldPos_sfml, tolerance)) {
+      if (auto nonDependent = findTopNonDependentAt(editor, worldPos_sfml, tolerance)) {
         hitObj = nonDependent;
       }
     }
@@ -1020,256 +1377,13 @@ bool handleTransformationCreation(GeometryEditor& editor,
 
   auto sourceShared = editor.findSharedPtr(tempSelectedObjects[0]);
   if (!sourceShared) {
-    clearSelection();
+    clearTransformSelection(tempSelectedObjects);
     editor.setGUIMessage("Error: Invalid source object.");
     return false;
   }
 
-  // Translate requires 2-step vector selection
-  auto applyVectorTranslation = [&](const std::shared_ptr<Point>& v1, const std::shared_ptr<Point>& v2) -> bool {
-    if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::RectangleRotatable ||
-        sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
-        sourceShared->getType() == ObjectType::RegularPolygon) {
-      if (tryTransformShapeEdge(tool, sourceShared, nullptr, nullptr, nullptr, v1, v2)) {
-        return true;
-      }
-    }
-
-    auto sourcePoint = std::dynamic_pointer_cast<Point>(sourceShared);
-    if (sourcePoint) {
-      auto newPoint = createTransformedPoint(editor, sourcePoint, tool, nullptr, nullptr, nullptr, v1, v2);
-      if (!newPoint) {
-        editor.setGUIMessage("Error: Invalid translation.");
-        clearSelection();
-        return false;
-      }
-      registerPoint(newPoint);
-      editor.setGUIMessage("Translated point created.");
-      clearSelection();
-      return true;
-    }
-
-    if (sourceShared->getType() == ObjectType::Line || sourceShared->getType() == ObjectType::LineSegment) {
-      auto line = std::dynamic_pointer_cast<Line>(sourceShared);
-      if (!line) {
-        editor.setGUIMessage("Error: Invalid line.");
-        clearSelection();
-        return false;
-      }
-
-      auto p1 = line->getStartPointObjectShared();
-      auto p2 = line->getEndPointObjectShared();
-      auto p1t = createTransformedPoint(editor, p1, tool, nullptr, nullptr, nullptr, v1, v2);
-      auto p2t = createTransformedPoint(editor, p2, tool, nullptr, nullptr, nullptr, v1, v2);
-      if (!p1t || !p2t) {
-        editor.setGUIMessage("Error: Invalid translation.");
-        clearSelection();
-        return false;
-      }
-
-      registerPoint(p1t);
-      registerPoint(p2t);
-
-      auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), editor.getCurrentColor());
-      newLine->setThickness(line->getThickness());
-      newLine->setDependent(true);
-      editor.lines.push_back(newLine);
-      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
-      editor.setGUIMessage("Translated line created.");
-      clearSelection();
-      return true;
-    }
-
-    if (sourceShared->getType() == ObjectType::Circle) {
-      auto circle = std::dynamic_pointer_cast<Circle>(sourceShared);
-      if (!circle) {
-        editor.setGUIMessage("Error: Invalid circle.");
-        clearSelection();
-        return false;
-      }
-      auto centerRaw = circle->getCenterPointObject();
-      auto centerShared = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(centerRaw));
-      auto newCenter = createTransformedPoint(editor, centerShared, tool, nullptr, nullptr, nullptr, v1, v2);
-      if (!newCenter) {
-        editor.setGUIMessage("Error: Invalid translation.");
-        clearSelection();
-        return false;
-      }
-      registerPoint(newCenter);
-      auto newCircle = std::make_shared<Circle>(newCenter.get(), nullptr, circle->getRadius(), editor.getCurrentColor());
-      newCircle->setThickness(circle->getThickness());
-      newCircle->setDependent(true);
-      attachTransformMetadata(sourceShared, newCircle, tool, nullptr, v1, v2);
-      editor.circles.push_back(newCircle);
-      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
-      editor.setGUIMessage("Translated circle created.");
-      clearSelection();
-      return true;
-    }
-
-    // Find or create a Vector/Line object to serve as the 'aux' object for dynamic updates
-    std::shared_ptr<GeometricObject> vectorAux = nullptr;
-    for (const auto& ln : editor.lines) {
-      if (!ln || !ln->isValid()) continue;
-      auto s = ln->getStartPointObjectShared();
-      auto e = ln->getEndPointObjectShared();
-      if ((s == v1 && e == v2) || (s == v2 && e == v1)) {
-        vectorAux = ln;
-        break;
-      }
-    }
-    if (!vectorAux) {
-      auto vLine = std::make_shared<Line>(v1, v2, true, sf::Color(0, 0, 0, 0));
-      vLine->setLineType(Line::LineType::Vector);
-      vLine->setVisible(true);
-      vLine->setDependent(true);
-      editor.lines.push_back(vLine);
-      vectorAux = vLine;
-    }
-
-    if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::RectangleRotatable) {
-      auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
-      auto V0 = getPointForShapeVertex(editor, rect, 0);
-      auto V1 = getPointForShapeVertex(editor, rect, 1);
-      auto V3 = getPointForShapeVertex(editor, rect, 3);
-
-      auto V0t = createTransformedPoint(editor, V0, tool, nullptr, nullptr, nullptr, v1, v2);
-      auto V1t = createTransformedPoint(editor, V1, tool, nullptr, nullptr, nullptr, v1, v2);
-      auto V3t = createTransformedPoint(editor, V3, tool, nullptr, nullptr, nullptr, v1, v2);
-
-      if (V0t && V1t && V3t) {
-        registerPoint(V0t);
-        registerPoint(V1t);
-        registerPoint(V3t);
-        double h = std::sqrt(CGAL::to_double(CGAL::squared_distance(V0t->getCGALPosition(), V3t->getCGALPosition())));
-        auto newRect = std::make_shared<Rectangle>(V0t, V1t, h, editor.getCurrentColor(), editor.objectIdCounter++);
-        newRect->setThickness(rect->getThickness());
-        newRect->setDependent(true);
-        attachTransformMetadata(sourceShared, newRect, tool, vectorAux, v1, v2);
-        applyRectangleVertexLabels(editor, newRect);
-        editor.rectangles.push_back(newRect);
-        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRect)));
-        editor.setGUIMessage("Translated rectangle created.");
-        clearSelection();
-        return true;
-      }
-    }
-
-    if (sourceShared->getType() == ObjectType::Triangle) {
-      auto tri = std::dynamic_pointer_cast<Triangle>(sourceShared);
-      std::vector<std::shared_ptr<Point>> newPts;
-      for (size_t i = 0; i < 3; ++i) {
-        auto vt = createTransformedPoint(editor, tri->getVertexPoint(i), tool, nullptr, nullptr, nullptr, v1, v2);
-        if (vt) {
-          registerPoint(vt);
-          newPts.push_back(vt);
-        }
-      }
-      if (newPts.size() == 3) {
-        auto newTri = std::make_shared<Triangle>(newPts[0], newPts[1], newPts[2], editor.getCurrentColor(), editor.objectIdCounter++);
-        newTri->setThickness(tri->getThickness());
-        newTri->setDependent(true);
-        attachTransformMetadata(sourceShared, newTri, tool, vectorAux, v1, v2);
-        editor.triangles.push_back(newTri);
-        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
-        editor.setGUIMessage("Translated triangle created.");
-        clearSelection();
-        return true;
-      }
-    }
-
-    if (sourceShared->getType() == ObjectType::RegularPolygon) {
-      auto rpoly = std::dynamic_pointer_cast<RegularPolygon>(sourceShared);
-      auto ct = createTransformedPoint(editor, rpoly->getCenterPoint(), tool, nullptr, nullptr, nullptr, v1, v2);
-      auto vt = createTransformedPoint(editor, rpoly->getFirstVertexPoint(), tool, nullptr, nullptr, nullptr, v1, v2);
-      if (ct && vt) {
-        registerPoint(ct);
-        registerPoint(vt);
-        auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), editor.getCurrentColor(), editor.objectIdCounter++);
-        newRPoly->setThickness(rpoly->getThickness());
-        newRPoly->setDependent(true);
-        attachTransformMetadata(sourceShared, newRPoly, tool, vectorAux, v1, v2);
-        editor.regularPolygons.push_back(newRPoly);
-        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
-        editor.setGUIMessage("Translated regular polygon created.");
-        clearSelection();
-        return true;
-      }
-    }
-
-    if (sourceShared->getType() == ObjectType::Polygon) {
-      auto poly = std::dynamic_pointer_cast<Polygon>(sourceShared);
-      if (!poly) {
-        editor.setGUIMessage("Error: Invalid polygon.");
-        clearSelection();
-        return false;
-      }
-      std::vector<std::shared_ptr<Point>> newVerts;
-      newVerts.reserve(poly->getVertexCount());
-      for (size_t i = 0; i < poly->getVertexCount(); ++i) {
-        auto v = poly->getVertexPoint(i);
-        auto vt = createTransformedPoint(editor, v, tool, nullptr, nullptr, nullptr, v1, v2);
-        if (!vt) {
-          editor.setGUIMessage("Error: Invalid translation.");
-          clearSelection();
-          return false;
-        }
-        registerPoint(vt);
-        newVerts.push_back(vt);
-      }
-      auto newPoly = std::make_shared<Polygon>(newVerts, editor.getCurrentColor());
-      newPoly->setThickness(poly->getThickness());
-      newPoly->setDependent(true);
-      attachTransformMetadata(sourceShared, newPoly, tool, vectorAux, v1, v2);
-      editor.polygons.push_back(newPoly);
-      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
-      editor.setGUIMessage("Translated polygon created.");
-      clearSelection();
-      return true;
-    }
-    return false;
-  };
-
   if (tool == ObjectType::TranslateByVector) {
-    if (tempSelectedObjects.size() == 1) {
-      // NEW: Check for EXISTING VECTOR OBJECT
-      GeometricObject* vecObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Vector});
-      if (vecObj && vecObj->getType() == ObjectType::Vector) {
-        auto vecLine = dynamic_cast<Line*>(vecObj);
-        if (vecLine) {
-          auto v1 = vecLine->getStartPointObjectShared();
-          auto v2 = vecLine->getEndPointObjectShared();
-          if (v1 && v2) {
-            return applyVectorTranslation(v1, v2);
-          }
-        }
-      }
-
-      GeometricObject* vecStartRaw =
-          editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
-      if (!vecStartRaw) return false;
-      tempSelectedObjects.push_back(vecStartRaw);
-      vecStartRaw->setSelected(true);
-      editor.setGUIMessage("Translate: Select vector end point.");
-      return true;
-    }
-
-    GeometricObject* vecEndRaw =
-        editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
-    if (!vecEndRaw) return false;
-    tempSelectedObjects.push_back(vecEndRaw);
-
-    auto v1 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[1]));
-    auto v2 = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(tempSelectedObjects[2]));
-    if (!v1 || !v2) {
-      clearSelection();
-      editor.setGUIMessage("Error: Invalid translation vector.");
-      return false;
-    }
-
-    ensureHoverVector(v1, v2);
-
-    return applyVectorTranslation(v1, v2);
+    return handleTranslationTool(editor, tempSelectedObjects, sourceShared, worldPos_sfml, tolerance);
   }
 
   // Step 2: Operator object
@@ -1278,56 +1392,17 @@ bool handleTransformationCreation(GeometryEditor& editor,
   std::shared_ptr<Circle> circleObj;
 
   if (tool == ObjectType::ReflectAboutLine) {
-    GeometricObject* hitLine = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
-    if (hitLine) {
-      lineObj = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(hitLine));
-    } else {
-      std::vector<ObjectType> axisTypes = {ObjectType::Rectangle, ObjectType::RectangleRotatable, ObjectType::Triangle, ObjectType::Polygon,
-                                           ObjectType::RegularPolygon};
-      GeometricObject* hitAxis = editor.lookForObjectAt(worldPos_sfml, tolerance, axisTypes);
-      if (!hitAxis) return false;
-      // It's a shape. Try to get an edge.
-      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
-      if (edgeHit && edgeHit->host == hitAxis) {
-        lineObj = getOrCreateHelperLineForEdge(editor, editor.findSharedPtr(hitAxis), edgeHit->edgeIndex);
-      } else {
-        // Fallback: choose closest edge on the clicked shape even if not within tolerance
-        auto shapeShared = editor.findSharedPtr(hitAxis);
-        if (shapeShared) {
-          auto edges = shapeShared->getEdges();
-          if (!edges.empty()) {
-            Point_2 mousePos(FT(worldPos_sfml.x), FT(worldPos_sfml.y));
-            double bestDist = std::numeric_limits<double>::max();
-            size_t bestIndex = 0;
-            for (size_t i = 0; i < edges.size(); ++i) {
-              Point_2 proj;
-              double rel;
-              double dist = PointUtils::projectPointOntoSegment(mousePos, edges[i], proj, rel);
-              if (dist < bestDist) {
-                bestDist = dist;
-                bestIndex = i;
-              }
-            }
-            lineObj = getOrCreateHelperLineForEdge(editor, shapeShared, bestIndex);
-          }
-        }
-      }
-    }
+    if (!handleLineReflectionSelection(editor, worldPos_sfml, tolerance, lineObj)) return false;
   } else if (tool == ObjectType::ReflectAboutCircle) {
-    GeometricObject* hitCircle = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Circle});
-    if (!hitCircle) return false;
-    circleObj = std::dynamic_pointer_cast<Circle>(editor.findSharedPtr(hitCircle));
+    if (!handleCircleReflectionSelection(editor, worldPos_sfml, tolerance, circleObj)) return false;
   } else {
-    GeometricObject* hitPoint =
-        editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
-    if (!hitPoint) return false;
-    pivotPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hitPoint));
+    if (!handlePointPivotSelection(editor, worldPos_sfml, tolerance, pivotPoint)) return false;
   }
 
   if (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::RectangleRotatable ||
       sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
       sourceShared->getType() == ObjectType::RegularPolygon) {
-    if (tryTransformShapeEdge(tool, sourceShared, pivotPoint, lineObj, circleObj, nullptr, nullptr)) {
+    if (tryTransformShapeEdge(editor, tempSelectedObjects, tool, sourceShared, pivotPoint, lineObj, circleObj, nullptr, nullptr)) {
       return true;
     }
   }
@@ -1337,10 +1412,10 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto newPoint = createTransformedPoint(editor, sourcePoint, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     if (!newPoint) {
       editor.setGUIMessage("Error: Invalid transformation selection.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
-    registerPoint(newPoint);
+    registerTransformPoint(editor, newPoint);
     if (tool == ObjectType::ReflectAboutCircle) {
       editor.setGUIMessage("Inverted point created.");
     } else if (tool == ObjectType::RotateAroundPoint) {
@@ -1350,7 +1425,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
     } else {
       editor.setGUIMessage("Reflected point created.");
     }
-    clearSelection();
+    clearTransformSelection(tempSelectedObjects);
     return true;
   }
 
@@ -1358,7 +1433,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto line = std::dynamic_pointer_cast<Line>(sourceShared);
     if (!line) {
       editor.setGUIMessage("Error: Invalid line.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
     auto p1 = line->getStartPointObjectShared();
@@ -1367,18 +1442,18 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto p2t = createTransformedPoint(editor, p2, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     if (!p1t || !p2t) {
       editor.setGUIMessage("Error: Invalid transformation selection.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
-    registerPoint(p1t);
-    registerPoint(p2t);
+    registerTransformPoint(editor, p1t);
+    registerTransformPoint(editor, p2t);
     auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), line->getColor());
     newLine->setThickness(line->getThickness());
     newLine->setDependent(true);
     editor.lines.push_back(newLine);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
     editor.setGUIMessage("Transformed line created.");
-    clearSelection();
+    clearTransformSelection(tempSelectedObjects);
     return true;
   }
 
@@ -1386,12 +1461,12 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto circle = std::dynamic_pointer_cast<Circle>(sourceShared);
     if (!circle) {
       editor.setGUIMessage("Error: Invalid circle.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
     if (tool == ObjectType::ReflectAboutCircle) {
       editor.setGUIMessage("Circle inversion not supported yet.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
 
@@ -1400,10 +1475,10 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto newCenter = createTransformedPoint(editor, centerShared, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     if (!newCenter) {
       editor.setGUIMessage("Error: Invalid transformation selection.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
-    registerPoint(newCenter);
+    registerTransformPoint(editor, newCenter);
 
     // NEW: Handled specific radius logic based on transformation
     double newRadius = circle->getRadius();
@@ -1434,9 +1509,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
     editor.circles.push_back(newCircle);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
     editor.setGUIMessage("Transformed circle created.");
-    clearSelection();
-    return true;
-    clearSelection();
+    clearTransformSelection(tempSelectedObjects);
     return true;
   }
 
@@ -1445,21 +1518,24 @@ bool handleTransformationCreation(GeometryEditor& editor,
     // Rectangle vertices are usually 0,1,2,3 in order around perimeter
     auto V0 = getPointForShapeVertex(editor, rect, 0);
     auto V1 = getPointForShapeVertex(editor, rect, 1);
+    auto V2 = getPointForShapeVertex(editor, rect, 2);
     auto V3 = getPointForShapeVertex(editor, rect, 3);
 
     auto V0t = createTransformedPoint(editor, V0, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     auto V1t = createTransformedPoint(editor, V1, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+    auto V2t = createTransformedPoint(editor, V2, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     auto V3t = createTransformedPoint(editor, V3, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
 
-    if (V0t && V1t && V3t) {
-      registerPoint(V0t);
-      registerPoint(V1t);
-      registerPoint(V3t);
+    if (V0t && V1t && V2t && V3t) {
+      registerTransformPoint(editor, V0t);
+      registerTransformPoint(editor, V1t);
+      registerTransformPoint(editor, V2t);
+      registerTransformPoint(editor, V3t);
 
       // Calculate signed height to preserve orientation
-      Point_2 p0 = V0t->getCGALPosition();
-      Point_2 p1 = V1t->getCGALPosition();
-      Point_2 p3 = V3t->getCGALPosition();
+      Point_2 p0 = flattenPoint(V0t->getCGALPosition());
+      Point_2 p1 = flattenPoint(V1t->getCGALPosition());
+      Point_2 p3 = flattenPoint(V3t->getCGALPosition());
 
       double dx = CGAL::to_double(p1.x() - p0.x());
       double dy = CGAL::to_double(p1.y() - p0.y());
@@ -1490,7 +1566,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       editor.rectangles.push_back(newRect);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRect)));
       editor.setGUIMessage("Transformed rectangle created.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return true;
     }
   }
@@ -1501,7 +1577,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
     for (size_t i = 0; i < 3; ++i) {
       auto vt = createTransformedPoint(editor, tri->getVertexPoint(i), tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
       if (vt) {
-        registerPoint(vt);
+        registerTransformPoint(editor, vt);
         newPts.push_back(vt);
       }
     }
@@ -1521,7 +1597,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       editor.triangles.push_back(newTri);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTri)));
       editor.setGUIMessage("Transformed triangle created.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return true;
     }
   }
@@ -1531,8 +1607,8 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto ct = createTransformedPoint(editor, rpoly->getCenterPoint(), tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     auto vt = createTransformedPoint(editor, rpoly->getFirstVertexPoint(), tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
     if (ct && vt) {
-      registerPoint(ct);
-      registerPoint(vt);
+      registerTransformPoint(editor, ct);
+      registerTransformPoint(editor, vt);
       auto newRPoly = std::make_shared<RegularPolygon>(ct, vt, rpoly->getNumSides(), rpoly->getColor(), editor.objectIdCounter++);
       newRPoly->setThickness(rpoly->getThickness());
       newRPoly->setDependent(true);
@@ -1548,7 +1624,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
       editor.regularPolygons.push_back(newRPoly);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRPoly)));
       editor.setGUIMessage("Transformed regular polygon created.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return true;
     }
   }
@@ -1557,7 +1633,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
     auto poly = std::dynamic_pointer_cast<Polygon>(sourceShared);
     if (!poly) {
       editor.setGUIMessage("Error: Invalid polygon.");
-      clearSelection();
+      clearTransformSelection(tempSelectedObjects);
       return false;
     }
     std::vector<std::shared_ptr<Point>> newVerts;
@@ -1567,10 +1643,10 @@ bool handleTransformationCreation(GeometryEditor& editor,
       auto vt = createTransformedPoint(editor, v, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
       if (!vt) {
         editor.setGUIMessage("Error: Invalid transformation selection.");
-        clearSelection();
+        clearTransformSelection(tempSelectedObjects);
         return false;
       }
-      registerPoint(vt);
+      registerTransformPoint(editor, vt);
       newVerts.push_back(vt);
     }
     auto newPoly = std::make_shared<Polygon>(newVerts, poly->getColor());
@@ -1588,12 +1664,12 @@ bool handleTransformationCreation(GeometryEditor& editor,
     editor.polygons.push_back(newPoly);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
     editor.setGUIMessage("Transformed polygon created.");
-    clearSelection();
+    clearTransformSelection(tempSelectedObjects);
     return true;
   }
 
   editor.setGUIMessage("Error: Unsupported source object.");
-  clearSelection();
+  clearTransformSelection(tempSelectedObjects);
   return false;
 }
 
@@ -1759,12 +1835,96 @@ static void assignUnifiedLabels(GeometryEditor& editor, const std::vector<std::s
   }
 }
 
+// Helper to get consistent CCW ordering for 4 points
+static std::vector<std::shared_ptr<Point>> sortPointsCCW(const std::vector<std::shared_ptr<Point>>& pts) {
+  if (pts.size() != 4) return pts;
+
+  // Calculate centroid
+  double cx = 0, cy = 0;
+  int count = 0;
+  for (const auto& p : pts) {
+    if (!p) continue;
+    Point_2 pos = p->getCGALPosition();
+    cx += CGAL::to_double(pos.x());
+    cy += CGAL::to_double(pos.y());
+    count++;
+  }
+  if (count == 0) return pts;
+  cx /= (double)count;
+  cy /= (double)count;
+
+  // Sort by angle around centroid
+  // Standard Cartesian: atan2(y, x) gives angle from Positive X axis
+  // Increasing angle = Counter-Clockwise
+  std::vector<std::pair<double, std::shared_ptr<Point>>> sorted;
+  for (const auto& p : pts) {
+    if (!p) continue;
+    Point_2 pos = p->getCGALPosition();
+    double dx = CGAL::to_double(pos.x()) - cx;
+    double dy = CGAL::to_double(pos.y()) - cy;
+    double angle = std::atan2(dy, dx);
+    sorted.push_back({angle, p});
+  }
+
+  // Sort: -PI to PI (Increasing angle = CCW)
+  std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+      return a.first < b.first;
+  });
+
+  std::vector<std::shared_ptr<Point>> result;
+  for(auto& pair : sorted) result.push_back(pair.second);
+
+  // Find "Top Left" vertex to be index 0
+  int bestStart = 0;
+  double bestScore = -1e18;
+  for(int i = 0; i < 4; ++i) {
+      Point_2 p = result[i]->getCGALPosition();
+      // TL heuristic: Max Y, Min X. (Using Y - X score)
+      double score = CGAL::to_double(p.y()) - CGAL::to_double(p.x());
+      if(score > bestScore) {
+          bestScore = score;
+          bestStart = i;
+      }
+  }
+
+  // Rotate result so bestStart (Top-Left) is at index 0
+  std::rotate(result.begin(), result.begin() + bestStart, result.end());
+  
+  // CRITICAL: The angular sort (atan2 ascending) produced a specific winding.
+  // If the user sees Clockwise, we REVERSE the direction of the cycle (keeping TL at 0).
+  // TL, P1, P2, P3 -> TL, P3, P2, P1
+  if (result.size() == 4) {
+      std::swap(result[1], result[3]);
+  }
+  
+  return result;
+}
+
 static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared_ptr<Rectangle>& rect) {
   if (!rect) return;
   auto c1 = rect->getCorner1Point();
   auto c2 = rect->getCorner2Point();
+  auto verts = rect->getVertices();
+  if (verts.size() != 4) return;
 
-  auto createInvisibleLabelDependent = [&](const Point_2& pos) -> std::shared_ptr<Point> {
+  float tolerance = getDynamicSelectionTolerance(editor);
+
+  auto findOrCreatePoint = [&](const Point_2& pos) -> std::shared_ptr<Point> {
+    // 1. Look for existing point at this location (Crucial for transformation primed points)
+    sf::Vector2f worldPos = editor.toSFMLVector(pos);
+    GeometricObject* hit = editor.lookForObjectAt(worldPos, tolerance, 
+        {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
+    
+    if (hit) {
+      auto p = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(hit));
+      if (p) {
+        p->setDependent(true);
+        p->setCreatedWithShape(true);
+        return p;
+      }
+    }
+
+    // 2. Create new if none found
     auto p = editor.createPoint(pos);
     if (!p) return nullptr;
     p->setShowLabel(false);
@@ -1774,33 +1934,69 @@ static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared
     return p;
   };
 
-  auto verts = rect->getVertices();
-  if (verts.size() != 4) return;
-
-  std::vector<std::shared_ptr<Point>> allRectPoints;
-  allRectPoints.push_back(c1);
-  
-  std::shared_ptr<Point> pB, pD;
-  if (rect->isRotatable()) {
-    pB = createInvisibleLabelDependent(verts[2]);
-    pD = createInvisibleLabelDependent(verts[3]);
-  } else {
-    pB = createInvisibleLabelDependent(verts[1]);
-    pD = createInvisibleLabelDependent(verts[3]);
+  // Build the list of 4 corner points
+  std::vector<std::shared_ptr<Point>> corners;
+  for (const auto& vPos : verts) {
+      // Check if this vertex position corresponds to c1 or c2 (the anchors)
+      if (CGAL::squared_distance(vPos, c1->getCGALPosition()) < 1e-6) {
+          corners.push_back(c1);
+      } else if (CGAL::squared_distance(vPos, c2->getCGALPosition()) < 1e-6) {
+          corners.push_back(c2);
+      } else {
+          corners.push_back(findOrCreatePoint(vPos));
+      }
   }
-  
-  allRectPoints.push_back(pB);
-  allRectPoints.push_back(c2);
-  allRectPoints.push_back(pD);
-  
-  rect->setDependentCornerPoints(pB, pD);
-  
-  // Assign unified labels to all 4 corners
-  assignUnifiedLabels(editor, allRectPoints);
-  
-  // Ensure all points have setShowLabel(false) to avoid duplication with Rectangle::drawLabel
-  for (auto& p : allRectPoints) {
-    if (p) p->setShowLabel(false);
+
+  if (corners.size() != 4) return;
+
+  // Identify pB and pD for the Rectangle's internal state
+  // (Usually the non-anchor ones)
+  std::vector<std::shared_ptr<Point>> dependents;
+  for (auto& p : corners) {
+      if (p != c1 && p != c2) dependents.push_back(p);
+  }
+  if (dependents.size() >= 2) {
+      rect->setDependentCornerPoints(dependents[0], dependents[1]);
+  }
+
+  // --- LABELING LOGIC ---
+  auto sorted = sortPointsCCW(corners);
+
+  // Determine the 4 labels to use
+  std::vector<std::string> labelsToUse;
+  bool isTransform = (rect->getTransformType() != TransformationType::None);
+
+  if (isTransform) {
+      // Pick up the 4 transformer-generated labels (A', B', C', D' or similar)
+      for (auto& p : corners) {
+          if (p) {
+              std::string lbl = p->getLabel();
+              if (!lbl.empty()) labelsToUse.push_back(lbl);
+          }
+      }
+      
+      // If we don't have enough labels (shouldn't happen), generate some
+      while (labelsToUse.size() < 4) {
+          labelsToUse.push_back(LabelManager::instance().getNextLabel(editor.getAllPoints()));
+      }
+      
+      // Sort labels alphabetically to ensure A' comes before B', etc.
+      std::sort(labelsToUse.begin(), labelsToUse.end());
+  } else {
+      // Fresh Rectangle: Force A, B, C, D in CCW order from TL
+      // Clear temporary labels assigned during point creation so getNextLabels can reuse them
+      for (auto& p : sorted) {
+          if (p) p->setLabel(""); 
+      }
+      labelsToUse = LabelManager::instance().getNextLabels(4, editor.getAllPoints());
+  }
+
+  // Assign the labels in the CCW sorted order
+  for (size_t i = 0; i < sorted.size() && i < labelsToUse.size(); ++i) {
+      if (sorted[i]) {
+          sorted[i]->setLabel(labelsToUse[i]);
+          sorted[i]->setShowLabel(false); // Rectangle draws vertex labels itself
+      }
   }
 }
 

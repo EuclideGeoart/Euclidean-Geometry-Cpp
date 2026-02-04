@@ -1790,11 +1790,31 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
          for (const auto& pt : editor.points) uniquePoints.insert(pt);
          for (const auto& pt : editor.ObjectPoints) uniquePoints.insert(pt);
          for (const auto& rect : editor.rectangles) {
-             if (rect && rect->isValid()) {
+             if (rect && rect->isValid() && rect->isVisible()) {
                  if (auto p = rect->getCorner1Point()) uniquePoints.insert(p);
                  if (auto p = rect->getCorner2Point()) uniquePoints.insert(p);
                  if (auto p = rect->getCornerBPoint()) uniquePoints.insert(p);
                  if (auto p = rect->getCornerDPoint()) uniquePoints.insert(p);
+             }
+         }
+         for (const auto& tri : editor.triangles) {
+             if (tri && tri->isValid() && tri->isVisible()) {
+                 for (int i = 0; i < 3; ++i) {
+                     if (auto p = tri->getVertexPoint(i)) uniquePoints.insert(p);
+                 }
+             }
+         }
+         for (const auto& poly : editor.polygons) {
+             if (poly && poly->isValid() && poly->isVisible()) {
+                 for (size_t i = 0; i < poly->getVertexCount(); ++i) {
+                     if (auto p = poly->getVertexPoint(i)) uniquePoints.insert(p);
+                 }
+             }
+         }
+         for (const auto& rpoly : editor.regularPolygons) {
+             if (rpoly && rpoly->isValid() && rpoly->isVisible()) {
+                 if (auto p = rpoly->getCenterPoint()) uniquePoints.insert(p);
+                 if (auto p = rpoly->getFirstVertexPoint()) uniquePoints.insert(p);
              }
          }
  
@@ -1814,7 +1834,13 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
          // Labels for All Points
          for (const auto& pt : uniquePoints) {
              if (!pt || !pt->isValid() || !pt->isVisible()) continue;
-             if (!pt->getShowLabel()) continue;
+             
+             // Export labels for free points that have labels enabled,
+             // and for shape vertices that have a non-empty label.
+             // (Shape vertices often have m_showLabel=false to avoid SFML double-draw).
+             bool shouldShow = pt->getShowLabel() || (pt->isCreatedWithShape() && !pt->getLabel().empty());
+             if (!shouldShow) continue;
+
              const std::string& label = pt->getLabel();
              if (label.empty()) continue;
 
@@ -1824,8 +1850,9 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
              // Calculate Screen Coordinates directly
              // Point is flipped: screenY = (minY + maxY) - worldY
              // Label Offset is in screen pixels (relative to point)
-             double sx = CGAL::to_double(pos.x()) + offset.x;
-             double sy = (minY + maxY - CGAL::to_double(pos.y())) + offset.y;
+             // We MUST scale pixels to world units for the SVG viewBox.
+             double sx = CGAL::to_double(pos.x()) + offset.x * pixelToWorldScale;
+             double sy = (minY + maxY - CGAL::to_double(pos.y())) + offset.y * pixelToWorldScale;
 
              SVGWriter::Style textStyle;
              textStyle.fill = "black";

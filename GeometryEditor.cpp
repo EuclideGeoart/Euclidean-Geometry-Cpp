@@ -82,7 +82,7 @@ float Constants::CURRENT_ZOOM = 1.0f;
 // Constructor
 GeometryEditor::GeometryEditor()
     : settings(0, 0, 2),
-      window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.8f, sf::VideoMode::getDesktopMode().height * 0.8f), "Geometry Editor",
+      window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.7f, sf::VideoMode::getDesktopMode().height * 0.7f), "FluxGeo",
              sf::Style::Default, settings),
       // Initialize drawing view: Width = 30 units (approx), centered at (0,0)
       drawingView(sf::Vector2f(0.f, 0.f), sf::Vector2f(20.0f, 20.0f * (static_cast<float>(sf::VideoMode::getDesktopMode().height) / static_cast<float>(sf::VideoMode::getDesktopMode().width)))),
