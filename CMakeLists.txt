@@ -100,7 +100,6 @@ set(SOURCES
     LineToolMode.cpp
     QuickProfiler.cpp
     ContextMenu.cpp
-    VertexLabelManager.cpp
     PointUtils.cpp
     ProjectSerializer.cpp
     Deserializer.cpp

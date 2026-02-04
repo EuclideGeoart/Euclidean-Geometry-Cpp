@@ -29,7 +29,7 @@
 #include "Triangle.h"
 #include "Types.h"
 #include "VariantUtils.h"
-#include "VertexLabelManager.h"
+#include "ForwardDeclarations.h"
 
 // handleParallelLineCreation, handlePerpendicularLineCreation, handlePerpendicularBisectorCreation,
 // handleAngleBisectorCreation, handleTangentCreation, handleObjectPointCreation,
@@ -46,6 +46,7 @@ static std::vector<GeometricObject*> tempSelectedObjects;
 static std::optional<EdgeHitResult> g_transformEdgeSelection;
 
 static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared_ptr<Rectangle>& rect);
+static void assignUnifiedLabels(GeometryEditor& editor, const std::vector<std::shared_ptr<Point>>& points);
 
 // Forward declarations for helpers defined in HandleEvents.cpp
 void deselectAllAndClearInteractionState(GeometryEditor& editor);
@@ -589,7 +590,7 @@ static std::shared_ptr<Point> createTransformedPoint(GeometryEditor& editor,
     if (!primeLabel.empty()) {
       newPoint->setLabel(primeLabel);
     } else {
-      newPoint->setLabel(LabelManager::getNextLabel(editor.points));
+      newPoint->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
     }
     newPoint->setShowLabel(sourceShowLabel);
   } else {
@@ -909,7 +910,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         for (const auto& op : editor.ObjectPoints) {
           labelPool.push_back(std::static_pointer_cast<Point>(op));
         }
-        p1t->setLabel(LabelManager::getNextLabel(labelPool));
+        p1t->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
       }
       p1t->setShowLabel(true);
       registerPoint(p1t);
@@ -931,7 +932,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         for (const auto& op : editor.ObjectPoints) {
           labelPool.push_back(std::static_pointer_cast<Point>(op));
         }
-        p2t->setLabel(LabelManager::getNextLabel(labelPool));
+        p2t->setLabel(LabelManager::instance().getNextLabel(editor.getAllPoints()));
       }
       p2t->setShowLabel(true);
       registerPoint(p2t);
@@ -1692,7 +1693,7 @@ void createObjectPointOnLine(GeometryEditor& editor, Line* lineHost, const Point
       for (const auto& op : editor.ObjectPoints) {
         labelPool.push_back(std::static_pointer_cast<Point>(op));
       }
-      std::string label = LabelManager::getNextLabel(labelPool);
+      std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
       newObjPoint->setLabel(label);
       newObjPoint->setShowLabel(true);
       editor.ObjectPoints.push_back(newObjPoint);
@@ -1726,7 +1727,7 @@ void createObjectPointOnCircle(GeometryEditor& editor, std::shared_ptr<Circle> c
       for (const auto& op : editor.ObjectPoints) {
         labelPool.push_back(std::static_pointer_cast<Point>(op));
       }
-      std::string label = LabelManager::getNextLabel(labelPool);
+      std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
       objectPoint->setLabel(label);
       objectPoint->setShowLabel(true);
       editor.ObjectPoints.push_back(objectPoint);
@@ -1739,15 +1740,29 @@ void createObjectPointOnCircle(GeometryEditor& editor, std::shared_ptr<Circle> c
   }
 }
 
+static void assignUnifiedLabels(GeometryEditor& editor, const std::vector<std::shared_ptr<Point>>& points) {
+  std::vector<std::shared_ptr<Point>> pointsToLabel;
+  for (const auto& p : points) {
+    if (p && p->getLabel().empty()) {
+      pointsToLabel.push_back(p);
+    }
+  }
+
+  if (pointsToLabel.empty()) return;
+
+  // Gather ALL existing points with labels to avoid collisions in LabelManager (though LabelManager already checks point pool)
+  // Just use the enhanced getNextLabels
+  auto labels = LabelManager::instance().getNextLabels(pointsToLabel.size(), editor.getAllPoints());
+  for (size_t i = 0; i < pointsToLabel.size() && i < labels.size(); ++i) {
+    pointsToLabel[i]->setLabel(labels[i]);
+    pointsToLabel[i]->setShowLabel(false); // Hide point label, shape will draw it
+  }
+}
+
 static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared_ptr<Rectangle>& rect) {
   if (!rect) return;
   auto c1 = rect->getCorner1Point();
   auto c2 = rect->getCorner2Point();
-
-  auto hidePointLabel = [](const std::shared_ptr<Point>& p) {
-    if (!p) return;
-    p->setShowLabel(false);
-  };
 
   auto createInvisibleLabelDependent = [&](const Point_2& pos) -> std::shared_ptr<Point> {
     auto p = editor.createPoint(pos);
@@ -1762,18 +1777,30 @@ static void applyRectangleVertexLabels(GeometryEditor& editor, const std::shared
   auto verts = rect->getVertices();
   if (verts.size() != 4) return;
 
-  // Hide labels on main points to avoid duplication with Rectangle::drawLabel
-  hidePointLabel(c1);
-  hidePointLabel(c2);
-
+  std::vector<std::shared_ptr<Point>> allRectPoints;
+  allRectPoints.push_back(c1);
+  
+  std::shared_ptr<Point> pB, pD;
   if (rect->isRotatable()) {
-    auto cPoint = createInvisibleLabelDependent(verts[2]);
-    auto dPoint = createInvisibleLabelDependent(verts[3]);
-    rect->setDependentCornerPoints(cPoint, dPoint);
+    pB = createInvisibleLabelDependent(verts[2]);
+    pD = createInvisibleLabelDependent(verts[3]);
   } else {
-    auto bPoint = createInvisibleLabelDependent(verts[1]);
-    auto dPoint = createInvisibleLabelDependent(verts[3]);
-    rect->setDependentCornerPoints(bPoint, dPoint);
+    pB = createInvisibleLabelDependent(verts[1]);
+    pD = createInvisibleLabelDependent(verts[3]);
+  }
+  
+  allRectPoints.push_back(pB);
+  allRectPoints.push_back(c2);
+  allRectPoints.push_back(pD);
+  
+  rect->setDependentCornerPoints(pB, pD);
+  
+  // Assign unified labels to all 4 corners
+  assignUnifiedLabels(editor, allRectPoints);
+  
+  // Ensure all points have setShowLabel(false) to avoid duplication with Rectangle::drawLabel
+  for (auto& p : allRectPoints) {
+    if (p) p->setShowLabel(false);
   }
 }
 
@@ -1918,7 +1945,7 @@ void handlePointCreation(GeometryEditor& editor, const sf::Event::MouseButtonEve
       for (const auto& op : editor.ObjectPoints) {
         labelPool.push_back(std::static_pointer_cast<Point>(op));
       }
-      std::string label = LabelManager::getNextLabel(labelPool);
+      std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
       smartPoint->setLabel(label);
       smartPoint->setShowLabel(true);
     }
@@ -2739,35 +2766,27 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
     auto bisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++);
     if (bisector && bisector->isValid()) {
       bisector->setThickness(editor.currentThickness);
+      
+      // REGISTER DEPENDENCIES (Internal Bisector)
+      bisector->setDependent(true);
+      editor.angleBisectorLine1->addDependent(bisector);
+      editor.angleBisectorLine2->addDependent(bisector);
+
       editor.lines.push_back(bisector);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
-      Vector_2 perp(-w.y(), w.x());
-      double perpLen = std::sqrt(CGAL::to_double(perp.squared_length()));
-      if (perpLen > 1e-9) {
-        Vector_2 perpUnit = perp / FT(perpLen);
-        FT span = FT(Constants::DEFAULT_LINE_CONSTRUCTION_LENGTH);
-        Point_2 p1 = *I + perpUnit * span;
-        Point_2 p2 = *I - perpUnit * span;
+      // DYNAMIC EXTERNAL BISECTOR
+      auto extBisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++, true);
+      if (extBisector && extBisector->isValid()) {
+          extBisector->setThickness(editor.currentThickness);
+          extBisector->setAsConstructionLine();
+          
+          // REGISTER DEPENDENCIES (External Bisector)
+          extBisector->setDependent(true);
+          editor.angleBisectorLine1->addDependent(extBisector);
+          editor.angleBisectorLine2->addDependent(extBisector);
 
-        auto newP1 = std::make_shared<Point>(p1, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-        auto newP2 = std::make_shared<Point>(p2, 1.0f, Constants::POINT_DEFAULT_COLOR, editor.objectIdCounter++);
-        if (newP1 && newP2) {
-          newP1->setVisible(false);
-          newP2->setVisible(false);
-          editor.points.push_back(newP1);
-          editor.points.push_back(newP2);
-          editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP1)));
-          editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newP2)));
-
-          auto externalBisector = std::make_shared<Line>(newP1, newP2, false, Constants::CONSTRUCTION_LINE_COLOR, editor.objectIdCounter++);
-          if (externalBisector && externalBisector->isValid()) {
-            externalBisector->setAsConstructionLine();
-            externalBisector->setThickness(editor.currentThickness);
-            editor.lines.push_back(externalBisector);
-            editor.commandManager.pushHistoryOnly(
-                std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(externalBisector)));
-          }
-        }
+          editor.lines.push_back(extBisector);
+          editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(extBisector)));
       }
 
       editor.setGUIMessage("Angle bisectors created.");
@@ -2814,6 +2833,14 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
   auto bisector = std::make_shared<AngleBisector>(editor.angleBisectorPoints[1], editor.angleBisectorPoints[0], editor.angleBisectorPoints[2],
                                                   editor.objectIdCounter++);
   if (bisector && bisector->isValid()) {
+    bisector->setThickness(editor.currentThickness);
+
+    // REGISTER DEPENDENCIES (Internal Bisector)
+    bisector->setDependent(true);
+    editor.angleBisectorPoints[0]->addDependent(bisector);
+    editor.angleBisectorPoints[1]->addDependent(bisector);
+    editor.angleBisectorPoints[2]->addDependent(bisector);
+
     editor.lines.push_back(bisector);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
     editor.setGUIMessage("Angle bisector created.");
@@ -3250,7 +3277,7 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
           corner2->setCreatedWithShape(true);
         }
         auto newRectangle = std::make_shared<Rectangle>(corner1, corner2, baseLen, editor.getCurrentColor(), editor.objectIdCounter++);
-        newRectangle->setHeight(signedHeight);
+        newRectangle->setHeight(static_cast<float>(signedHeight));
         applyRectangleVertexLabels(editor, newRectangle);
         newRectangle->setThickness(editor.currentThickness);
         editor.rectangles.push_back(newRectangle);
@@ -3304,10 +3331,12 @@ void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
             finalPoints[i]->setLabel("P" + std::to_string(i + 1));
           }
         }
-        auto newPoly = std::make_shared<Polygon>(finalPoints, editor.getCurrentColor(), editor.objectIdCounter++);
-        newPoly->setThickness(editor.currentThickness);
-        editor.polygons.push_back(newPoly);
-        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoly)));
+        auto newPolygon = std::make_shared<Polygon>(finalPoints, editor.getCurrentColor(), editor.objectIdCounter++);
+        assignUnifiedLabels(editor, finalPoints);
+        
+        newPolygon->setThickness(editor.currentThickness);
+        editor.polygons.push_back(newPolygon);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPolygon)));
         editor.isCreatingPolygon = false;
         editor.polygonVertices.clear();
         editor.polygonVertexPoints.clear();
@@ -3399,6 +3428,10 @@ void handleTriangleCreation(GeometryEditor& editor, const sf::Event::MouseButton
         auto p3 = editor.triangleVertexPoints[2] ? editor.triangleVertexPoints[2] : editor.createPoint(editor.triangleVertices[2]);
 
         auto newTriangle = std::make_shared<Triangle>(p1, p2, p3, editor.getCurrentColor(), editor.objectIdCounter++);
+        
+        std::vector<std::shared_ptr<Point>> triPoints = {p1, p2, p3};
+        assignUnifiedLabels(editor, triPoints);
+        
         newTriangle->setThickness(editor.currentThickness);
         editor.triangles.push_back(newTriangle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTriangle)));
@@ -3790,7 +3823,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       sf::Text text;
       text.setFont(*labelFont);
       text.setString(label);
-      text.setCharacterSize(VertexLabelManager::instance().getFontSize());
+      text.setCharacterSize(LabelManager::instance().getFontSize());
       text.setPosition(labelPos);
 
       sf::FloatRect bounds = text.getGlobalBounds();
@@ -3842,7 +3875,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
         sf::Text text;
         text.setFont(Button::getFont());
         text.setString(labels[i]);
-        text.setCharacterSize(VertexLabelManager::instance().getFontSize());
+        text.setCharacterSize(LabelManager::instance().getFontSize());
         text.setPosition(labelPos);
 
         sf::FloatRect bounds = text.getGlobalBounds();
@@ -3922,7 +3955,7 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
       sf::Text text;
       text.setFont(Button::getFont());
       text.setString(degreeStr);
-      text.setCharacterSize(VertexLabelManager::instance().getFontSize());
+      text.setCharacterSize(LabelManager::instance().getFontSize());
       text.setPosition(labelPos);
 
       sf::FloatRect bounds = text.getGlobalBounds();

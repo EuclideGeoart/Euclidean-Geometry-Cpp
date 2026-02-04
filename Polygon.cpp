@@ -1,26 +1,34 @@
 #include "Polygon.h"
+#include "Constants.h"
 #include "Point.h"
-#include "VertexLabelManager.h"
+#include <iostream>
 #include "Line.h"
 #include "Circle.h"
 #include <cmath>
 
 
-Polygon::Polygon(const std::vector<Point_2> &vertices, const sf::Color &color, unsigned int id)
+Polygon::Polygon(const std::vector<Point_2>& vertices, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Polygon, color, id) {
+  m_color.a = 0; // Default transparent fill
   m_vertices.reserve(vertices.size());
-  for (const auto &v : vertices) {
-    m_vertices.push_back(std::make_shared<Point>(v, 1.0f));
+  for (const auto& v : vertices) {
+    auto pt = std::make_shared<Point>(v, 1.0f);
+    pt->setCreatedWithShape(true);
+    m_vertices.push_back(pt);
   }
-  m_color.a = 0;
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 Polygon::Polygon(const std::vector<std::shared_ptr<Point>> &vertices, const sf::Color &color,
                  unsigned int id)
     : GeometricObject(ObjectType::Polygon, color, id), m_vertices(vertices) {
-  m_color.a = 0;
+  m_color.a = 0; // Default transparent fill
+  for (auto& v : m_vertices) {
+    if (v) v->addDependent(m_selfHandle);
+  }
   updateSFMLShape();
+  setShowLabel(true);
 }
 
 void Polygon::addVertex(const Point_2 &vertex) {
@@ -84,6 +92,11 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
 
   window.draw(shape);
 
+  // Delegate drawing to the constituent points
+  for (auto& pt : m_vertices) {
+      if (pt) pt->draw(window, scale, forceVisible);
+  }
+
   // Draw selection highlight if selected
   if (isSelected()) {
     sf::ConvexShape highlight = m_sfmlShape;
@@ -126,12 +139,21 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
                 thickLine.setPoint(3, p1 - perp * thickness * 0.5f);
                 thickLine.setFillColor(sf::Color(255, 100, 50, 200)); 
                 window.draw(thickLine);
+                 }
             }
         }
     }
-  }
 
-  drawVertexHandles(window, scale);
+    drawVertexHandles(window, scale);
+}
+
+void Polygon::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
+    if (!m_visible) return;
+    
+    // Delegate label drawing to vertices using Explicit mode
+    for (auto& pt : m_vertices) {
+        if (pt) pt->drawLabelExplicit(window, worldView);
+    }
 }
 
 void Polygon::update() {

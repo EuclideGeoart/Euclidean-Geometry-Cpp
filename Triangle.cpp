@@ -4,49 +4,57 @@
 #include "Point.h"
 #include "Line.h"
 #include "Circle.h"
-#include "VertexLabelManager.h"
 #include <CGAL/Polygon_2.h>
 #include <CGAL/enum.h>
 #include <cmath>
 #include <iostream>
 
-Triangle::Triangle(const Point_2& v1, const Point_2& v2, const Point_2& v3,
-                   const sf::Color& color, unsigned int id)
+Triangle::Triangle(const Point_2& p1, const Point_2& p2, const Point_2& p3, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Triangle, color, id) {
+    m_color.a = 0; // Default transparent fill
     
     // Validate that points are non-collinear using CGAL
-    if (CGAL::collinear(v1, v2, v3)) {
+    if (CGAL::collinear(p1, p2, p3)) {
         std::cerr << "Warning: Triangle vertices are collinear!" << std::endl;
         // Still create the triangle but it will be degenerate
     }
     
     m_vertices.reserve(3);
-    m_vertices.push_back(std::make_shared<Point>(v1, 1.0f));
-    m_vertices.push_back(std::make_shared<Point>(v2, 1.0f));
-    m_vertices.push_back(std::make_shared<Point>(v3, 1.0f));
+    m_vertices.push_back(std::make_shared<Point>(p1, 1.0f));
+    m_vertices.push_back(std::make_shared<Point>(p2, 1.0f));
+    m_vertices.push_back(std::make_shared<Point>(p3, 1.0f));
     
-    m_color.a = 128;  // Semi-transparent fill
+    for (size_t i = 0; i < 3; ++i) {
+        m_vertices[i]->setCreatedWithShape(true);
+    }
     
     updateSFMLShape();
+    setShowLabel(true);
 }
 
-Triangle::Triangle(const std::shared_ptr<Point>& v1, const std::shared_ptr<Point>& v2,
-                   const std::shared_ptr<Point>& v3, const sf::Color& color,
+Triangle::Triangle(const std::shared_ptr<Point>& p1, const std::shared_ptr<Point>& p2,
+                   const std::shared_ptr<Point>& p3, const sf::Color& color,
                    unsigned int id)
     : GeometricObject(ObjectType::Triangle, color, id) {
-    if (v1 && v2 && v3 &&
-        CGAL::collinear(v1->getCGALPosition(), v2->getCGALPosition(), v3->getCGALPosition())) {
+    m_color.a = 0; // Default transparent fill
+    if (p1 && p2 && p3 &&
+        CGAL::collinear(p1->getCGALPosition(), p2->getCGALPosition(), p3->getCGALPosition())) {
         std::cerr << "Warning: Triangle vertices are collinear!" << std::endl;
     }
 
     m_vertices.reserve(3);
-    m_vertices.push_back(v1);
-    m_vertices.push_back(v2);
-    m_vertices.push_back(v3);
+    m_vertices.push_back(p1);
+    m_vertices.push_back(p2);
+    m_vertices.push_back(p3);
 
-    m_color.a = 128;
+    for (size_t i = 0; i < 3; ++i) {
+        if (m_vertices[i]) {
+            m_vertices[i]->addDependent(m_selfHandle);
+        }
+    }
 
     updateSFMLShape();
+    setShowLabel(true);
 }
 
 void Triangle::updateSFMLShape() {
@@ -136,7 +144,21 @@ void Triangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) co
             }
         }
         
+        // Delegate drawing to the constituent points
+        for (auto& pt : m_vertices) {
+            if (pt) pt->draw(window, scale, forceVisible);
+        }
+
         drawVertexHandles(window, scale);
+    }
+}
+
+void Triangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
+    if (!m_visible) return;
+    
+    // Delegate label drawing to vertices using Explicit mode
+    for (auto& pt : m_vertices) {
+        if (pt) pt->drawLabelExplicit(window, worldView);
     }
 }
 
@@ -262,7 +284,6 @@ void Triangle::updateDependentShape() {
 
 void Triangle::setColor(const sf::Color& color) {
     m_color = color;
-    m_color.a = 128;  // Maintain semi-transparency
     if (m_vertices.size() == 3) {
         m_sfmlShape.setFillColor(m_color);
     }

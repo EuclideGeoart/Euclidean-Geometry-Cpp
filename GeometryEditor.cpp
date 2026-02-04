@@ -70,6 +70,7 @@
 #include "ObjectPoint.h"
 #include "Point.h"
 #include "Types.h"  // For Point_2, Line_2 etc.
+#include "PointUtils.h"
 #include "VariantUtils.h"  // For safe_get_point
 
 
@@ -156,6 +157,13 @@ GeometryEditor::GeometryEditor()
   resetView();
 
   std::cout << "GeometryEditor initialized." << std::endl;
+}
+
+std::vector<std::shared_ptr<Point>> GeometryEditor::getAllPoints() const {
+  std::vector<std::shared_ptr<Point>> allPoints;
+  allPoints.insert(allPoints.end(), points.begin(), points.end());
+  allPoints.insert(allPoints.end(), ObjectPoints.begin(), ObjectPoints.end());
+  return allPoints;
 }
 
 GeometryEditor::~GeometryEditor() {
@@ -942,7 +950,7 @@ std::shared_ptr<Point> GeometryEditor::createPoint(const Point_2 &cgalPos) {
   auto newPoint = std::make_shared<Point>(cgalPos, Constants::CURRENT_ZOOM, currentColor, id);
   newPoint->setRadius(currentPointSize); // Apply current point size
   if (showGlobalLabels) {
-    std::string label = LabelManager::getNextLabel(points);
+    std::string label = LabelManager::instance().getNextLabel(getAllPoints());
     newPoint->setLabel(label);
   }
   points.push_back(newPoint);
@@ -1400,7 +1408,7 @@ void GeometryEditor::createIntersectionPoint(Line *line1, Line *line2) {
                 auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
                                                         Constants::INTERSECTION_POINT_COLOR);
                 newPoint->setIntersectionPoint(true);
-              std::string label = LabelManager::getNextLabel(points);
+              std::string label = LabelManager::instance().getNextLabel(getAllPoints());
               newPoint->setLabel(label);
               newPoint->setShowLabel(true);
                 points.push_back(newPoint);
@@ -1475,7 +1483,7 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
       if (isPointOnSegment(projectedCenter)) {
           auto newPoint = std::make_unique<Point>(projectedCenter, 1.0f, Constants::INTERSECTION_POINT_COLOR);
           newPoint->setIntersectionPoint(true);
-          std::string label = LabelManager::getNextLabel(points);
+          std::string label = LabelManager::instance().getNextLabel(getAllPoints());
           newPoint->setLabel(label);
           newPoint->setShowLabel(true);
           points.push_back(std::move(newPoint));
@@ -1499,7 +1507,7 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
     if (isPointOnSegment(intersection1)) {
       auto newPoint = std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR);
       newPoint->setIntersectionPoint(true);
-      std::string label = LabelManager::getNextLabel(points);
+      std::string label = LabelManager::instance().getNextLabel(getAllPoints());
       newPoint->setLabel(label);
       newPoint->setShowLabel(true);
       points.push_back(std::move(newPoint));
@@ -1507,7 +1515,7 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
     if (isPointOnSegment(intersection2)) {
       auto newPoint = std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR);
       newPoint->setIntersectionPoint(true);
-      std::string label = LabelManager::getNextLabel(points);
+      std::string label = LabelManager::instance().getNextLabel(getAllPoints());
       newPoint->setLabel(label);
       newPoint->setShowLabel(true);
       points.push_back(std::move(newPoint));
@@ -1613,7 +1621,7 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
       auto newPoint =
           std::make_unique<Point>(intersectionPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
         newPoint->setIntersectionPoint(true);
-        std::string label = LabelManager::getNextLabel(points);
+        std::string label = LabelManager::instance().getNextLabel(getAllPoints());
         newPoint->setLabel(label);
         newPoint->setShowLabel(true);
       points.push_back(std::move(newPoint));
@@ -1641,12 +1649,12 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
         std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR);
 
     newPoint1->setIntersectionPoint(true);
-    std::string label1 = LabelManager::getNextLabel(points);
+    std::string label1 = LabelManager::instance().getNextLabel(getAllPoints());
     newPoint1->setLabel(label1);
     newPoint1->setShowLabel(true);
 
     newPoint2->setIntersectionPoint(true);
-    std::string label2 = LabelManager::getNextLabel(points);
+    std::string label2 = LabelManager::instance().getNextLabel(getAllPoints());
     newPoint2->setLabel(label2);
     newPoint2->setShowLabel(true);
 

@@ -77,12 +77,14 @@ class AngleBisector : public Line {
                 std::shared_ptr<Point> armPoint1,
                 std::shared_ptr<Point> armPoint2,
                 unsigned int id,
+                bool isExternal = false,
                 const sf::Color &color = Constants::CONSTRUCTION_LINE_COLOR)
       : Line(makePlaceholderPoint(), makePlaceholderPoint(), false, color, id),
         vertex(std::move(vertexPoint)),
         arm1(std::move(armPoint1)),
         arm2(std::move(armPoint2)),
-        usesLines(false) {
+        usesLines(false),
+        m_isExternal(isExternal) {
     setAsConstructionLine();
     updateSFMLShape();
   }
@@ -90,11 +92,13 @@ class AngleBisector : public Line {
   AngleBisector(std::shared_ptr<Line> l1,
                 std::shared_ptr<Line> l2,
                 unsigned int id,
+                bool isExternal = false,
                 const sf::Color &color = Constants::CONSTRUCTION_LINE_COLOR)
       : Line(makePlaceholderPoint(), makePlaceholderPoint(), false, color, id),
         line1(std::move(l1)),
         line2(std::move(l2)),
-        usesLines(true) {
+        usesLines(true),
+        m_isExternal(isExternal) {
     setAsConstructionLine();
     updateSFMLShape();
   }
@@ -132,9 +136,9 @@ class AngleBisector : public Line {
             if (isVisible()) setVisible(false);
             return;
         }
-        Vector_2 u = d1 / FT(l1Len);
-        Vector_2 v = d2 / FT(l2Len);
-        dir = u + v;
+        uN = d1 / FT(l1Len);
+        vN = d2 / FT(l2Len);
+        dir = uN + vN;
         if (CGAL::to_double(dir.squared_length()) < 1e-12) {
             // Parallel/Anti-parallel lines, bisector undefined or mid-line?
             if (isVisible()) setVisible(false);
@@ -156,14 +160,26 @@ class AngleBisector : public Line {
             if (isVisible()) setVisible(false);
             return;
         }
-        u = u / FT(lu);
-        v = v / FT(lv);
-        dir = u + v;
+        uN = u / FT(lu);
+        vN = v / FT(lv);
+        dir = uN + vN;
         if (CGAL::to_double(dir.squared_length()) < 1e-12) {
             if (isVisible()) setVisible(false);
             return;
         }
         origin = vtx;
+      }
+
+      if (m_isExternal) {
+          // The external bisector is perpendicular to the internal one
+          // We can get it by subtracting the unit vectors instead of adding them, 
+          // or by taking the perpendicular of the internal bisector. 
+          // uN - vN gives the direction of the external bisector.
+          dir = uN - vN;
+          if (CGAL::to_double(dir.squared_length()) < 1e-12) {
+              if (isVisible()) setVisible(false);
+              return;
+          }
       }
 
       double dLen = std::sqrt(CGAL::to_double(dir.squared_length()));
@@ -199,6 +215,9 @@ class AngleBisector : public Line {
   std::weak_ptr<Line> line1;
   std::weak_ptr<Line> line2;
   bool usesLines;
+  bool m_isExternal = false;
+  Vector_2 uN;
+  Vector_2 vN;
 };
 
 class TangentLine : public Line {

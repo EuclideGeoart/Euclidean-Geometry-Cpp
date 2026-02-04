@@ -50,7 +50,6 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   void setPosition(const sf::Vector2f &newSfmlPos) override;
   void setColor(const sf::Color &color) override {
     m_color = color;
-    m_outlineColor = color;
     m_fillColor = sf::Color(color.r, color.g, color.b, color.a);
     updateSFMLShape();
   }

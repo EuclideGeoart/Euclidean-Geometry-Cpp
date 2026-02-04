@@ -47,6 +47,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   // --- GeometricObject Overrides ---
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
   void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
+  void drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldView) const;
   bool contains(const sf::Vector2f &worldPos,
                 float tolerance = Constants::POINT_INTERACTION_RADIUS) const override;
   void setSelected(bool sel) override;

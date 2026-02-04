@@ -10,8 +10,8 @@
 Circle::Circle(Point *centerPoint, std::shared_ptr<Point> radiusPoint, double radius,
                const sf::Color &color)
     : GeometricObject(ObjectType::Circle, color), m_centerPoint(centerPoint),
-      m_radiusPoint(radiusPoint), m_radius(radius), m_outlineColor(color),
-      m_fillColor(sf::Color(color.r, color.g, color.b, 50)) {
+      m_radiusPoint(radiusPoint), m_radius(radius), m_outlineColor(sf::Color::Black),
+      m_fillColor(sf::Color::Transparent) {
   updateSFMLShape();
 }
 

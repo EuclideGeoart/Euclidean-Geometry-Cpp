@@ -7,9 +7,10 @@
 #include "CGALSafeUtils.h"
 #include "Constants.h"
 #include "Line.h"
+#include "PointUtils.h" // Added PointUtils.h
 #include "QuickProfiler.h"
 #include "Transforms.h"                                        // For toSFMLVector, toCGALPoint
-#include "VertexLabelManager.h"                                // For font size
+//#include "LabelManager.h"                                // For font size
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // For Point_2
 #include <CGAL/number_utils.h>                                 // For CGAL::to_double
 #include <cmath>                                               // For std::sqr
@@ -472,17 +473,23 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
 void Point::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
   if (!m_visible) return;
   if (!m_showLabel || m_label.empty() || !Point::commonFont) return;
+  drawLabelExplicit(window, worldView);
+}
+
+void Point::drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldView) const {
+  if (!m_visible) return;
+  if (m_label.empty() || !Point::commonFont) return;
   if (!isValid()) return;
 
   // 1. World -> Screen conversion
   sf::Vector2f worldPos = cgalToSFML(m_cgalPosition);
   sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, worldView);
 
-  // 2. Setup setup
+  // 2. Text setup
   sf::Text text;
   text.setFont(*Point::commonFont);
   text.setString(m_label);
-  text.setCharacterSize(VertexLabelManager::instance().getFontSize()); // Use global font size
+  text.setCharacterSize(LabelManager::instance().getFontSize()); // Use global font size
   text.setFillColor(Constants::AXIS_LABEL_COLOR);
   
   // 3. Position (Screen Space)

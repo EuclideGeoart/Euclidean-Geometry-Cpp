@@ -74,7 +74,7 @@
 #include "RegularPolygon.h"
 #include "Triangle.h"
 #include "Types.h"
-#include "VertexLabelManager.h"
+#include "PointUtils.h"
 #include "VariantUtils.h"
 #include <imgui.h>
 #include <imgui-SFML.h>
@@ -556,8 +556,8 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     editor.toggleDebugMode();
   } else if (keyEvent.code == sf::Keyboard::L) {
     // Toggle vertex label visibility
-    VertexLabelManager::instance().toggleVisible();
-    bool visible = VertexLabelManager::instance().isVisible();
+    LabelManager::instance().toggleVisible();
+    bool visible = LabelManager::instance().isVisible();
     editor.setGUIMessage(visible ? "Vertex labels: ON" : "Vertex labels: OFF");
     std::cout << "Vertex labels toggled: " << (visible ? "ON" : "OFF") << std::endl;
   } else if (keyEvent.code == sf::Keyboard::H) {
