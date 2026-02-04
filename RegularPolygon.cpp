@@ -2,6 +2,7 @@
 #include "Point.h"
 #include "Line.h"
 #include "Circle.h"
+#include "Types.h"
 #include <cmath>
 RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
                                const sf::Color &color, unsigned int id)
@@ -286,8 +287,14 @@ void RegularPolygon::updateDependentShape() {
     return;
   }
 
-  if (m_centerPoint) m_centerPoint->setCGALPosition(*newCenter);
-  if (m_firstVertexPoint) m_firstVertexPoint->setCGALPosition(*newFirst);
+  if (m_centerPoint) m_centerPoint->setDeferConstraintUpdates(true);
+  if (m_firstVertexPoint) m_firstVertexPoint->setDeferConstraintUpdates(true);
+
+  if (m_centerPoint) m_centerPoint->setCGALPosition(flattenPoint(*newCenter));
+  if (m_firstVertexPoint) m_firstVertexPoint->setCGALPosition(flattenPoint(*newFirst));
+
+  if (m_centerPoint) m_centerPoint->forceConstraintUpdate();
+  if (m_firstVertexPoint) m_firstVertexPoint->forceConstraintUpdate();
 
   setVisible(true);
   updateSFMLShape();
@@ -321,12 +328,12 @@ void RegularPolygon::translate(const Vector_2 &translation) {
   if (m_centerPoint) {
     Point_2 centerPos = m_centerPoint->getCGALPosition();
     m_centerPoint->setCGALPosition(
-        Point_2(centerPos.x() + translation.x(), centerPos.y() + translation.y()));
+        flattenPoint(Point_2(centerPos.x() + translation.x(), centerPos.y() + translation.y())));
   }
   if (m_firstVertexPoint) {
     Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
     m_firstVertexPoint->setCGALPosition(
-        Point_2(firstPos.x() + translation.x(), firstPos.y() + translation.y()));
+        flattenPoint(Point_2(firstPos.x() + translation.x(), firstPos.y() + translation.y())));
   }
 
   updateSFMLShape();

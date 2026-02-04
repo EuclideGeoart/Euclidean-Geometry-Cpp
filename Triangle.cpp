@@ -4,6 +4,7 @@
 #include "Point.h"
 #include "Line.h"
 #include "Circle.h"
+#include "Types.h"
 #include <CGAL/Polygon_2.h>
 #include <CGAL/enum.h>
 #include <cmath>
@@ -266,6 +267,10 @@ void Triangle::updateDependentShape() {
         return;
     }
 
+    for (auto& v : m_vertices) {
+        if (v) v->setDeferConstraintUpdates(true);
+    }
+
     for (size_t i = 0; i < 3; ++i) {
         auto tp = transformPoint(sourceVerts[i]);
         if (!tp.has_value()) {
@@ -273,8 +278,12 @@ void Triangle::updateDependentShape() {
             return;
         }
         if (i < m_vertices.size() && m_vertices[i]) {
-            m_vertices[i]->setCGALPosition(*tp);
+            m_vertices[i]->setCGALPosition(flattenPoint(*tp));
         }
+    }
+
+    for (auto& v : m_vertices) {
+        if (v) v->forceConstraintUpdate();
     }
 
     setVisible(true);
@@ -347,7 +356,7 @@ void Triangle::translate(const Vector_2& translation) {
     for (auto& v : m_vertices) {
         if (!v) continue;
         Point_2 pos = v->getCGALPosition();
-        v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
+        v->setCGALPosition(flattenPoint(Point_2(pos.x() + translation.x(), pos.y() + translation.y())));
     }
     updateSFMLShape();
     updateHostedPoints();
@@ -447,7 +456,7 @@ void Triangle::setCGALPosition(const Point_2& newPos) {
     for (auto& v : m_vertices) {
         if (!v) continue;
         Point_2 pos = v->getCGALPosition();
-        v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
+        v->setCGALPosition(flattenPoint(Point_2(pos.x() + translation.x(), pos.y() + translation.y())));
     }
     
     updateSFMLShape();

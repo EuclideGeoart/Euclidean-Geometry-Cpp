@@ -9,6 +9,7 @@
 #include "Constants.h"
 #include "Line.h"
 #include "Point.h"
+#include "Types.h"
 
 Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRotatable, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Rectangle, color, id),
@@ -396,10 +397,19 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
 }
 
 void Rectangle::updateDependentShape() {
+  if (m_corner1) m_corner1->setDeferConstraintUpdates(true);
+  if (m_corner2) m_corner2->setDeferConstraintUpdates(true);
+  if (m_cornerB) m_cornerB->setDeferConstraintUpdates(true);
+  if (m_cornerD) m_cornerD->setDeferConstraintUpdates(true);
+
   auto parent = m_parentSource.lock();
   if (!parent || !parent->isValid()) {
     updateSFMLShape();
     updateHostedPoints();
+    if (m_corner1) m_corner1->forceConstraintUpdate();
+    if (m_corner2) m_corner2->forceConstraintUpdate();
+    if (m_cornerB) m_cornerB->forceConstraintUpdate();
+    if (m_cornerD) m_cornerD->forceConstraintUpdate();
     return;
   }
 
@@ -407,6 +417,10 @@ void Rectangle::updateDependentShape() {
   if (!sourceRect || !sourceRect->isValid()) {
     updateSFMLShape();
     updateHostedPoints();
+    if (m_corner1) m_corner1->forceConstraintUpdate();
+    if (m_corner2) m_corner2->forceConstraintUpdate();
+    if (m_cornerB) m_cornerB->forceConstraintUpdate();
+    if (m_cornerD) m_cornerD->forceConstraintUpdate();
     return;
   }
 
@@ -497,11 +511,15 @@ void Rectangle::updateDependentShape() {
       setVisible(false);
       return;
     }
-    setCorner1Position(*p0, false);  // Don't auto-update
-    setCorner2Position(*p2, false);  // Don't auto-update
+    setCorner1Position(flattenPoint(*p0), false);  // Don't auto-update
+    setCorner2Position(flattenPoint(*p2), false);  // Don't auto-update
     updateSFMLShape();
     updateHostedPoints();  // Notifies our dependents
     setVisible(sourceRect->isVisible());
+    if (m_corner1) m_corner1->forceConstraintUpdate();
+    if (m_corner2) m_corner2->forceConstraintUpdate();
+    if (m_cornerB) m_cornerB->forceConstraintUpdate();
+    if (m_cornerD) m_cornerD->forceConstraintUpdate();
     return;
   }
 
@@ -513,8 +531,8 @@ void Rectangle::updateDependentShape() {
     return;
   }
 
-  setCorner1Position(*p0, false);  // Don't auto-update
-  setCorner2Position(*p1, false);  // Don't auto-update
+  setCorner1Position(flattenPoint(*p0), false);  // Don't auto-update
+  setCorner2Position(flattenPoint(*p1), false);  // Don't auto-update
 
   double dx = CGAL::to_double(p1->x() - p0->x());
   double dy = CGAL::to_double(p1->y() - p0->y());
@@ -526,6 +544,10 @@ void Rectangle::updateDependentShape() {
 
   setHeight(h);
   setVisible(sourceRect->isVisible());
+  if (m_corner1) m_corner1->forceConstraintUpdate();
+  if (m_corner2) m_corner2->forceConstraintUpdate();
+  if (m_cornerB) m_cornerB->forceConstraintUpdate();
+  if (m_cornerD) m_cornerD->forceConstraintUpdate();
 }
 
 void Rectangle::update() {
@@ -574,9 +596,9 @@ bool Rectangle::isWithinDistance(const sf::Vector2f& screenPos, float tolerance)
 void Rectangle::translate(const Vector_2& translation) {
   Point_2 c1 = getCorner1Position();
   Point_2 c2 = getCorner2Position();
-  setCorner1Position(Point_2(c1.x() + translation.x(), c1.y() + translation.y()), false);
-  setCorner2Position(Point_2(c2.x() + translation.x(), c2.y() + translation.y()), false);
-  m_center = Point_2(m_center.x() + translation.x(), m_center.y() + translation.y());
+  setCorner1Position(flattenPoint(Point_2(c1.x() + translation.x(), c1.y() + translation.y())), false);
+  setCorner2Position(flattenPoint(Point_2(c2.x() + translation.x(), c2.y() + translation.y())), false);
+  m_center = flattenPoint(Point_2(m_center.x() + translation.x(), m_center.y() + translation.y()));
   updateSFMLShape();
   updateHostedPoints();  // Notifies dependents
 }
@@ -777,9 +799,9 @@ void Rectangle::setCGALPosition(const Point_2& newPos) {
   Vector_2 translation = newPos - getCGALPosition();
   Point_2 c1 = getCorner1Position();
   Point_2 c2 = getCorner2Position();
-  setCorner1Position(Point_2(c1.x() + translation.x(), c1.y() + translation.y()), false);
-  setCorner2Position(Point_2(c2.x() + translation.x(), c2.y() + translation.y()), false);
-  m_center = Point_2(m_center.x() + translation.x(), m_center.y() + translation.y());
+  setCorner1Position(flattenPoint(Point_2(c1.x() + translation.x(), c1.y() + translation.y())), false);
+  setCorner2Position(flattenPoint(Point_2(c2.x() + translation.x(), c2.y() + translation.y())), false);
+  m_center = flattenPoint(Point_2(m_center.x() + translation.x(), m_center.y() + translation.y()));
   updateSFMLShape();
   updateHostedPoints();  // Notifies dependents
 }

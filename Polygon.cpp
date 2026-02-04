@@ -5,14 +5,15 @@
 #include "Line.h"
 #include "Circle.h"
 #include <cmath>
-
+#include "Types.h" // Ensure this is included for flattenPoint
 
 Polygon::Polygon(const std::vector<Point_2>& vertices, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Polygon, color, id) {
   m_color.a = 0; // Default transparent fill
   m_vertices.reserve(vertices.size());
   for (const auto& v : vertices) {
-    auto pt = std::make_shared<Point>(v, 1.0f);
+    // Flatten initial vertices just to be safe (though usually they are fresh)
+    auto pt = std::make_shared<Point>(flattenPoint(v), 1.0f);
     pt->setCreatedWithShape(true);
     m_vertices.push_back(pt);
   }
@@ -32,7 +33,7 @@ Polygon::Polygon(const std::vector<std::shared_ptr<Point>> &vertices, const sf::
 }
 
 void Polygon::addVertex(const Point_2 &vertex) {
-  m_vertices.push_back(std::make_shared<Point>(vertex, 1.0f));
+  m_vertices.push_back(std::make_shared<Point>(flattenPoint(vertex), 1.0f));
   updateSFMLShape();
   updateHostedPoints();
 }
@@ -53,7 +54,6 @@ void Polygon::removeLastVertex() {
 
 void Polygon::updateSFMLShape() {
   if (m_vertices.size() < 3) return;
-
   updateSFMLShapeInternal();
 }
 
@@ -117,7 +117,6 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
     window.draw(highlight);
 
     if (getHoveredEdge() >= 0) {
-        // Since Polygon might use hosted points, use getVerticesSFML to ensure we get current positions
         auto sfmlVerts = getVerticesSFML();
         int idx = getHoveredEdge();
         if (idx >= 0 && idx < static_cast<int>(sfmlVerts.size())) {
@@ -139,18 +138,16 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
                 thickLine.setPoint(3, p1 - perp * thickness * 0.5f);
                 thickLine.setFillColor(sf::Color(255, 100, 50, 200)); 
                 window.draw(thickLine);
-                 }
             }
         }
     }
+  }
 
-    drawVertexHandles(window, scale);
+  drawVertexHandles(window, scale);
 }
 
 void Polygon::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
     if (!m_visible) return;
-    
-    // Delegate label drawing to vertices using Explicit mode
     for (auto& pt : m_vertices) {
         if (pt) pt->drawLabelExplicit(window, worldView);
     }
@@ -211,7 +208,9 @@ void Polygon::translate(const Vector_2 &translation) {
   for (auto &v : m_vertices) {
     if (!v) continue;
     Point_2 pos = v->getCGALPosition();
-    v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
+    // FIX 2: Flatten points during translation to prevent lazy evaluation stack overflow
+    Point_2 newPos = pos + translation;
+    v->setCGALPosition(flattenPoint(newPos));
   }
   updateSFMLShape();
   updateHostedPoints();
@@ -312,20 +311,24 @@ void Polygon::updateDependentShape() {
     }
   };
 
-  for (size_t i = 0; i < sourceVerts.size(); ++i) {
+    for (auto& v : m_vertices) {
+      if (v) v->setDeferConstraintUpdates(true);
+    }
+
+    for (size_t i = 0; i < sourceVerts.size(); ++i) {
       if (i >= m_vertices.size()) break;
       if (!m_vertices[i]) continue;
       
-      // If the vertex is "smart" (a transformed point), it might have updated itself already.
-      // BUT for "dumb" vertices (loaded), we MUST update it here.
-      // We can force set position. 
-      // Optimization: Check if m_vertices[i] is already a Dependent Point?
-      // Actually, enforcing geometry here is safer for consistency.
-      
       auto newPos = transformPoint(sourceVerts[i]);
       if (newPos.has_value()) {
-          m_vertices[i]->setCGALPosition(*newPos);
+          // CRITICAL FIX: Flatten vertex position to prevent Stack Overflow
+          // This breaks the lazy evaluation history chain.
+          m_vertices[i]->setCGALPosition(flattenPoint(*newPos));
       }
+  }
+
+  for (auto& v : m_vertices) {
+      if (v) v->forceConstraintUpdate();
   }
 
   updateSFMLShape();
@@ -336,7 +339,7 @@ void Polygon::updateDependentShape() {
 void Polygon::setVertexPosition(size_t index, const Point_2 &value) {
   if (index >= m_vertices.size()) return;
   if (!m_vertices[index]) return;
-  m_vertices[index]->setCGALPosition(value);
+  m_vertices[index]->setCGALPosition(flattenPoint(value)); // Fix here too
   updateSFMLShape();
   updateHostedPoints();
 }
@@ -367,7 +370,7 @@ void Polygon::drawVertexHandles(sf::RenderWindow &window, float scale) const {
     
     sf::Color base = sf::Color(180, 180, 180);
     if (static_cast<int>(i) == m_activeVertex) {
-      base = sf::Color(255, 140, 0);  // Orange for active drag
+      base = sf::Color(255, 140, 0);
     } else if (static_cast<int>(i) == m_hoveredVertex) {
       base = sf::Color::Yellow;
     }
@@ -391,12 +394,14 @@ void Polygon::rotateCCW(const Point_2 &center, double angleRadians) {
     double y = CGAL::to_double(pos.y()) - centerY;
     double newX = x * cos_a - y * sin_a + centerX;
     double newY = x * sin_a + y * cos_a + centerY;
+    // Already double-based (flat), safe.
     v->setCGALPosition(Point_2(FT(newX), FT(newY)));
   }
 
   updateSFMLShape();
   updateHostedPoints();
 }
+
 sf::FloatRect Polygon::getGlobalBounds() const {
   return m_sfmlShape.getGlobalBounds();
 }
@@ -405,7 +410,6 @@ Point_2 Polygon::getCGALPosition() const {
   if (m_vertices.empty()) {
     return Point_2(FT(0), FT(0));
   }
-  // Return centroid of polygon
   double sumX = 0, sumY = 0;
   for (const auto &v : m_vertices) {
     if (!v) continue;
@@ -425,7 +429,8 @@ void Polygon::setCGALPosition(const Point_2 &newPos) {
   for (auto &v : m_vertices) {
     if (!v) continue;
     Point_2 pos = v->getCGALPosition();
-    v->setCGALPosition(Point_2(pos.x() + translation.x(), pos.y() + translation.y()));
+    // FIX 3: Flatten here
+    v->setCGALPosition(flattenPoint(pos + translation));
   }
   
   updateSFMLShape();
@@ -433,14 +438,8 @@ void Polygon::setCGALPosition(const Point_2 &newPos) {
 }
 
 void Polygon::setPosition(const sf::Vector2f &newSfmlPos) {
-  // Get current position
   sf::Vector2f currentPos = m_sfmlShape.getPosition();
-  
-  // Calculate translation  
   sf::Vector2f translation = newSfmlPos - currentPos;
-  
-  // Translate the shape
-  // FIX: Properly update vertices instead of just moving the SFML shape
   Vector_2 delta(translation.x, translation.y);
   translate(delta);
 }
