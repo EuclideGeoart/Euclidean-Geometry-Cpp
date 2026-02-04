@@ -1783,6 +1783,44 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
              }
         }
 
+        // Draw Triangles
+        for (const auto& tri : editor.triangles) {
+            if (tri && tri->isValid() && tri->isVisible()) {
+                SVGWriter::Style style;
+                style.stroke = colorToHex(tri->getColor());
+                style.strokeWidth = tri->getThickness() * pixelToWorldScale;
+                style.fill = "none";
+
+                std::vector<Point_2> verts = tri->getVertices();
+                std::vector<std::pair<double, double>> coords;
+                for (const auto& v : verts) {
+                    coords.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
+                }
+                if (coords.size() == 3) {
+                    svg.drawPolygon(coords, style);
+                }
+            }
+        }
+
+        // Draw Regular Polygons
+        for (const auto& rpoly : editor.regularPolygons) {
+            if (rpoly && rpoly->isValid() && rpoly->isVisible()) {
+                SVGWriter::Style style;
+                style.stroke = colorToHex(rpoly->getColor());
+                style.strokeWidth = rpoly->getThickness() * pixelToWorldScale;
+                style.fill = "none";
+
+                std::vector<Point_2> verts = rpoly->getVertices();
+                std::vector<std::pair<double, double>> coords;
+                for (const auto& v : verts) {
+                    coords.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
+                }
+                if (!coords.empty()) {
+                    svg.drawPolygon(coords, style);
+                }
+            }
+        }
+
 
 
          // Collect ALL points for unified rendering (Points, ObjectPoints, Shape Corners)
@@ -1835,11 +1873,10 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
          for (const auto& pt : uniquePoints) {
              if (!pt || !pt->isValid() || !pt->isVisible()) continue;
              
-             // Export labels for free points that have labels enabled,
-             // and for shape vertices that have a non-empty label.
-             // (Shape vertices often have m_showLabel=false to avoid SFML double-draw).
-             bool shouldShow = pt->getShowLabel() || (pt->isCreatedWithShape() && !pt->getLabel().empty());
-             if (!shouldShow) continue;
+             // Export labels for points that have a non-empty label and are visible.
+             // (Shape vertices often have m_showLabel=false to avoid SFML double-draw, but in SVG we want them).
+             bool hasLabel = !pt->getLabel().empty();
+             if (!hasLabel) continue;
 
              const std::string& label = pt->getLabel();
              if (label.empty()) continue;
@@ -1858,6 +1895,8 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
              textStyle.fill = "black";
              textStyle.stroke = "none";
              textStyle.fontSize = 14.0 * pixelToWorldScale;
+             textStyle.textAnchor = "middle";
+             textStyle.dominantBaseline = "central";
              svg.drawText(sx, sy, label, textStyle);
          }
          

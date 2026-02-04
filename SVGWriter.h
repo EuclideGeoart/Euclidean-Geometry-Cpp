@@ -5,7 +5,6 @@
 #include <sstream>
 #include <iomanip>
 #include <fstream>
-#include <cmath>
 
 /**
  * @brief Professional, Header-Only SVG Writer Class
@@ -30,6 +29,7 @@ public:
         double fontSize = 12.0;
         std::string fontFamily = "Arial, sans-serif";
         std::string textAnchor = "start"; // start, middle, end
+        std::string dominantBaseline = "auto"; // auto, middle, central
 
         std::string toString() const {
             std::stringstream ss;
@@ -49,6 +49,7 @@ public:
             ss << "font-size=\"" << fontSize << "\" ";
             ss << "font-family=\"" << fontFamily << "\" ";
             ss << "text-anchor=\"" << textAnchor << "\" ";
+            ss << "dominant-baseline=\"" << dominantBaseline << "\" ";
             return ss.str();
         }
     };

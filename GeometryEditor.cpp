@@ -849,6 +849,31 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
   std::cout << "setCurrentTool called: Changing from " << static_cast<int>(m_currentToolType)
             << " to " << static_cast<int>(newTool) << std::endl;
 
+  clearSelection();
+  clearTempSelectedObjects();
+  deselectAllAndClearInteractionState(*this);
+  auto clearContainerSelection = [](auto& container) {
+    for (auto& obj : container) {
+      if (obj) obj->setSelected(false);
+    }
+  };
+  clearContainerSelection(points);
+  clearContainerSelection(ObjectPoints);
+  clearContainerSelection(lines);
+  clearContainerSelection(circles);
+  clearContainerSelection(rectangles);
+  clearContainerSelection(polygons);
+  clearContainerSelection(regularPolygons);
+  clearContainerSelection(triangles);
+  clearContainerSelection(angles);
+
+  // ✅ ZOMBIE-KILL: Reset drag state to prevent contamination from previous tool
+  dragMode = DragMode::None;
+  isDragging = false;
+  selectedObject = nullptr;
+  resetParallelLineToolState();
+  resetPerpendicularLineToolState();
+
   // If the new tool is the same as the current active creation tool,
   // and it's not 'None' (which would mean trying to toggle off the 'Move' tool,
   // not desired), then clicking it again means "deactivate this tool" and
@@ -1170,8 +1195,18 @@ void GeometryEditor::resetParallelLineToolState() {
     }
   }
   m_parallelPreviewLine.reset();
-  // Potentially update GUI message or clear selection highlights related to
-  // this tool
+  
+  // ✅ ZOMBIE-KILL: Clear selection state to prevent drag contamination
+  if (selectedObject) {
+    selectedObject->setSelected(false);
+    selectedObject = nullptr;
+  }
+  for (auto* obj : selectedObjects) {
+    if (obj) obj->setSelected(false);
+  }
+  selectedObjects.clear();
+  dragMode = DragMode::None;
+  isDragging = false;
 }
 
 void GeometryEditor::resetPerpendicularLineToolState() {
@@ -1187,6 +1222,18 @@ void GeometryEditor::resetPerpendicularLineToolState() {
     }
   }
   m_perpendicularPreviewLine.reset();
+  
+  // ✅ ZOMBIE-KILL: Clear selection state to prevent drag contamination
+  if (selectedObject) {
+    selectedObject->setSelected(false);
+    selectedObject = nullptr;
+  }
+  for (auto* obj : selectedObjects) {
+    if (obj) obj->setSelected(false);
+  }
+  selectedObjects.clear();
+  dragMode = DragMode::None;
+  isDragging = false;
 }
 
 // Implementation of findAllIntersections - updated to not create ALL
