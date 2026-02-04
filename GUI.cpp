@@ -13,11 +13,10 @@
 #include "CharTraitsFix.h"  // Include very early
 #include "Constants.h"      // For Constants::BUTTON_TEXT_SIZE, etc.
 #include "FileDialogs.h"
-#include "GeometryEditor.h"  // Include the full definition of GeometryEditor
+#include "GeometryEditor.h"      // Include the full definition of GeometryEditor
+#include "LineToolMode.h"        // Include this to access LineToolMode enum and globals
+#include "ObjectType.h"          // Include the definition for ObjectType enum
 #include "VertexLabelManager.h"  // For font size control
-#include "LineToolMode.h"    // Include this to access LineToolMode enum and globals
-#include "ObjectType.h"      // Include the definition for ObjectType enum
-
 
 float g_transformRotationDegrees = 45.0f;
 float g_transformDilationFactor = 2.0f;
@@ -602,8 +601,8 @@ bool GUI::handleSliderInteraction(const sf::Vector2i& mousePos, GeometryEditor& 
     if (editor.selectedObject) {
       auto type = editor.selectedObject->getType();
       if (type == ObjectType::Line || type == ObjectType::LineSegment || type == ObjectType::Ray || type == ObjectType::Vector ||
-          type == ObjectType::Circle || type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable ||
-          type == ObjectType::Triangle || type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
+          type == ObjectType::Circle || type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable || type == ObjectType::Triangle ||
+          type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
         editor.selectedObject->setThickness(editor.currentThickness);
       }
     }
@@ -764,35 +763,46 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
 
     if (ImGui::CollapsingHeader("Construction", ImGuiTreeNodeFlags_DefaultOpen)) {
       DrawToolButton("Move/Select", ObjectType::None, "Click to select. Drag to move. Ctrl+Drag to snap.");
-      DrawToolButton("Point", ObjectType::Point, "Click to create a point.");
-      DrawToolButton("Line", ObjectType::Line, "Click start point, then click end point (Ctrl to snap).");
-      DrawToolButton("Segment", ObjectType::LineSegment, "Click start point, then click end point (Ctrl to snap).");
-      DrawToolButton("Circle", ObjectType::Circle, "Click center, then drag radius.");
-      DrawToolButton("ObjPoint", ObjectType::ObjectPoint, "Click on a line or circle to attach a point.");
-      DrawToolButton("Intersection", ObjectType::Intersection, "Click two objects to find their intersection.");
-      DrawToolButton("Midpoint", ObjectType::Midpoint, "Select two points (or a line) to find the middle.");
-      DrawToolButton("Compass", ObjectType::Compass, "Select segment/2 points for radius, then a center point.");
-      DrawToolButton("Parallel", ObjectType::ParallelLine, "Click a reference line, then place the parallel line.",
-                     []() { resetParallelLineState(); });
-      DrawToolButton("Perpendicular", ObjectType::PerpendicularLine, "Click a reference line, then place the perpendicular line.",
-                     []() { resetPerpLineState(); });
-      DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector, "Pick two points or one segment.", [&]() {
-        editor.isCreatingPerpendicularBisector = false;
-        editor.perpBisectorP1 = nullptr;
-        editor.perpBisectorP2 = nullptr;
-        editor.perpBisectorLineRef = nullptr;
-      });
-      DrawToolButton("Angle Bisector", ObjectType::AngleBisector, "Select A, vertex B, C or two lines.", [&]() {
-        editor.isCreatingAngleBisector = false;
-        editor.angleBisectorPoints.clear();
-        editor.angleBisectorLine1 = nullptr;
-        editor.angleBisectorLine2 = nullptr;
-      });
-      DrawToolButton("Tangent", ObjectType::TangentLine, "Select a point then a circle.", [&]() {
-        editor.isCreatingTangent = false;
-        editor.tangentAnchorPoint = nullptr;
-        editor.tangentCircle = nullptr;
-      });
+      if (ImGui::CollapsingHeader("points", ImGuiTreeNodeFlags_DefaultOpen)) {
+        DrawToolButton("Point", ObjectType::Point, "Click to create a point.");
+        DrawToolButton("ObjPoint", ObjectType::ObjectPoint, "Click on a line or circle to attach a point.");
+        DrawToolButton("Intersection", ObjectType::Intersection, "Click two objects to find their intersection.");
+        DrawToolButton("Midpoint", ObjectType::Midpoint, "Select two points (or a line) to find the middle.");
+      } 
+      if (ImGui::CollapsingHeader("lines", ImGuiTreeNodeFlags_DefaultOpen)) {
+        DrawToolButton("Line", ObjectType::Line, "Click start point, then click end point (Ctrl to snap).");
+        DrawToolButton("Segment", ObjectType::LineSegment, "Click start point, then click end point (Ctrl to snap).");
+        DrawToolButton("Ray", ObjectType::Ray, "Click start, then direction point.");
+        DrawToolButton("Vector", ObjectType::Vector, "Click start, then end point.");
+        DrawToolButton("Parallel", ObjectType::ParallelLine, "Click a reference line, then place the parallel line.",
+                       []() { resetParallelLineState(); });
+        DrawToolButton("Perpendicular", ObjectType::PerpendicularLine, "Click a reference line, then place the perpendicular line.",
+                       []() { resetPerpLineState(); });
+        DrawToolButton("Perp Bisector", ObjectType::PerpendicularBisector, "Pick two points or one segment.", [&]() {
+          editor.isCreatingPerpendicularBisector = false;
+          editor.perpBisectorP1 = nullptr;
+          editor.perpBisectorP2 = nullptr;
+          editor.perpBisectorLineRef = nullptr;
+        });
+        DrawToolButton("Angle Bisector", ObjectType::AngleBisector, "Select A, vertex B, C or two lines.", [&]() {
+          editor.isCreatingAngleBisector = false;
+          editor.angleBisectorPoints.clear();
+          editor.angleBisectorLine1 = nullptr;
+          editor.angleBisectorLine2 = nullptr;
+        });
+        DrawToolButton("Tangent", ObjectType::TangentLine, "Select a point then a circle.", [&]() {
+          editor.isCreatingTangent = false;
+          editor.tangentAnchorPoint = nullptr;
+          editor.tangentCircle = nullptr;
+        });
+      }
+      if (ImGui::CollapsingHeader("circles", ImGuiTreeNodeFlags_DefaultOpen)) {
+        DrawToolButton("Circle", ObjectType::Circle, "Click center, then drag radius.");
+        DrawToolButton("Semicircle", ObjectType::Semicircle, "Click center, then two points for diameter.");
+        DrawToolButton("Circle3P", ObjectType::Circle3P, "Click three points to define the circle.");
+        DrawToolButton("Compass", ObjectType::Compass, "Select segment/2 points for radius, then a center point.");
+      }
+      ImGui::Separator();
       DrawToolButton("Detach", ObjectType::Detach, "Click a shared line endpoint to detach it.");
       DrawToolButton("Hide/Show", ObjectType::Hide, "Click objects to hide them. Click ghosts (force visible) to unhide.");
     }
@@ -825,17 +835,11 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         }
         ImGui::EndPopup();
       }
-
-      // --- New Tools ---
-      DrawToolButton("Ray", ObjectType::Ray, "Click start, then direction point.");
-      DrawToolButton("Vector", ObjectType::Vector, "Click start, then end point.");
-      DrawToolButton("Semicircle", ObjectType::Semicircle, "Click center, then two points for diameter.");
-      DrawToolButton("Circle3P", ObjectType::Circle3P, "Click three points to define the circle.");
-      DrawToolButton("AngleGiven", ObjectType::AngleGiven, "Click vertex, then set angle.");
     }
 
     if (ImGui::CollapsingHeader("Measure", ImGuiTreeNodeFlags_DefaultOpen)) {
       DrawToolButton("Angle", ObjectType::Angle, "Click Point A, Vertex, then Point B.");
+      DrawToolButton("AngleGiven", ObjectType::AngleGiven, "Click vertex, then set angle.");
     }
 
     if (ImGui::CollapsingHeader("Transformations", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -846,12 +850,47 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       DrawToolButton("Reflect about Point", ObjectType::ReflectAboutPoint, "Select source (Hold K for whole shape), then a center point.");
       DrawToolButton("Invert (Circle)", ObjectType::ReflectAboutCircle, "Select source (Hold K for whole shape), then a circle.");
       DrawToolButton("Rotate around Point", ObjectType::RotateAroundPoint, "Select source (Hold K for whole shape), then pivot point.");
-      DrawToolButton("Translate by Vector", ObjectType::TranslateByVector, "Select source (Hold K for whole shape), then vector start and end points.");
+      DrawToolButton("Translate by Vector", ObjectType::TranslateByVector,
+                     "Select source (Hold K for whole shape), then vector start and end points.");
       DrawToolButton("Dilate from Point", ObjectType::DilateFromPoint, "Select source (Hold K for whole shape), then dilation center.");
     }
 
     if (ImGui::CollapsingHeader("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
       // Colors
+      ImGui::Text("Transparency (Fill Alpha)");
+      static int fillAlpha = editor.getCurrentColor().a;
+      if (ImGui::SliderInt("Fill Alpha", &fillAlpha, 0, 255)) {
+        sf::Color c = editor.getCurrentColor();
+        c.a = static_cast<sf::Uint8>(fillAlpha);
+        editor.setCurrentColor(c);
+        // Apply alpha to selection
+        auto applyAlphaToSelection = [&](const sf::Color& newColor) {
+          auto applyToContainer = [&](auto& container) {
+        for (auto& obj : container) {
+          if (obj && obj->isSelected()) {
+            sf::Color objColor = obj->getColor();
+            objColor.a = newColor.a;
+            obj->setColor(objColor);
+          }
+        }
+          };
+          applyToContainer(editor.points);
+          applyToContainer(editor.ObjectPoints);
+          applyToContainer(editor.lines);
+          applyToContainer(editor.circles);
+          applyToContainer(editor.rectangles);
+          applyToContainer(editor.polygons);
+          applyToContainer(editor.regularPolygons);
+          applyToContainer(editor.triangles);
+          applyToContainer(editor.angles);
+          if (editor.selectedObject) {
+        sf::Color objColor = editor.selectedObject->getColor();
+        objColor.a = newColor.a;
+        editor.selectedObject->setColor(objColor);
+          }
+        };
+        applyAlphaToSelection(c);
+      }
       ImGui::Text("Color");
       ImVec4 currentColor = toImVec4(editor.getCurrentColor());
       if (ImGui::ColorButton("##current_color", currentColor,
@@ -923,8 +962,8 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         if (editor.selectedObject) {
           auto type = editor.selectedObject->getType();
           if (type == ObjectType::Line || type == ObjectType::LineSegment || type == ObjectType::Ray || type == ObjectType::Vector ||
-              type == ObjectType::Circle || type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable ||
-              type == ObjectType::Triangle || type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
+              type == ObjectType::Circle || type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable || type == ObjectType::Triangle ||
+              type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
             editor.selectedObject->setThickness(editor.currentThickness);
           }
         }
@@ -934,7 +973,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       if (ImGui::SliderFloat("Point Size", &editor.currentPointSize, 2.0f, 20.0f, "%.0f")) {
         // Manually snap the value to the nearest integer (interval of 1)
         editor.currentPointSize = std::floor(editor.currentPointSize + 0.5f);
-        
+
         if (editor.selectedObject) {
           auto type = editor.selectedObject->getType();
           // Apply to free points
@@ -943,8 +982,8 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
             if (pt) pt->setRadius(editor.currentPointSize);
           }
           // Apply to shapes with vertex handles
-          else if (type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable ||
-                   type == ObjectType::Triangle || type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
+          else if (type == ObjectType::Rectangle || type == ObjectType::RectangleRotatable || type == ObjectType::Triangle ||
+                   type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
             editor.selectedObject->setVertexHandleSize(editor.currentPointSize);
           }
         }

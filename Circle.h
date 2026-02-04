@@ -30,7 +30,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   double getRadius() const { return m_radius; }
   Circle_2 getCGALCircle() const;
 
-  void setRadius(double newRadius);
+  virtual void setRadius(double newRadius);
   void setCenter(const Point_2 &newCenter);
   void setCenterPointObject(Point *newCenterPoint);
   void clearCenterPoint();

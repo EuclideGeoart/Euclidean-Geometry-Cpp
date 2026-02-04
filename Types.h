@@ -40,6 +40,14 @@ inline FT safe_zero_ft() { return FT(0); }
 // Helper function to create a "safe" one FT
 inline FT safe_one_ft() { return FT(1); }
 
+// CRITICAL FIX: "Flattens" a CGAL point by stripping its construction history.
+// Usage: Call this when updating positions inside a loop (dragging/animation).
+// Prevents Stack Overflow caused by infinite Lazy_exact_nt history accumulation.
+static inline Point_2 flattenPoint(const Point_2& p) {
+    // Converting to double and back creates a FRESH point with Depth 0.
+    return Point_2(CGAL::to_double(p.x()), CGAL::to_double(p.y()));
+}
+
 // Transformation history types
 // Enum for transformation types (MOVED TO ObjectType.h)
 

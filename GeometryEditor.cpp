@@ -1138,6 +1138,13 @@ void GeometryEditor::resetCreationStates() {
   angleLine1 = nullptr;
   angleLine2 = nullptr;
 
+  // Reset Compass Tool State
+  for (auto* obj : m_compassSelection) {
+    if(obj) obj->setSelected(false);
+  }
+  m_compassSelection.clear();
+  m_previewCompassCenter.reset();
+
   dragMode = DragMode::None;
   isDragging = false;
 }
