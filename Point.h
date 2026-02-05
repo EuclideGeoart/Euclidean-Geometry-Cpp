@@ -78,7 +78,7 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   // Intersection status
   void setIntersectionPoint(bool isInter) { m_isIntersectionPoint = isInter; }
   bool isIntersectionPoint() const;
-  void setIsIntersectionPoint(bool isIntersection) { m_isIntersectionPoint = isIntersection; }
+  //void setIsIntersectionPoint(bool isIntersection) { m_isIntersectionPoint = isIntersection; }
 
   // Connected lines management
   void addConnectedLine(std::weak_ptr<Line> line);

@@ -1526,6 +1526,13 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     }
     try {
       if (editor.dragMode == DragMode::MoveFreePoint) {
+        // FIX: Absolute Guard against dragging while creating
+        if (editor.isCreatingRectangle || editor.isCreatingRotatableRectangle || 
+            editor.isCreatingPolygon || editor.isCreatingTriangle || 
+            editor.m_currentToolType == ObjectType::Rectangle) {
+            return; // STOP! Do not move existing points while drawing a shape.
+        }
+        
         // Cast to Point and update position
         if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
           Point* selectedPoint = static_cast<Point*>(editor.selectedObject);
