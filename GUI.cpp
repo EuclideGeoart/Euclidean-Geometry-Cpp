@@ -5,9 +5,11 @@
 
 #include <SFML/Graphics/Color.hpp>
 #include <algorithm>  // For std::clamp
+#include <cctype>
 #include <cmath>
 #include <iostream>  // For std::cerr
 #include <string>    // Include very early for any string operations
+#include <set>
 
 #include "Angle.h"
 #include "CharTraitsFix.h"  // Include very early
@@ -489,19 +491,231 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
                        Constants::BUTTON_ACTIVE_COLOR, Constants::BUTTON_HOVER_COLOR);
   currentX += buttonWidth + spacing;
 
+  // Initialize ColorPicker
   m_colorPicker = std::make_unique<ColorPicker>(sf::Vector2f(10, 200));
 
   // Initialize Context Menu
-  m_contextMenu.addItem("Change Color", [](GeometryEditor& ed) {
-    // Toggle color picker to allow choosing new color
-    ed.getGUI().toggleColorPicker();
+  std::cout << "[GUI] Initializing context menu..." << std::endl;
+  
+  // Clear any existing items (in case constructor is called multiple times)
+  m_contextMenu.clear();
+  
+  // Item 1: Toggle Label (for Points only)
+  m_contextMenu.addItem("Toggle Label", [](GeometryEditor& ed) {
+    std::cout << "[ContextMenu] 'Toggle Label' executed" << std::endl;
+    // Work with multi-selection
+    if (!ed.selectedObjects.empty()) {
+      for (auto* obj : ed.selectedObjects) {
+        auto point = dynamic_cast<Point*>(obj);
+        if (point) {
+          bool currentlyVisible = point->getShowLabel();
+          point->setShowLabel(!currentlyVisible);
+          std::cout << "  -> Label " << (currentlyVisible ? "hidden" : "shown") << " for point " << point->getLabel() << std::endl;
+        }
+      }
+    } else if (ed.selectedObject) {
+      auto point = dynamic_cast<Point*>(ed.selectedObject);
+      if (point) {
+        bool currentlyVisible = point->getShowLabel();
+        point->setShowLabel(!currentlyVisible);
+        std::cout << "  -> Label " << (currentlyVisible ? "hidden" : "shown") << " for point " << point->getLabel() << std::endl;
+      }
+    }
+  });
+  
+  // Item 2: Rotate 90° CW
+  m_contextMenu.addItem("Rotate 90° CW", [](GeometryEditor& ed) {
+    std::cout << "[ContextMenu] 'Rotate 90° CW' executed" << std::endl;
+    
+    if (!ed.selectedObjects.empty() || ed.selectedObject) {
+      auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+      
+      // Calculate center of selection (average of all points/endpoints)
+      sf::Vector2f center(0, 0);
+      std::set<Point*> uniquePoints;
+      for (auto* obj : objects) {
+        if (auto* p = dynamic_cast<Point*>(obj)) {
+          uniquePoints.insert(p);
+        } else if (auto* line = dynamic_cast<Line*>(obj)) {
+          if (line->getStartPointObject()) uniquePoints.insert(line->getStartPointObject());
+          if (line->getEndPointObject()) uniquePoints.insert(line->getEndPointObject());
+        }
+      }
+      
+      if (uniquePoints.empty()) return;
+      
+      for (auto* p : uniquePoints) {
+        center += p->getSFMLPosition();
+      }
+      
+      // For single points, rotate around world origin; for multiple, around their center
+      if (uniquePoints.size() > 1) {
+        center /= static_cast<float>(uniquePoints.size());
+      }
+      
+      // Rotate each point 90° clockwise around center
+      for (auto* p : uniquePoints) {
+        sf::Vector2f pos = p->getSFMLPosition();
+        sf::Vector2f relative = pos - center;
+        // 90° CW: (x,y) -> (y,-x)
+        sf::Vector2f rotated(-relative.y, relative.x); // Fixed: wait, (x,y) -> (y,-x) is CW? No, in SFML y is down.
+        // Let's re-verify: 
+        // Standard: (x,y) -> (y,-x) is CW.
+        // SFML (y depth down): (x,y) -> (-y, x) is CW? 
+        // Let's use the one that worked correctly before:
+        sf::Vector2f rotated_final(center.x - relative.y, center.y + relative.x); 
+        // Wait, let's use the previous logic's math if it was correct.
+        // Previous logic: sf::Vector2f rotated(relative.y, -relative.x);
+        sf::Vector2f prev_rotated(relative.y, -relative.x);
+        p->setPosition(center + prev_rotated);
+      }
+      std::cout << "  -> Rotated " << uniquePoints.size() << " unique point(s) 90° clockwise" << std::endl;
+    }
+  });
+  
+  // Item 3: Rotate 90° CCW
+  m_contextMenu.addItem("Rotate 90° CCW", [](GeometryEditor& ed) {
+    std::cout << "[ContextMenu] 'Rotate 90° CCW' executed" << std::endl;
+    
+    if (!ed.selectedObjects.empty() || ed.selectedObject) {
+      auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+      
+      // Calculate center
+      sf::Vector2f center(0, 0);
+      std::set<Point*> uniquePoints;
+      for (auto* obj : objects) {
+        if (auto* p = dynamic_cast<Point*>(obj)) {
+          uniquePoints.insert(p);
+        } else if (auto* line = dynamic_cast<Line*>(obj)) {
+          if (line->getStartPointObject()) uniquePoints.insert(line->getStartPointObject());
+          if (line->getEndPointObject()) uniquePoints.insert(line->getEndPointObject());
+        }
+      }
+      
+      if (uniquePoints.empty()) return;
+      
+      for (auto* p : uniquePoints) {
+        center += p->getSFMLPosition();
+      }
+      
+      if (uniquePoints.size() > 1) {
+        center /= static_cast<float>(uniquePoints.size());
+      }
+      
+      // Rotate each object 90° counter-clockwise
+      for (auto* p : uniquePoints) {
+        sf::Vector2f pos = p->getSFMLPosition();
+        sf::Vector2f relative = pos - center;
+        // 90° CCW: (x,y) -> (-y,x)
+        sf::Vector2f rotated(-relative.y, relative.x);
+        p->setPosition(center + rotated);
+      }
+      std::cout << "  -> Rotated " << uniquePoints.size() << " unique point(s) 90° counter-clockwise" << std::endl;
+    }
+  });
+  
+  // Item 4: Flip Horizontal
+  m_contextMenu.addItem("Flip Horizontal", [](GeometryEditor& ed) {
+    std::cout << "[ContextMenu] 'Flip Horizontal' executed" << std::endl;
+    
+    if (!ed.selectedObjects.empty() || ed.selectedObject) {
+      auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+      
+      // Calculate center
+      sf::Vector2f center(0, 0);
+      std::set<Point*> uniquePoints;
+      for (auto* obj : objects) {
+        if (auto* p = dynamic_cast<Point*>(obj)) {
+          uniquePoints.insert(p);
+        } else if (auto* line = dynamic_cast<Line*>(obj)) {
+          if (line->getStartPointObject()) uniquePoints.insert(line->getStartPointObject());
+          if (line->getEndPointObject()) uniquePoints.insert(line->getEndPointObject());
+        }
+      }
+      
+      if (uniquePoints.empty()) return;
+      
+      for (auto* p : uniquePoints) {
+        center += p->getSFMLPosition();
+      }
+      
+      if (uniquePoints.size() > 1) {
+        center /= static_cast<float>(uniquePoints.size());
+      }
+      
+      // Flip horizontally
+      for (auto* p : uniquePoints) {
+        sf::Vector2f pos = p->getSFMLPosition();
+        sf::Vector2f relative = pos - center;
+        // Horizontal flip: (x,y) -> (-x,y)
+        sf::Vector2f flipped(-relative.x, relative.y);
+        p->setPosition(center + flipped);
+      }
+      std::cout << "  -> Flipped " << uniquePoints.size() << " unique point(s) horizontally" << std::endl;
+    }
+  });
+  
+  // Item 5: Flip Vertical
+  m_contextMenu.addItem("Flip Vertical", [](GeometryEditor& ed) {
+    std::cout << "[ContextMenu] 'Flip Vertical' executed" << std::endl;
+    
+    if (!ed.selectedObjects.empty() || ed.selectedObject) {
+      auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+      
+      // Calculate center
+      sf::Vector2f center(0, 0);
+      std::set<Point*> uniquePoints;
+      for (auto* obj : objects) {
+        if (auto* p = dynamic_cast<Point*>(obj)) {
+          uniquePoints.insert(p);
+        } else if (auto* line = dynamic_cast<Line*>(obj)) {
+          if (line->getStartPointObject()) uniquePoints.insert(line->getStartPointObject());
+          if (line->getEndPointObject()) uniquePoints.insert(line->getEndPointObject());
+        }
+      }
+      
+      if (uniquePoints.empty()) return;
+      
+      for (auto* p : uniquePoints) {
+        center += p->getSFMLPosition();
+      }
+      
+      if (uniquePoints.size() > 1) {
+        center /= static_cast<float>(uniquePoints.size());
+      }
+      
+      // Flip vertically
+      for (auto* p : uniquePoints) {
+        sf::Vector2f pos = p->getSFMLPosition();
+        sf::Vector2f relative = pos - center;
+        // Vertical flip: (x,y) -> (x,-y)
+        sf::Vector2f flipped(relative.x, -relative.y);
+        p->setPosition(center + flipped);
+      }
+      std::cout << "  -> Flipped " << uniquePoints.size() << " unique point(s) vertically" << std::endl;
+    }
+  });
+  
+  // Item 6: Delete Object
+  m_contextMenu.addItem("Delete Object", [](GeometryEditor& ed) {
+    std::cout << "[ContextMenu] 'Delete Object' executed" << std::endl;
+    
+    // Mark objects as selected before deleting (like Toggle Label does)
+    if (!ed.selectedObjects.empty()) {
+      for (auto* obj : ed.selectedObjects) {
+        if (obj) {
+          obj->setSelected(true);
+        }
+      }
+    } else if (ed.selectedObject) {
+      ed.selectedObject->setSelected(true);
+    }
+    
+    // Now delete
+    ed.deleteSelected();
   });
 
-  m_contextMenu.addItem("Delete Object", [](GeometryEditor& ed) { ed.deleteSelected(); });
-
-  // Future transformation placeholders
-  m_contextMenu.addItem("Rotate Object", [](GeometryEditor&) { std::cout << "Rotation tool coming soon..." << std::endl; });
-  m_contextMenu.addItem("Scale Object", [](GeometryEditor&) { std::cout << "Scaling tool coming soon..." << std::endl; });
+  std::cout << "[GUI] Context menu initialized with " << m_contextMenu.getItemCount() << " items" << std::endl;
 
   // Angle inspector controls
   m_angleReflexBox.setSize(sf::Vector2f(14.f, 14.f));
@@ -687,7 +901,6 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       }
       if (ImGui::Button(label, ImVec2(-1, 0))) {
         editor.setCurrentTool(toolType);
-        editor.clearSelection();
         if (hint && *hint) editor.setToolHint(hint);
         if (onActivate) onActivate();
       }
@@ -703,6 +916,11 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       ImGui::SameLine();
       bool axes = editor.areAxesVisible();
       if (ImGui::Checkbox("Show Axes", &axes)) editor.toggleAxes();
+      
+      // Universal Smart Snapping Toggle
+      if (ImGui::Checkbox("Universal Snapping", &editor.m_universalSnappingEnabled)) {
+        std::cout << "Universal Snapping " << (editor.m_universalSnappingEnabled ? "ON" : "OFF") << std::endl;
+      }
 
       if (ImGui::Button("Reset View", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
         editor.resetView();
@@ -768,6 +986,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         DrawToolButton("ObjPoint", ObjectType::ObjectPoint, "Click on a line or circle to attach a point.");
         DrawToolButton("Intersection", ObjectType::Intersection, "Click two objects to find their intersection.");
         DrawToolButton("Midpoint", ObjectType::Midpoint, "Select two points (or a line) to find the middle.");
+        DrawToolButton("Text", ObjectType::TextLabel, "Click to place a text/LaTeX label.");
       } 
       if (ImGui::CollapsingHeader("lines", ImGuiTreeNodeFlags_DefaultOpen)) {
         DrawToolButton("Line", ObjectType::Line, "Click start point, then click end point (Ctrl to snap).");
@@ -1020,6 +1239,73 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     }
   }
 
+  // --- TEXT SYMBOL PALETTE (ImGui) ---
+  if (editor.isTextEditing && editor.showSymbolPalette && editor.useImGuiSymbolPalette) {
+    ImGui::SetNextWindowSize(ImVec2(360, 260), ImGuiCond_Once);
+    ImGui::Begin("Math Keyboard", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+
+    static char searchBuf[128] = {0};
+    if (editor.textPaletteSearch.empty() && searchBuf[0] == '\0') {
+      // keep empty
+    } else if (editor.textPaletteSearch != searchBuf) {
+      std::snprintf(searchBuf, sizeof(searchBuf), "%s", editor.textPaletteSearch.c_str());
+    }
+
+    if (ImGui::InputText("Search", searchBuf, sizeof(searchBuf))) {
+      editor.textPaletteSearch = searchBuf;
+    }
+
+    auto toLower = [](std::string s) {
+      std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      return s;
+    };
+    std::string search = toLower(editor.textPaletteSearch);
+
+    auto insertLatex = [&](const std::string& latex) {
+      editor.textEditBuffer.insert(editor.textCursorIndex, latex);
+      editor.textCursorIndex += latex.size();
+      editor.textCursorBlinkClock.restart();
+      editor.textEditIsRich = true;
+      if (editor.textEditingLabel) {
+        editor.textEditingLabel->setRawContent(editor.textEditBuffer, editor.textEditIsRich);
+        editor.textEditingLabel->setFontSize(editor.textEditFontSize);
+      }
+    };
+
+    const auto& entries = editor.textSymbolPalette.getEntries();
+    if (!search.empty()) {
+      ImGui::Text("Results");
+      int col = 0;
+      for (const auto& e : entries) {
+        std::string label = toLower(e.label);
+        std::string latex = toLower(e.latex);
+        if (label.find(search) == std::string::npos && latex.find(search) == std::string::npos) continue;
+        if (ImGui::SmallButton(e.label.c_str())) {
+          insertLatex(e.latex);
+        }
+        if (++col % 4 != 0) ImGui::SameLine();
+      }
+    } else if (ImGui::BeginTabBar("##MathTabs")) {
+      const char* categories[] = {"Geometry", "Calculus", "Logic", "Greek"};
+      for (const char* cat : categories) {
+        if (ImGui::BeginTabItem(cat)) {
+          int col = 0;
+          for (const auto& e : entries) {
+            if (e.category != cat) continue;
+            if (ImGui::SmallButton(e.label.c_str())) {
+              insertLatex(e.latex);
+            }
+            if (++col % 4 != 0) ImGui::SameLine();
+          }
+          ImGui::EndTabItem();
+        }
+      }
+      ImGui::EndTabBar();
+    }
+
+    ImGui::End();
+  }
+
   if (g_showAngleInputPopup) {
     ImGui::OpenPopup("Enter Angle");
   }
@@ -1079,6 +1365,9 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
 
   // Context Menu
   const_cast<ContextMenu&>(m_contextMenu).draw(window);
+
+  // Text Editor Dialog
+  editor.textEditorDialog.render(window, editor);
 
   ImGui::SFML::Render(window);
 }

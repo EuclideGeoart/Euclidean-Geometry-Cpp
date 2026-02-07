@@ -44,6 +44,9 @@
 #include "Triangle.h"        // General triangles
 #include "Angle.h"           // Angle measurement
 #include "PointUtils.h"      // For EdgeHitResult and anchor point detection
+#include "TextLabel.h"
+#include "SymbolPalette.h"
+#include "TextEditorDialog.h"
 
 // Note: Headers like "HandleEvents.h" (if it was a .h file for functions) are
 // not typically included if GeometryEditor itself implements the event handling
@@ -94,6 +97,7 @@ class GeometryEditor {
   std::vector<std::shared_ptr<RegularPolygon>> regularPolygons;  // Regular N-sided polygons
   std::vector<std::shared_ptr<Triangle>> triangles;              // General triangles
   std::vector<std::shared_ptr<Angle>> angles;                    // Angle measurements
+  std::vector<std::shared_ptr<TextLabel>> textLabels;            // Text/LaTeX labels
 
 
   // ---Color Management---
@@ -145,6 +149,31 @@ class GeometryEditor {
   GeometricObject *labelDragObject = nullptr;
   sf::Vector2f labelDragGrabOffset = sf::Vector2f(0.f, 0.f);
   int labelDragVertexIndex = -1;  // For shapes with multiple vertex labels (Rectangle, etc.)
+
+  // Text editing UI state
+  bool isTextEditing = false;
+  bool isEditingExistingText = false; // Flag for TextEditorDialog saves
+  std::shared_ptr<TextLabel> textEditingLabel = nullptr;
+  std::string textEditBuffer;
+  bool textEditIsRich = false;
+  float textEditFontSize = 18.0f;
+  size_t textCursorIndex = 0;
+  sf::Clock textCursorBlinkClock;
+  bool showSymbolPalette = false;
+  SymbolPalette textSymbolPalette;
+  sf::Vector2f textPalettePosition{0.f, 0.f};
+  bool useImGuiSymbolPalette = true;
+  std::string textPaletteSearch;
+
+  // Text editor dialog
+  TextEditorDialog textEditorDialog;
+
+  // Text box creation state
+  bool isCreatingTextBox = false;
+  sf::Vector2f textBoxStart_sfml;
+  sf::Vector2f textBoxCurrent_sfml;
+  sf::RectangleShape textBoxPreviewShape;
+  float textBoxStartScale = 1.0f;
     
   // Edge hover tracking for universal snapping
   std::optional<EdgeHitResult> m_hoveredEdge;  // Currently hovered edge (if any)
@@ -266,6 +295,7 @@ class GeometryEditor {
   PointUtils::SnapState m_snapState;
   bool m_wasSnapped = false;
   std::shared_ptr<Point> m_snapTargetPoint = nullptr;
+  bool m_universalSnappingEnabled = true;  // Toggle for universal smart snapping
 
   // --- Panning State (primarily used by event handling logic) ---
   bool isPanning = false;
@@ -451,7 +481,7 @@ class GeometryEditor {
   // Add this new public method declaration
   void resetApplicationState();
 
-  bool debugMode = true;
+  bool debugMode = false;  // Set to false to reduce console spam
   void toggleDebugMode() {
     debugMode = !debugMode;
     std::cout << "Debug mode " << (debugMode ? "enabled" : "disabled") << std::endl;

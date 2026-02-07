@@ -266,15 +266,15 @@ void Point::updateSFMLShape() {
     // Base outline thickness in world units, draw() handles screen scaling for it.
     // float currentOutlineThickness = m_outlineThickness;
 
-    if (isLocked()) {
-      currentFill = Constants::LOCKED_COLOR;
-      currentOutline = sf::Color::Black;  // Or Constants::LOCKED_OUTLINE_COLOR
-    } else if (isSelected()) {
+    if (isSelected()) {
       currentFill = Constants::SELECTION_COLOR_POINT_FILL;
       currentOutline = Constants::SELECTION_COLOR_POINT_OUTLINE;
     } else if (isHovered()) {                          // Use the standardized isHovered()
       currentFill = Constants::HOVER_UNIVERSAL_COLOR;  // Universal fill for hover
       currentOutline = Constants::HOVER_COLOR_POINT_OUTLINE;
+    } else if (isLocked()) {
+      currentFill = Constants::LOCKED_COLOR;
+      currentOutline = sf::Color::Black;  // Or Constants::LOCKED_OUTLINE_COLOR
     }
     // If it's an intersection point and not selected/hovered/locked, apply its specific color
     else if (m_isIntersectionPoint) {
@@ -463,6 +463,11 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
       sf::Color ghostOutline = pointToDraw.getOutlineColor();
       ghostOutline.a = 50;
       pointToDraw.setOutlineColor(ghostOutline);
+  }
+
+  // Selection Halo (Selection PRIORITY: Only show when selected)
+  if (isSelected()) {
+      drawHalo(window, 10.0f);
   }
 
   window.draw(pointToDraw);

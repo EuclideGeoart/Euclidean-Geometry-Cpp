@@ -92,7 +92,6 @@ public:
 
   // --- Position Management ---
   void setPosition(const sf::Vector2f &newSfmlPos) override;
-  sf::FloatRect getGlobalBounds() const override;
 
   // --- Specific Getters for Attachment Info ---
   double getRelativePositionOnLine() const;

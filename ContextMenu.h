@@ -25,6 +25,8 @@ public:
     ContextMenu();
     
     void addItem(const std::string& label, std::function<void(GeometryEditor&)> action);
+    void clear() { m_items.clear(); }
+    size_t getItemCount() const { return m_items.size(); }
     void open(const sf::Vector2f& position, GeometryEditor& editor);
     void close();
     bool isOpen() const { return m_isOpen; }

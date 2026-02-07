@@ -11,6 +11,7 @@
 #include "GeometryEditor.h"
 #include "GeometricObject.h"
 #include "IntersectionSystem.h"
+//#include "LabelManager.h"
 #include "Line.h"
 #include "Point.h"
 #include <CGAL/Uncertain.h>
@@ -288,6 +289,39 @@ void removeConstraintsInvolving(const GeometricObject *obj, GeometryEditor &edit
       constraints.end());
 }
 
+void removeIntersectionPoint(const std::shared_ptr<Point> &point, GeometryEditor &editor) {
+  if (!point) {
+    return;
+  }
+
+  auto &constraints = activeConstraints;
+  constraints.erase(
+      std::remove_if(constraints.begin(), constraints.end(),
+                     [&](const IntersectionConstraint &item) {
+                       bool ownsPoint = false;
+                       for (const auto &wp : item.resultingPoints) {
+                         if (auto sp = wp.lock()) {
+                           if (sp == point) {
+                             ownsPoint = true;
+                             break;
+                           }
+                         }
+                       }
+
+                       if (!ownsPoint) {
+                         return false;
+                       }
+
+                       for (const auto &wp : item.resultingPoints) {
+                         if (auto sp = wp.lock()) {
+                           removePointFromEditor(editor, sp);
+                         }
+                       }
+                       return true;
+                     }),
+      constraints.end());
+}
+
 // Implementation for standard intersection creation (persistent)
 std::vector<std::shared_ptr<Point>> createGenericIntersection(
     const std::shared_ptr<GeometricObject> &A,
@@ -333,6 +367,12 @@ std::vector<std::shared_ptr<Point>> createGenericIntersection(
     newPoint->setSelected(false);
     newPoint->lock();
     newPoint->setVisible(true);
+    
+    // Assign label to intersection point
+    std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
+    newPoint->setLabel(label);
+    newPoint->setShowLabel(true);  // Show label by default
+    
     newPoint->setCGALPosition(newPoint->getCGALPosition());
     newPoint->update();
     editor.points.push_back(newPoint);
@@ -464,7 +504,6 @@ void updateAllIntersections(GeometryEditor &editor) {
             pt->setVisible(true);
             pt->setIsValid(true);
             pt->setIntersectionPoint(true);
-            pt->setSelected(false);
             pt->lock();
             pt->setCGALPosition(p);
             pt->update();
@@ -479,6 +518,12 @@ void updateAllIntersections(GeometryEditor &editor) {
             newPoint->setSelected(false);
             newPoint->lock();
             newPoint->setVisible(true);
+            
+            // Assign label to intersection point
+            std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
+            newPoint->setLabel(label);
+            newPoint->setShowLabel(true);  // Show label by default
+            
             newPoint->setCGALPosition(newPoint->getCGALPosition());
             newPoint->update();
             editor.points.push_back(newPoint);

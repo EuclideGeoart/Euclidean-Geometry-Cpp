@@ -74,6 +74,7 @@
 #include "VariantUtils.h"  // For safe_get_point
 
 
+#include "LatexRenderer.h"
 // #include "Command.h" // If base Command class is needed directly
 // #include "GenericDeleteCommand.h" // If used directly here
 // #include "ObjectType.h" // If ObjectType enum is defined here and not
@@ -98,6 +99,7 @@ GeometryEditor::GeometryEditor()
 // initialized in-class (in .h)
 {
   loadFont();
+  LatexRenderer::setDefaultFont(defaultFont);
   m_lastWindowSize = window.getSize();
   // Initialize Shared Font for Points
   if (Button::getFontLoaded()) {
@@ -130,6 +132,11 @@ GeometryEditor::GeometryEditor()
     // character size or color if font is not loaded, or using a very basic
     // fallback if SFML allows.
   }
+
+  // Text box preview style
+  textBoxPreviewShape.setFillColor(sf::Color(255, 255, 255, 30));
+  textBoxPreviewShape.setOutlineColor(sf::Color(0, 120, 255, 200));
+  textBoxPreviewShape.setOutlineThickness(1.0f);
 
 
 
@@ -298,6 +305,7 @@ std::shared_ptr<GeometricObject> GeometryEditor::findSharedPtr(GeometricObject* 
   if (auto p = check(circles)) return p;
   if (auto p = check(lines)) return p;
   if (auto p = check(points)) return p;
+  if (auto p = check(textLabels)) return p;
   
   // Check ObjectPoints separately (they're shared_ptr<ObjectPoint> not shared_ptr<GeometricObject>)
   for (auto& ptr : ObjectPoints) {
@@ -581,6 +589,8 @@ void GeometryEditor::render() {
     for (auto &op : ObjectPoints) drawObject(op);
     // angles
     for (auto &ag : angles) drawObject(ag);
+    // text labels
+    for (auto &tl : textLabels) drawObject(tl);
 
     // --- Preview lines ---
     // Draw existing preview Line objects without triggering heavy updates
@@ -628,6 +638,12 @@ void GeometryEditor::render() {
     // preview triangle
     if (isCreatingTriangle && previewTriangle && previewTriangle->isValid())
       previewTriangle->draw(window, scale);
+
+    // preview text box
+    if (isCreatingTextBox) {
+      textBoxPreviewShape.setOutlineThickness(1.5f * scale);
+      window.draw(textBoxPreviewShape);
+    }
 
     // --- LABEL PASS (Screen Space) ---
     // Switch to GUI view (1:1 pixels) for sharp text
@@ -693,6 +709,61 @@ void GeometryEditor::render() {
          window.draw(hintText);
     }
 
+      // --- TEXT EDIT OVERLAY ---
+      if (isTextEditing && textEditingLabel) {
+         sf::Vector2f worldPos(
+           static_cast<float>(CGAL::to_double(textEditingLabel->getCGALPosition().x())),
+           static_cast<float>(CGAL::to_double(textEditingLabel->getCGALPosition().y())));
+         sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
+         sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
+
+         sf::Text text;
+         if (Button::getFontLoaded()) {
+           text.setFont(Button::getFont());
+         }
+         text.setString(textEditBuffer.empty() ? "" : textEditBuffer);
+         text.setCharacterSize(16);
+         text.setFillColor(sf::Color::Black);
+         text.setPosition(uiPos + sf::Vector2f(10.f, -10.f));
+
+         sf::FloatRect bounds = text.getGlobalBounds();
+         float bgWidth = std::max(bounds.width + 10.f, 120.f);
+         float bgHeight = std::max(bounds.height + 8.f, 28.f);
+         sf::RectangleShape bg(sf::Vector2f(bgWidth, bgHeight));
+         bg.setPosition(text.getPosition().x - 5.f, text.getPosition().y - 4.f);
+         bg.setFillColor(sf::Color(255, 255, 255, 235));
+         bg.setOutlineColor(sf::Color(0, 120, 255));
+         bg.setOutlineThickness(1.0f);
+
+         window.draw(bg);
+         window.draw(text);
+
+         // Cursor
+         float blink = std::fmod(textCursorBlinkClock.getElapsedTime().asSeconds(), 1.0f);
+         if (blink < 0.5f) {
+           size_t idx = std::min(textCursorIndex, textEditBuffer.size());
+           sf::Vector2f cursorPos = text.findCharacterPos(static_cast<std::size_t>(idx));
+           sf::RectangleShape cursor(sf::Vector2f(1.5f, text.getCharacterSize() + 4.f));
+           cursor.setFillColor(sf::Color::Black);
+           cursor.setPosition(cursorPos.x, cursorPos.y - 2.f);
+           window.draw(cursor);
+         }
+
+         sf::Text hintText;
+         if (Button::getFontLoaded()) hintText.setFont(Button::getFont());
+         hintText.setString("Shift+Enter to apply, Esc to cancel");
+         hintText.setCharacterSize(12);
+         hintText.setFillColor(sf::Color(50, 50, 50));
+         hintText.setPosition(bg.getPosition() + sf::Vector2f(0.f, bg.getSize().y + 2.f));
+         window.draw(hintText);
+
+         // Symbol palette
+         if (showSymbolPalette && !useImGuiSymbolPalette && Button::getFontLoaded()) {
+           textSymbolPalette.setPosition(textPalettePosition);
+           textSymbolPalette.draw(window, Button::getFont(), true);
+         }
+      }
+
     window.display();
 
   } catch (const std::exception &e) {
@@ -734,8 +805,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
     }
   }
 
-  // 2. Check free Points
-  if (typeAllowed(ObjectType::Point)) {
+  // 2. Check free Points / IntersectionPoints
+  if (typeAllowed(ObjectType::Point) || typeAllowed(ObjectType::IntersectionPoint)) {
     for (auto it = points.rbegin(); it != points.rend(); ++it) {
       if (isValidCandidate(it->get()) &&
           (*it)->contains(worldPos_sfml, tolerance)) {
@@ -786,6 +857,16 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 2.75 Check Angles
   if (typeAllowed(ObjectType::Angle)) {
     for (auto it = angles.rbegin(); it != angles.rend(); ++it) {
+      if (isValidCandidate(it->get()) &&
+          (*it)->contains(worldPos_sfml, tolerance)) {
+        return it->get();
+      }
+    }
+  }
+
+  // 2.85 Check Text Labels
+  if (typeAllowed(ObjectType::TextLabel)) {
+    for (auto it = textLabels.rbegin(); it != textLabels.rend(); ++it) {
       if (isValidCandidate(it->get()) &&
           (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
@@ -849,9 +930,19 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
   std::cout << "setCurrentTool called: Changing from " << static_cast<int>(m_currentToolType)
             << " to " << static_cast<int>(newTool) << std::endl;
 
-  clearSelection();
+  // Transformation tools should preserve selection to allow multi-object transformations
+  bool isTransformTool = (newTool == ObjectType::ReflectAboutLine || 
+                          newTool == ObjectType::ReflectAboutPoint ||
+                          newTool == ObjectType::ReflectAboutCircle || 
+                          newTool == ObjectType::RotateAroundPoint ||
+                          newTool == ObjectType::TranslateByVector || 
+                          newTool == ObjectType::DilateFromPoint);
+
+  if (!isTransformTool || (selectedObjects.empty() && !selectedObject)) {
+      clearSelection();
+  }
   clearTempSelectedObjects();
-  deselectAllAndClearInteractionState(*this);
+  deselectAllAndClearInteractionState(*this, isTransformTool);
   auto clearContainerSelection = [](auto& container) {
     for (auto& obj : container) {
       if (obj) obj->setSelected(false);
@@ -866,6 +957,7 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
   clearContainerSelection(regularPolygons);
   clearContainerSelection(triangles);
   clearContainerSelection(angles);
+  clearContainerSelection(textLabels);
 
   // ✅ ZOMBIE-KILL: Reset drag state to prevent contamination from previous tool
   dragMode = DragMode::None;
@@ -1100,6 +1192,21 @@ void GeometryEditor::update(sf::Time deltaTime) {
   // Update GUI
   gui.update(deltaTime);
 
+  // Handle text editor dialog confirmation
+  if (textEditorDialog.wasConfirmed()) {
+    if (textEditingLabel) {
+      std::string resultText = textEditorDialog.getResultText();
+      bool isLatex = textEditorDialog.isLatexResult();
+      float fontSize = textEditorDialog.getFontSize();
+      
+      textEditingLabel->setRawContent(resultText, isLatex);
+      textEditingLabel->setFontSize(fontSize);
+      
+      setGUIMessage("Text: Label updated.");
+    }
+    textEditingLabel = nullptr;
+  }
+
   if (selectedObject && selectedObject->getType() == ObjectType::Angle) {
     setToolHint("Angle Selected. Click Palette to change Color. Drag Perimeter to Resize.");
   }
@@ -1180,6 +1287,8 @@ void GeometryEditor::resetCreationStates() {
 
   dragMode = DragMode::None;
   isDragging = false;
+  m_snapTargetPoint = nullptr;
+  m_snapState = PointUtils::SnapState{};
 }
 
 void GeometryEditor::resetParallelLineToolState() {
@@ -2078,6 +2187,8 @@ bool GeometryEditor::objectExistsInAnyList(GeometricObject *obj) {
     if (t.get() == obj) return true;
   for (const auto &a : angles)
     if (a.get() == obj) return true;
+  for (const auto &tl : textLabels)
+    if (tl.get() == obj) return true;
   return false;
 }
 void GeometryEditor::updateAllGeometry() {
@@ -2117,6 +2228,13 @@ void GeometryEditor::updateAllGeometry() {
     for (auto &angle : angles) {
       if (angle) {
         angle->update();
+      }
+    }
+
+    // Update text labels
+    for (auto &label : textLabels) {
+      if (label && label->isValid()) {
+        label->update();
       }
     }
 
@@ -2402,6 +2520,7 @@ void GeometryEditor::clearScene() {
   polygons.clear();
   regularPolygons.clear();
   points.clear();
+  textLabels.clear();
   
   std::cout << "GeometryEditor::clearScene: Scene cleared." << std::endl;
 }
