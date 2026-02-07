@@ -5116,13 +5116,6 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
         }
       }
 
-      // Sync color picker
-      if (editor.selectedObject) {
-         editor.selectedObject->setSelected(true);
-         sf::Color selectedColor = editor.selectedObject->getColor();
-         editor.setCurrentColor(selectedColor);
-      }
-
       editor.dragMode = potentialDragMode;
       editor.m_selectedEndpoint = potentialEndpointSelection;
       editor.isDragging = true;

@@ -34,15 +34,28 @@ void IntersectionPoint::update() {
 }
 
 void IntersectionPoint::recalculateIntersection() {
+    // Check if parent lines still exist
     if (!areParentsValid()) {
-        m_isValid = false; 
+        m_isValid = false;
+        setVisible(false);
         return;
     }
 
     auto l1 = m_line1.lock();
     auto l2 = m_line2.lock();
 
-    if (!l1 || !l2) return;
+    if (!l1 || !l2) {
+        m_isValid = false;
+        setVisible(false);
+        return;
+    }
+
+    // Check if parent lines are valid (have valid endpoints)
+    if (!l1->isValid() || !l2->isValid()) {
+        m_isValid = false;
+        setVisible(false);
+        return;
+    }
 
     // Get CGAL lines
     Line_2 cgalLine1 = l1->getCGALLine();
@@ -52,10 +65,13 @@ void IntersectionPoint::recalculateIntersection() {
     CGAL::Object result = CGAL::intersection(cgalLine1, cgalLine2);
 
     if (const Point_2* ip = CGAL::object_cast<Point_2>(&result)) {
+        // Intersection found - resurrect the point
         setCGALPosition(*ip);
         m_isValid = true;
+        setVisible(true);
     } else {
-        // Parallel or coincident?
+        // Parallel or coincident - hide the point
         m_isValid = false;
+        setVisible(false);
     }
 }

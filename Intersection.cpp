@@ -484,32 +484,39 @@ void updateAllIntersections(GeometryEditor &editor) {
         std::vector<std::shared_ptr<Point>> updated;
         updated.reserve(std::max(existingCount, newCount));
 
-        // Match new intersections to existing points by proximity
+        // CRITICAL FIX: Always reuse existing points in order when available.
+        // This ensures lines connected to intersection points maintain their references
+        // and properly resurrect when the intersection becomes valid again.
+        // We do NOT rely on proximity matching because getCGALPosition() on an invalid
+        // point may return stale/NaN values causing matching to fail.
+        
+        size_t existingIdx = 0;
         for (const auto &p : newIntersections) {
-          double bestDist = std::numeric_limits<double>::max();
-          size_t bestIdx = existingCount;
-
-          for (size_t i = 0; i < existingCount; ++i) {
-            if (used[i] || !existing[i]) continue;
-            double dist = CGAL::to_double(CGAL::squared_distance(existing[i]->getCGALPosition(), p));
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestIdx = i;
+          // Find the next unused existing point to reuse
+          std::shared_ptr<Point> reusePoint = nullptr;
+          while (existingIdx < existingCount) {
+            if (!used[existingIdx] && existing[existingIdx]) {
+              reusePoint = existing[existingIdx];
+              used[existingIdx] = true;
+              existingIdx++;
+              break;
             }
+            existingIdx++;
           }
 
-          if (bestIdx < existingCount) {
-            auto &pt = existing[bestIdx];
-            used[bestIdx] = true;
-            pt->setVisible(true);
-            pt->setIsValid(true);
-            pt->setIntersectionPoint(true);
-            pt->lock();
-            pt->setCGALPosition(p);
-            pt->update();
-            pt->updateConnectedLines();
-            updated.push_back(pt);
+          if (reusePoint) {
+            // REUSE existing point - this preserves connected lines!
+            reusePoint->setVisible(true);
+            reusePoint->setIsValid(true);
+            reusePoint->setIntersectionPoint(true);
+            reusePoint->lock();
+            reusePoint->setCGALPosition(p);
+            // DO NOT reassign label - keep the original label
+            reusePoint->update();
+            reusePoint->updateConnectedLines();
+            updated.push_back(reusePoint);
           } else {
+            // Only create NEW point if no existing points available
             auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
                                                     Constants::INTERSECTION_POINT_COLOR);
             newPoint->setID(editor.objectIdCounter++);
@@ -522,7 +529,7 @@ void updateAllIntersections(GeometryEditor &editor) {
             // Assign label to intersection point
             std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
             newPoint->setLabel(label);
-            newPoint->setShowLabel(true);  // Show label by default
+            newPoint->setShowLabel(true);
             
             newPoint->setCGALPosition(newPoint->getCGALPosition());
             newPoint->update();
@@ -531,12 +538,14 @@ void updateAllIntersections(GeometryEditor &editor) {
           }
         }
 
-        // Hide unused existing points
+        // Hide unused existing points (but keep them in the constraint for future reuse!)
         for (size_t i = 0; i < existingCount; ++i) {
           if (!used[i] && existing[i]) {
             existing[i]->setVisible(false);
             existing[i]->setIsValid(false);
             existing[i]->updateConnectedLines();
+            // CRITICAL: Still add to updated so it's preserved for next cycle
+            updated.push_back(existing[i]);
           }
         }
 

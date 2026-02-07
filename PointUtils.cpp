@@ -917,20 +917,9 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
 
 // --- LabelManager Implementation ---
 
-static std::string toUnicodeSubscript(int number) {
-    if (number <= 0) return "";
-    
-    // Unicode subscript digits: ₀₁₂₃₄₅₆₇₈₉
-    static const std::string subscripts[] = {"₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"};
-    
-    std::string result;
-    std::string numStr = std::to_string(number);
-    for (char c : numStr) {
-        if (c >= '0' && c <= '9') {
-            result += subscripts[c - '0'];
-        }
-    }
-    return result;
+static std::string toLatexSubscript(int number) {
+  if (number <= 0) return "";
+  return "_{" + std::to_string(number) + "}";
 }
 
 std::string LabelManager::getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints) {
@@ -960,7 +949,7 @@ std::vector<std::string> LabelManager::getNextLabels(int count, const std::vecto
         
         label += base;
         if (subscript > 0) {
-            label += toUnicodeSubscript(subscript);
+          label += toLatexSubscript(subscript);
         }
         
         if (usedLabels.find(label) == usedLabels.end()) {

@@ -173,7 +173,7 @@ public:
     unsigned int getFontSize() const { return m_fontSize; }
 
     /**
-     * @brief Generates the next available label (A..Z, A₁..Z₁, A₂..Z₂)
+     * @brief Generates the next available label (A..Z, A_{1}..Z_{1}, A_{2}..Z_{2})
      * @param existingPoints Collection of points to check for collision
      * @return Unique label string
      */

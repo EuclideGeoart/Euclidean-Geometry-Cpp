@@ -316,7 +316,29 @@ bool Circle::isValid() const {
 }
 
 void Circle::update() {
-  // 1. Dependent Shape Logic (Transforms)
+  // 1. RESURRECTION LOGIC: Check parent validity first
+  // For standard circles (with center point)
+  if (!isDependent() && !m_isSemicircle) {
+    bool parentsAreValid = true;
+    if (!m_centerPoint || !m_centerPoint->isValid()) {
+      parentsAreValid = false;
+    }
+    
+    // APPLY STATE (Persistence)
+    if (parentsAreValid) {
+      if (!this->isVisible()) {
+        this->setVisible(true); // RESURRECTION
+      }
+    } else {
+      // If parents are invalid, we MUST be hidden.
+      if (this->isVisible()) {
+        this->setVisible(false); // HIDE
+      }
+      return; // STOP calculation if parents are gone/invalid
+    }
+  }
+
+  // 2. Dependent Shape Logic (Transforms)
   if (isDependent()) {
     // This function handles Position, Radius (including Dilation), and Visibility
     updateDependentShape(); 
@@ -342,30 +364,41 @@ void Circle::update() {
     return;
   }
 
-  // 2. Semicircle Logic (Independent)
+  // 3. Semicircle Logic (Independent)
   if (m_isSemicircle && m_diameterP1 && m_diameterP2) {
-    if (!m_diameterP1->isValid() || !m_diameterP2->isValid()) return;
+    // RESURRECTION LOGIC for semicircles
+    bool semicircleParentsValid = m_diameterP1->isValid() && m_diameterP2->isValid();
+    
+    if (semicircleParentsValid) {
+      if (!this->isVisible()) {
+        this->setVisible(true); // RESURRECTION
+      }
+      
+      Point_2 p1 = m_diameterP1->getCGALPosition();
+      Point_2 p2 = m_diameterP2->getCGALPosition();
 
-    Point_2 p1 = m_diameterP1->getCGALPosition();
-    Point_2 p2 = m_diameterP2->getCGALPosition();
+      // Calculate Center
+      Point_2 newCenter((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
+      if (m_centerPoint) {
+        m_centerPoint->setCGALPosition(newCenter);
+      }
 
-    // Calculate Center
-    Point_2 newCenter((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
-    if (m_centerPoint) {
-      m_centerPoint->setCGALPosition(newCenter);
+      // Calculate Radius
+      double distSq = CGAL::to_double(CGAL::squared_distance(p1, p2));
+      if (!std::isfinite(distSq) || distSq <= 0.0) return;
+      m_radius = std::sqrt(distSq) * 0.5;
+
+      m_semicircleStart = p1;
+      m_semicircleEnd = p2;
+    } else {
+      if (this->isVisible()) {
+        this->setVisible(false); // HIDE
+      }
+      return;
     }
-
-    // Calculate Radius
-    double distSq = CGAL::to_double(CGAL::squared_distance(p1, p2));
-    if (!std::isfinite(distSq) || distSq <= 0.0) return;
-    m_radius = std::sqrt(distSq) * 0.5;
-
-    m_semicircleStart = p1;
-    m_semicircleEnd = p2;
   }
 
-  // 3. Standard Logic
-  if (!isValid()) return;
+  // 4. Standard Logic - Always recalculate geometry after resurrection
   updateSFMLShape();
   updateHostedPoints();
 }
