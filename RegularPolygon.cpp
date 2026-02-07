@@ -2,6 +2,7 @@
 #include "Point.h"
 #include "Line.h"
 #include "Circle.h"
+#include "PointUtils.h"
 #include "Types.h"
 #include <cmath>
 RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
@@ -168,11 +169,52 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
 
 // RegularPolygon-specific drawing passers for labels
 void RegularPolygon::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
-    if (!m_visible) return;
-    
-    // Delegate label drawing to center and first vertex if they exist
-    if (m_centerPoint) m_centerPoint->drawLabelExplicit(window, worldView);
-    if (m_firstVertexPoint) m_firstVertexPoint->drawLabelExplicit(window, worldView);
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  
+
+  // 2. Draw polygon's own label at center
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Value: {
+       // Area of regular polygon: 0.5 * n * R^2 * sin(2*pi/n)
+       double n = static_cast<double>(m_numSides);
+       double R = m_radius;
+       double area = 0.5 * n * R * R * std::sin(2.0 * 3.141592653589793 / n);
+       labelStr = std::to_string(static_cast<int>(std::round(area)));
+       break;
+    }
+    case LabelMode::NameAndValue: {
+       labelStr = getLabel();
+       double n = static_cast<double>(m_numSides);
+       double R = m_radius;
+       double area = 0.5 * n * R * R * std::sin(2.0 * 3.141592653589793 / n);
+       labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
+       break;
+    }
+    case LabelMode::Caption: labelStr = getCaption(); break;
+    default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  Point_2 center = getCenter();
+  sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(center), worldView);
+  
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+  
+  sf::Color textColor = m_color;
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+  text.setFillColor(textColor);
+
+  text.setPosition(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
 }
 
 void RegularPolygon::update() {

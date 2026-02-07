@@ -9,6 +9,7 @@
 #include "Constants.h"
 #include "Line.h"
 #include "Point.h"
+#include "PointUtils.h"
 #include "Types.h"
 
 Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRotatable, const sf::Color& color, unsigned int id)
@@ -843,14 +844,51 @@ void Rectangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
 }
 
 void Rectangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-  if (!m_visible) return;
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
 
-  // Delegate label drawing to the constituent points using Explicit mode
-  // because points might be globally marked as hidden to avoid double-draw.
+  // 1. Delegate label drawing to the constituent corner points
   if (m_corner1) m_corner1->drawLabelExplicit(window, worldView);
   if (m_cornerB) m_cornerB->drawLabelExplicit(window, worldView);
   if (m_corner2) m_corner2->drawLabelExplicit(window, worldView);
   if (m_cornerD) m_cornerD->drawLabelExplicit(window, worldView);
+
+  // 2. Draw the rectangle's own label (e.g., name or area) at center
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Value: {
+       double area = m_width * std::abs(m_height);
+       labelStr = std::to_string(static_cast<int>(std::round(area)));
+       break;
+    }
+    case LabelMode::NameAndValue: {
+       labelStr = getLabel();
+       double area = m_width * std::abs(m_height);
+       labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
+       break;
+    }
+    case LabelMode::Caption: labelStr = getCaption(); break;
+    default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(m_center), worldView);
+  
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+  
+  sf::Color textColor = m_color;
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+  text.setFillColor(textColor);
+
+  text.setPosition(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
 }
 
 std::vector<Point_2> Rectangle::getInteractableVertices() const {

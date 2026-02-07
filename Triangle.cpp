@@ -3,6 +3,7 @@
 
 #include "Point.h"
 #include "Line.h"
+#include "PointUtils.h"
 #include "Circle.h"
 #include "Types.h"
 #include <CGAL/Polygon_2.h>
@@ -155,12 +156,53 @@ void Triangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) co
 }
 
 void Triangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-    if (!m_visible) return;
-    
-    // Delegate label drawing to vertices using Explicit mode
-    for (auto& pt : m_vertices) {
-        if (pt) pt->drawLabelExplicit(window, worldView);
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+
+
+  // 2. Draw triangle's own label (e.g., name or area) at center
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Value: {
+       std::vector<Point_2> verts = getVertices();
+       if (verts.size() == 3) {
+         double area = std::abs(CGAL::to_double(CGAL::area(verts[0], verts[1], verts[2])));
+         labelStr = std::to_string(static_cast<int>(std::round(area)));
+       }
+       break;
     }
+    case LabelMode::NameAndValue: {
+       labelStr = getLabel();
+       std::vector<Point_2> verts = getVertices();
+       if (verts.size() == 3) {
+         double area = std::abs(CGAL::to_double(CGAL::area(verts[0], verts[1], verts[2])));
+         labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
+       }
+       break;
+    }
+    case LabelMode::Caption: labelStr = getCaption(); break;
+    default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  Point_2 center = getCenter();
+  sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(center), worldView);
+  
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+  
+  sf::Color textColor = m_color;
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+  text.setFillColor(textColor);
+
+  text.setPosition(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
 }
 
 void Triangle::update() {

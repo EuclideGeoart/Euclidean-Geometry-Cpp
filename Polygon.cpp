@@ -6,6 +6,7 @@
 #include "Circle.h"
 #include <cmath>
 #include "Types.h" // Ensure this is included for flattenPoint
+#include "PointUtils.h"
 
 Polygon::Polygon(const std::vector<Point_2>& vertices, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Polygon, color, id) {
@@ -147,10 +148,67 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
 }
 
 void Polygon::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-    if (!m_visible) return;
-    for (auto& pt : m_vertices) {
-        if (pt) pt->drawLabelExplicit(window, worldView);
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+
+  // 1. Draw labels of constituent points
+  for (auto& pt : m_vertices) {
+    if (pt) pt->drawLabelExplicit(window, worldView);
+  }
+
+  // 2. Draw polygon's own label at centroid
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Value: {
+      std::vector<Point_2> verts = getVertices();
+      if (verts.size() >= 3) {
+        double area = 0.0;
+        for (size_t i = 0; i < verts.size(); ++i) {
+          size_t next = (i + 1) % verts.size();
+          area += CGAL::to_double(verts[i].x() * verts[next].y() - verts[next].x() * verts[i].y());
+        }
+        area = 0.5 * std::abs(area);
+        labelStr = std::to_string(static_cast<int>(std::round(area)));
+      }
+      break;
     }
+    case LabelMode::NameAndValue: {
+      labelStr = getLabel();
+      std::vector<Point_2> verts = getVertices();
+      if (verts.size() >= 3) {
+        double area = 0.0;
+        for (size_t i = 0; i < verts.size(); ++i) {
+          size_t next = (i + 1) % verts.size();
+          area += CGAL::to_double(verts[i].x() * verts[next].y() - verts[next].x() * verts[i].y());
+        }
+        area = 0.5 * std::abs(area);
+        labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
+      }
+      break;
+    }
+    case LabelMode::Caption: labelStr = getCaption(); break;
+    default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  Point_2 center = getCenter();
+  sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(center), worldView);
+
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+
+  sf::Color textColor = m_color;
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+  text.setFillColor(textColor);
+
+  text.setPosition(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
 }
 
 void Polygon::update() {

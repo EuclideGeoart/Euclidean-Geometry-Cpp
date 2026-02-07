@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include "PointUtils.h" // For LabelManager
 
 sf::Font Angle::s_font;
 bool Angle::s_fontLoaded = false;
@@ -377,26 +378,8 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
       window.draw(drawArc);
   }
 
-  // Draw Text
-  if (s_fontLoaded && !isGhost) {
-      float midAngle = static_cast<float>(startAngle + sweepAngle * 0.5);
-      float textOffset = effectiveRadius + (12.0f * scale); // 12 pixels padding
-      sf::Vector2f textPos(static_cast<float>(cx) + textOffset * std::cos(midAngle),
-                           static_cast<float>(cy) + textOffset * std::sin(midAngle));
-
-      sf::Text tempText = m_text;
-      tempText.setString(std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xC2\xB0");
-      tempText.setCharacterSize(24); // High res for crisp rendering
-      tempText.setScale(scale, -scale); // Scale down to match view (flip Y)
-      
-      // Center origin? Usually text origin is top-left. 
-      // Ideally center it for better alignment.
-      sf::FloatRect bounds = tempText.getLocalBounds();
-      tempText.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
-      
-      tempText.setPosition(textPos);
-      window.draw(tempText);
-  }
+  // Draw Text - MOVED TO drawLabel()
+  // Label Rendering handled by global pass now
 
   // Draw Vertex Handle (Resize handle) - only if selected/hovered
   if (isSelected() || isHovered()) {
@@ -414,8 +397,66 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
   }
 }
 
-void Angle::drawVertexHandles(sf::RenderWindow &window, float scale) const {
-    // Deprecated / Merged into draw() above
+void Angle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
+  if (!s_fontLoaded || !getShowLabel() || getLabelMode() == LabelMode::Hidden || !isVisible()) return;
+
+  std::string labelStr = "";
+  std::string valueStr = std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xB0";
+  
+  switch (getLabelMode()) {
+      case LabelMode::Name: labelStr = getLabel(); break;
+      case LabelMode::Value: labelStr = valueStr; break;
+      case LabelMode::NameAndValue: labelStr = getLabel() + (getLabel().empty() ? "" : " = ") + valueStr; break;
+      case LabelMode::Caption: labelStr = getCaption(); break;
+      default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  sf::Vector2f anchor = getLabelAnchor(worldView);
+  sf::Vector2i screenPos = window.mapCoordsToPixel(anchor, worldView);
+  
+  // Use GUI view coordinates (pixel-perfect text)
+  sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  
+  // Add stored label offset (in screen pixels)
+  labelPos += getLabelOffset(); 
+  
+  // Apply a small default padding if offset is zero? No, user can drag.
+  // But initial placement should be reasonable.
+  if (getLabelOffset() == sf::Vector2f(0.f, 0.f)) {
+      labelPos += sf::Vector2f(10.f, -10.f); 
+  }
+
+  sf::Text text;
+  text.setFont(s_font);
+  // Use fromUtf8 to convert standard string (if containing UTF-8 like degree symbol)
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize()); 
+  
+  sf::Color textColor = m_fillColor;
+  // Fallback for very bright colors on white background could be useful here too
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+  text.setFillColor(textColor);
+  
+  text.setPosition(labelPos);
+  
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
+}
+
+sf::Vector2f Angle::getLabelAnchor(const sf::View &view) const {
+  (void)view;
+  double cx = CGAL::to_double(m_vertexPoint.x());
+  double cy = CGAL::to_double(m_vertexPoint.y());
+  double midAngle = m_startAngle + m_sweepAngle * 0.5;
+  
+  double rx = cx + m_visualRadius * std::cos(midAngle);
+  double ry = cy + m_visualRadius * std::sin(midAngle);
+  
+  return sf::Vector2f(static_cast<float>(rx), static_cast<float>(ry));
 }
 
 void Angle::setRadius(double radius) {

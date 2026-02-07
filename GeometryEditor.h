@@ -122,11 +122,19 @@ class GeometryEditor {
   // --- Interaction State ---
   sf::Vector2f lastMousePos_sfml;                   // Last known mouse position in SFML world
                                                     // coordinates (drawingView)
-  ObjectType m_currentToolType = ObjectType::None;  // ADD THIS LINE
+  ObjectType m_currentToolType = ObjectType::None;  
   DragMode dragMode = DragMode::None;               // Current dragging operation type
   bool isDragging = false;  // General flag indicating an active drag operation
   int activeVertexIndex = -1;  // For shape vertex dragging
   GeometricObject *activeVertexShape = nullptr;  // Shape owning the active vertex
+
+  // Label Visibility Control
+  enum class LabelVisibilityMode {
+    All,
+    PointsOnly,
+    None
+  };
+  LabelVisibilityMode m_labelVisibility = LabelVisibilityMode::PointsOnly;
 
   // For Line interactions (primarily used by event handling logic)
   EndpointSelection m_selectedEndpoint =
@@ -378,6 +386,12 @@ class GeometryEditor {
   // Creates, labels, and registers a new Point.
   std::shared_ptr<Point> createPoint(const Point_2 &cgalPos); 
   std::shared_ptr<Point> createPoint(const sf::Vector2f &sfmlPos);
+
+  /**
+   * @brief Returns a combined vector of all geometric objects in the editor.
+   * Useful for label collision detection, multi-selection, etc.
+   */
+  std::vector<std::shared_ptr<GeometricObject>> getAllObjects() const;
   void startLineCreation(Point *startPt);
   void updateLinePreview(const Point_2 &currentMouseCgalPos);
   void finishLineCreation(Point *endPt);

@@ -35,6 +35,7 @@
 #include "Constants.h"
 #include "ObjectPoint.h"
 #include "Point.h"
+#include "PointUtils.h"
 #include "Circle.h"
 
 using namespace CGALSafeUtils;
@@ -596,8 +597,7 @@ const Kernel::FT MIN_SQ_LENGTH_THRESHOLD(1e-6);  // Adjust as needed based on ty
 Line::Line(const Point_2& start, const Point_2& end, bool isSegment, const sf::Color& color)
     : GeometricObject(isSegment ? ObjectType::LineSegment : ObjectType::Line, color),
       m_lineType(LineType::Infinite),
-      m_startPoint(nullptr),  // Initialize before other members that might
-      // depend on it or for order
+      m_startPoint(nullptr),
       m_endPoint(nullptr),
       m_isSegment(isSegment) {
   if (start == end) {
@@ -622,6 +622,24 @@ Line::Line(const Point_2& start, const Point_2& end, bool isSegment, const sf::C
   // m_sfmlShape[1].position = cgalToSFML(end);
   // m_sfmlShape[0].color = m_color;
   // m_sfmlShape[1].color = m_color;
+}
+
+// ------ getLabelAnchor Implementation ------
+sf::Vector2f Line::getLabelAnchor(const sf::View &view) const {
+  (void)view;
+  if (m_startPoint && m_endPoint) {
+      Point_2 p1 = m_startPoint->getCGALPosition();
+      Point_2 p2 = m_endPoint->getCGALPosition();
+      double mx = (CGAL::to_double(p1.x()) + CGAL::to_double(p2.x())) * 0.5;
+      double my = (CGAL::to_double(p1.y()) + CGAL::to_double(p2.y())) * 0.5;
+      return sf::Vector2f(static_cast<float>(mx), static_cast<float>(my));
+  }
+  // Fallback for CGAL-only lines (e.g. preview)
+  if (m_cgalLine.a() != 0 || m_cgalLine.b() != 0) {
+     // Harder to find "midpoint" of infinite line, but maybe we can use projection of 0?
+     // Or just return 0,0 for now.
+  }
+  return sf::Vector2f(0.f, 0.f); 
 }
 void Line::setTemporaryPreviewPoints(std::shared_ptr<Point> p1, std::shared_ptr<Point> p2) {
   m_tempPreviewP1 = p1;
@@ -880,6 +898,73 @@ void Line::draw(sf::RenderWindow& window, float scale, bool forceVisible) const 
     std::cerr << "Exception in Line::draw: " << e.what() << std::endl;
   }
 }
+void Line::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
+  if (!isVisible() || !getShowLabel() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isValid()) return;
+
+  // Calculate midpoint in world space for label placement
+  sf::Vector2f p1 = m_startPoint->getSFMLPosition();
+  sf::Vector2f p2 = m_endPoint->getSFMLPosition();
+  sf::Vector2f mid = (p1 + p2) * 0.5f;
+
+  // Convert to screen space
+  sf::Vector2i screenPos = window.mapCoordsToPixel(mid, worldView);
+
+  // Prepare label string based on selected LabelMode
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Value: {
+      if (m_isSegment) {
+        double length = std::sqrt(CGAL::to_double(CGAL::squared_distance(m_startPoint->getCGALPosition(), m_endPoint->getCGALPosition())));
+        labelStr = std::to_string(static_cast<int>(std::round(length)));
+      } else {
+        labelStr = getLabel(); 
+      }
+      break;
+    }
+    case LabelMode::NameAndValue: {
+      labelStr = getLabel();
+      if (m_isSegment) {
+        double length = std::sqrt(CGAL::to_double(CGAL::squared_distance(m_startPoint->getCGALPosition(), m_endPoint->getCGALPosition())));
+        labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(length)));
+      }
+      break;
+    }
+    case LabelMode::Caption: labelStr = getCaption(); break;
+    default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+  
+  // Use a slightly darker version of the line color or black for readability
+  sf::Color textColor = m_color;
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+
+  text.setFillColor(textColor);
+
+  // Position text near midpoint with normal offset
+  sf::Vector2f finalPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  sf::Vector2f dir = p2 - p1;
+  float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+  if (len > 1e-6f) {
+      sf::Vector2f normal(-dir.y / len, dir.x / len);
+      finalPos += normal * 20.0f; // 20 pixels offset
+  }
+
+  text.setPosition(std::round(finalPos.x), std::round(finalPos.y));
+  
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
+}
+
 /* void Line::draw(sf::RenderWindow &window) const {
   // Get the current view
   sf::View currentView = window.getView();

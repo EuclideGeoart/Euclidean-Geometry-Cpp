@@ -46,6 +46,15 @@ enum class ObjectType {
                            // Add more object types as needed
 };
 
+// Enum to track what kind of labeling to show
+enum class LabelMode {
+    Hidden,
+    Name,
+    NameAndValue,
+    Value,
+    Caption
+};
+
 // Enum to track what kind of transformation is applied to an object
 enum class TransformationType {
     None,

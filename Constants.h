@@ -117,6 +117,7 @@ constexpr float SNAP_SCREEN_PIXELS = 12.0f;          // Snapping "magnetism" rad
 constexpr float HOVER_SCREEN_PIXELS = 10.0f;         // Hover detection radius
 constexpr float DRAG_THRESHOLD_PIXELS = 5.0f;        // Drag initiation threshold
 constexpr float LABEL_DRAG_RADIUS_PIXELS = 60.0f;     // Label drag radius around anchor (screen pixels)
+constexpr float LABEL_HIT_PADDING_PIXELS = 6.0f;      // Extra label hit padding (screen pixels)
 
 // ============================================================================
 // DEPRECATED: Old world-unit constants (for backwards compatibility)

@@ -36,6 +36,10 @@ class Angle : public GeometricObject {
   double getRadius() const { return m_arcRadius; }
   void drawVertexHandles(sf::RenderWindow &window, float scale) const;
   
+  // Label overrides
+  void drawLabel(sf::RenderWindow &window, const sf::View &view) const override;
+  sf::Vector2f getLabelAnchor(const sf::View &view) const override;
+  
   // Label offset support (already in base)
   
   // Access to weak_ptr points (for serialization)

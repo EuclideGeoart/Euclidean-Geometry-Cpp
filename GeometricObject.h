@@ -52,6 +52,14 @@ class GeometricObject {
   virtual Point_2 getCGALPosition() const = 0;
   virtual void setCGALPosition(const Point_2 &newPos) = 0;
   virtual void setPosition(const sf::Vector2f &newSfmlPos) = 0;
+  
+  // NEW: Label Anchor for dragging/positioning
+  virtual sf::Vector2f getLabelAnchor(const sf::View& view) const {
+    (void)view;
+    Point_2 p = getCGALPosition();
+    return sf::Vector2f((float)CGAL::to_double(p.x()), (float)CGAL::to_double(p.y()));
+  }
+
   virtual void setColor(const sf::Color &color);
   virtual void translate(const Vector_2 &offset) { (void)offset; }  // No default implementation
   void move(const Vector_2 &delta);
@@ -86,6 +94,14 @@ class GeometricObject {
   }
   virtual void setLabelOffset(const sf::Vector2f &offset) { m_labelOffset = offset; }
   virtual const sf::Vector2f& getLabelOffset() const { return m_labelOffset; }
+
+  // Label content
+  virtual void setLabel(const std::string& label) { m_label = label; }
+  virtual std::string getLabel() const { return m_label; }
+  virtual void setLabelMode(LabelMode mode) { m_labelMode = mode; }
+  virtual LabelMode getLabelMode() const { return m_labelMode; }
+  virtual void setCaption(const std::string& caption) { m_caption = caption; }
+  virtual std::string getCaption() const { return m_caption; }
 
   // Thickness (used by UI slider for line rendering)
   virtual void setThickness(float thickness) { m_thickness = thickness; }
@@ -174,6 +190,9 @@ class GeometricObject {
   bool m_isDependent = false;
   bool m_showLabel = true;
   sf::Vector2f m_labelOffset = {0.f, 0.f};
+  std::string m_label = "";
+  LabelMode m_labelMode = LabelMode::Name;
+  std::string m_caption = "";
   float m_thickness = Constants::LINE_THICKNESS_DEFAULT;
   float m_vertexHandleSize = 4.0f;  
   DecorationType m_decoration = DecorationType::None;

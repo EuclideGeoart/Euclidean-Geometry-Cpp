@@ -39,6 +39,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   // GeometricObject overrides
   ObjectType getType() const override { return ObjectType::Circle; }
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+  virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   bool contains(const sf::Vector2f &worldPos, float tolerance) const override;
   bool isValid() const override;
   void update() override;
@@ -89,6 +90,13 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
       m_semicircleEnd = p2;
   }
 
+  // 3-Point Circle support
+  void set3PointDefinition(std::shared_ptr<Point> p1, std::shared_ptr<Point> p2, std::shared_ptr<Point> p3);
+  bool is3PointCircle() const { return m_is3PointCircle; }
+  void get3PointDefinition(std::shared_ptr<Point>& p1, std::shared_ptr<Point>& p2, std::shared_ptr<Point>& p3) const {
+    p1 = m_p1; p2 = m_p2; p3 = m_p3;
+  }
+
  private:
   // Geometry
   Point *m_centerPoint;  // Reference to the actual center Point object
@@ -109,6 +117,12 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
   std::shared_ptr<Point> m_diameterP2;
   Point_2 m_semicircleStart; // For defining the arc range
   Point_2 m_semicircleEnd;
+  
+  // 3-Point Circle State
+  bool m_is3PointCircle = false;
+  std::shared_ptr<Point> m_p1;
+  std::shared_ptr<Point> m_p2;
+  std::shared_ptr<Point> m_p3;
   
   // Child ObjectPoints
   // std::vector<std::weak_ptr<ObjectPoint>> m_hostedObjectPoints; // Inherited from GeometricObject

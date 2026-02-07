@@ -65,6 +65,7 @@ public:
   enum class LineType { Infinite, Segment, Ray, Vector };
   // --- GeometricObject Overrides ---
   virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
+  virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   bool
   contains(const sf::Vector2f &worldPos_sfml,
            float tolerance = Constants::LINE_INTERACTION_RADIUS) const override;
@@ -85,6 +86,9 @@ public:
   std::vector<Segment_2> getEdges() const override;
   std::vector<Segment_2> getBoundarySegments() const override;
   bool getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const override;
+
+  // Label anchor for movable labels
+  sf::Vector2f getLabelAnchor(const sf::View &view) const override;
 
   // --- Line Specific Methods ---
   Point *getStartPointObject() const { return m_startPoint.get(); }
@@ -154,12 +158,6 @@ public:
   void setHidden(bool hidden);
   bool isHidden() const;
 
-  // --- Label Methods ---
-  void setLabel(const std::string &label);
-  const std::string &getLabel() const;
-  void setLabelVisible(bool visible);
-  bool isLabelVisible() const;
-
   // --- Snapping Methods ---
   void setSnapToGrid(bool snap);
   bool isSnappedToGrid() const;
@@ -181,8 +179,6 @@ public:
   bool areMidpointsShown() const;
   void setMidpointSize(float size);
   float getMidpointSize() const;
-  void setShowLabels(bool show);
-  bool areLabelsShown() const;
   // Label offset management inherited from GeometricObject
 
   // --- Line Style Methods ---
@@ -269,8 +265,6 @@ public:
   void setVisible(bool visible) override;
   void setLocked(bool locked) override;
   bool isLocked() const override;
-  void setName(const std::string &name);
-  const std::string &getName() const;
   void setID(int id);
   // int getID() const;
   void setParent(Object *parent);
@@ -402,8 +396,6 @@ private:
 
   // Additional properties from Line.cpp methods
   bool m_isConstructionLine = false;
-  std::string m_label;
-  bool m_labelVisible = false;
   bool m_snapToGrid = true;
   float m_gridSnapInterval = 10.0f;
   bool m_endpointSnapEnabled = true;
@@ -413,8 +405,6 @@ private:
   float m_endpointSize = 5.0f;
   bool m_showMidpoints = false;
   float m_midpointSize = 3.0f;
-  bool m_showLabels = false;
-  sf::Vector2f m_labelOffset = sf::Vector2f(0, 0);
   LineStyle m_lineStyle;
   bool m_dashed = false;
   float m_dashLength = 10.0f;
@@ -450,7 +440,6 @@ private:
   Vector_2 m_constraintDirection =
       Vector_2(0, 0); // Direction for parallel/perpendicular
   bool m_show = true;
-  std::string m_name;
   Object *m_parent = nullptr;
   void *m_userData = nullptr;
   std::map<std::string, std::string> m_data;

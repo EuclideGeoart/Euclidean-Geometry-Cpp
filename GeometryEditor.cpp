@@ -173,6 +173,20 @@ std::vector<std::shared_ptr<Point>> GeometryEditor::getAllPoints() const {
   return allPoints;
 }
 
+std::vector<std::shared_ptr<GeometricObject>> GeometryEditor::getAllObjects() const {
+  std::vector<std::shared_ptr<GeometricObject>> all;
+  for (auto &pt : points) all.push_back(pt);
+  for (auto &op : ObjectPoints) all.push_back(op);
+  for (auto &line : lines) all.push_back(line);
+  for (auto &circ : circles) all.push_back(circ);
+  for (auto &ang : angles) all.push_back(ang);
+  for (auto &rect : rectangles) all.push_back(rect);
+  for (auto &poly : polygons) all.push_back(poly);
+  for (auto &reg : regularPolygons) all.push_back(reg);
+  for (auto &tri : triangles) all.push_back(tri);
+  return all;
+}
+
 GeometryEditor::~GeometryEditor() {
   try {
     // First, add a debug message
@@ -586,6 +600,7 @@ void GeometryEditor::render() {
     // text labels
     for (auto &tl : textLabels) drawObject(tl);
 
+
     // --- Preview lines ---
     // Draw existing preview Line objects without triggering heavy updates
     if (m_parallelPreviewLine) {
@@ -645,13 +660,27 @@ void GeometryEditor::render() {
     
     auto drawLabel = [&](const auto& obj) {
       if (!obj) return;
-      if (!showGlobalLabels) return;
+      
+      // Global Visibility Check
+      if (m_labelVisibility == LabelVisibilityMode::None) return;
+      
+      // Points Only Check
+      if (m_labelVisibility == LabelVisibilityMode::PointsOnly) {
+          ObjectType t = obj->getType();
+          bool isPoint = (t == ObjectType::Point || t == ObjectType::ObjectPoint || 
+                          t == ObjectType::IntersectionPoint || t == ObjectType::Midpoint);
+          if (!isPoint) return;
+      }
+      
       if (!obj->getShowLabel()) return;
       obj->drawLabel(window, drawingView); // Pass original World View for mapping
     };
     
     for (const auto &pt : points) drawLabel(pt);
     for (const auto &op : ObjectPoints) drawLabel(op);
+    for (const auto &line : lines) drawLabel(line);
+    for (const auto &circ : circles) drawLabel(circ);
+    for (const auto &ang : angles) drawLabel(ang);
     for (const auto &rect : rectangles) drawLabel(rect);
     for (const auto &reg : regularPolygons) drawLabel(reg);
     for (const auto &tri : triangles) drawLabel(tri);
@@ -1258,6 +1287,27 @@ void GeometryEditor::resetCreationStates() {
   // Reset circle creation state
   isCreatingCircle = false;
   previewCircle.reset();
+
+  // Reset circle 3P state
+  isCreatingCircle3P = false;
+  circle3PPoints.clear();
+  circle3PPointObjects.clear();
+
+  // Reset semicircle state
+  isCreatingSemicircle = false;
+  semicirclePoint1 = nullptr;
+  semicirclePoint2 = nullptr;
+
+  // Reset bisector tools
+  isCreatingPerpendicularBisector = false;
+  perpBisectorP1 = nullptr;
+  perpBisectorP2 = nullptr;
+  perpBisectorLineRef = nullptr;
+
+  isCreatingAngleBisector = false;
+  angleBisectorPoints.clear();
+  angleBisectorLine1 = nullptr;
+  angleBisectorLine2 = nullptr;
 
   // Reset line creation state
   if (lineCreationPoint1) {
