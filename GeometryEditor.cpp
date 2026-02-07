@@ -1,3 +1,4 @@
+
 #pragma message("--- In GeometryEditor.cpp: Checking CGAL preprocessor flags ---")
 
 #ifdef CGAL_HAS_THREADS
@@ -186,7 +187,44 @@ std::vector<std::shared_ptr<GeometricObject>> GeometryEditor::getAllObjects() co
   for (auto &tri : triangles) all.push_back(tri);
   return all;
 }
-
+void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
+  // Detect object type and add to appropriate container
+  switch (obj->getType()) {
+    case ObjectType::Point:
+      points.push_back(std::dynamic_pointer_cast<Point>(obj));
+      break;
+    case ObjectType::ObjectPoint:
+      ObjectPoints.push_back(std::dynamic_pointer_cast<ObjectPoint>(obj));
+      break;
+    case ObjectType::Line:
+      lines.push_back(std::dynamic_pointer_cast<Line>(obj));
+      break;
+    case ObjectType::Circle:
+      circles.push_back(std::dynamic_pointer_cast<Circle>(obj));
+      break;
+    case ObjectType::Rectangle:
+      rectangles.push_back(std::dynamic_pointer_cast<Rectangle>(obj));
+      break;
+    case ObjectType::Polygon:
+      polygons.push_back(std::dynamic_pointer_cast<Polygon>(obj));
+      break;
+    case ObjectType::RegularPolygon:
+      regularPolygons.push_back(std::dynamic_pointer_cast<RegularPolygon>(obj));
+      break;
+    case ObjectType::Triangle:
+      triangles.push_back(std::dynamic_pointer_cast<Triangle>(obj));
+      break;
+    case ObjectType::Angle:
+      angles.push_back(std::dynamic_pointer_cast<Angle>(obj));
+      break;
+    case ObjectType::TextLabel:
+      textLabels.push_back(std::dynamic_pointer_cast<TextLabel>(obj));
+      break;
+    default:
+      // Unknown or unsupported type
+      break;
+  }
+}
 GeometryEditor::~GeometryEditor() {
   try {
     // First, add a debug message

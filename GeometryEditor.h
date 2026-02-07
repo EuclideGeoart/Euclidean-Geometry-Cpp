@@ -68,10 +68,14 @@
  * is found.
  */
 class GeometryEditor {
+  // Generic object insertion
+  
  public:
   GeometryEditor();
   ~GeometryEditor();  // Add destructor declaration
   void run();
+
+  void addObject(const std::shared_ptr<GeometricObject>& obj);
 
   // --- Core Components (public for now, consider access levels later if
   // needed) ---

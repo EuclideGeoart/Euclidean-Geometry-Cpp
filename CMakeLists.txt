@@ -93,7 +93,7 @@ set(SOURCES
     Circle.cpp
     Rectangle.cpp
     Polygon.cpp
-    RegularPolygon.cpp  # Duplicate removed
+    RegularPolygon.cpp
     ObjectPoint.cpp
     Triangle.cpp
     Angle.cpp
@@ -120,6 +120,7 @@ set(SOURCES
     Deserializer.cpp
     RayObject.cpp
     VectorObject.cpp
+    Benchmark.cpp
     libs/imgui/imgui.cpp
     libs/imgui/imgui_draw.cpp
     libs/imgui/imgui_tables.cpp
