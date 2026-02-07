@@ -925,12 +925,25 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         std::cout << "Universal Snapping " << (editor.m_universalSnappingEnabled ? "ON" : "OFF") << std::endl;
       }
 
-      // Label Visibility Control
-      const char* labelModes[] = { "Show All Labels", "Points Only", "Hide All Labels" };
-      int currentLabelMode = static_cast<int>(editor.m_labelVisibility);
-      if (ImGui::Combo("Labels", &currentLabelMode, labelModes, IM_ARRAYSIZE(labelModes))) {
-          editor.m_labelVisibility = static_cast<GeometryEditor::LabelVisibilityMode>(currentLabelMode);
-      }
+      // Unified Label Visibility Control (Premium Segmented Control)
+      ImGui::Text("Global Label Policy:");
+      auto& labelMode = editor.m_labelVisibility;
+      
+      auto modeButton = [&](const char* label, GeometryEditor::LabelVisibilityMode target, float width) {
+          bool active = (labelMode == target);
+          if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
+          if (ImGui::Button(label, ImVec2(width, 0))) {
+              labelMode = target;
+          }
+          if (active) ImGui::PopStyleColor();
+      };
+
+      float availWidth = ImGui::GetContentRegionAvail().x;
+      modeButton("All", GeometryEditor::LabelVisibilityMode::All, availWidth * 0.25f);
+      ImGui::SameLine();
+      modeButton("Points Only", GeometryEditor::LabelVisibilityMode::PointsOnly, availWidth * 0.45f);
+      ImGui::SameLine();
+      modeButton("None", GeometryEditor::LabelVisibilityMode::None, -1);
 
       if (ImGui::Button("Reset View", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {
         editor.resetView();

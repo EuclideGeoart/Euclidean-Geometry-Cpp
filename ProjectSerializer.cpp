@@ -22,6 +22,7 @@
 #include "ConstructionObjects.h"
 #include "TransformationObjects.h"
 #include "ObjectPoint.h"
+#include "IntersectionPoint.h"
 #include "Constants.h"
 #include "Intersection.h"
 
@@ -291,11 +292,18 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 ptJson["visible"] = pt->isVisible();
                 ptJson["locked"] = pt->isLocked();
                 ptJson["fixed"] = pt->isLocked();
+                ptJson["isIntersectionPoint"] = pt->isIntersectionPoint();
                 
                 // Use new helper for consistency (Points handled differently in legacy, but good to have base data)
                 // Note: Points rely on "transform" object block for specific reconstruction, 
                 // but adding base metadata doesn't hurt.
                 addTransformMetadata(ptJson, pt);
+
+                // IntersectionPoint dependency (line-line)
+                if (auto ip = std::dynamic_pointer_cast<IntersectionPoint>(pt)) {
+                    if (auto l1 = ip->getLine1()) ptJson["line1Id"] = l1->getID();
+                    if (auto l2 = ip->getLine2()) ptJson["line2Id"] = l2->getID();
+                }
 
                 // Transformation-derived points (Legacy Explicit Structure)
                 if (auto refL = std::dynamic_pointer_cast<ReflectLine>(pt)) {
@@ -437,6 +445,22 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             if (rect && rect->isValid()) {
                 json rectJson;
                 rectJson["id"] = rect->getID();
+                
+                // Save corner Point IDs instead of just coordinates
+                if (auto c1 = rect->getCorner1Point()) {
+                    rectJson["corner1ID"] = c1->getID();
+                }
+                if (auto c2 = rect->getCorner2Point()) {
+                    rectJson["corner2ID"] = c2->getID();
+                }
+                if (auto cb = rect->getCornerBPoint()) {
+                    rectJson["cornerBID"] = cb->getID();
+                }
+                if (auto cd = rect->getCornerDPoint()) {
+                    rectJson["cornerDID"] = cd->getID();
+                }
+                
+                // Keep vertices for legacy compatibility
                 auto vertices = rect->getInteractableVertices();
                 json verticesJson = json::array();
                 for (const auto& v : vertices) {
@@ -482,6 +506,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 }
                 polyJson["vertexIds"] = vertexIdsJson;
                 polyJson["color"] = colorToHex(poly->getColor());
+                polyJson["thickness"] = poly->getThickness();
                 polygonsArray.push_back(polyJson);
             }
         }
@@ -496,6 +521,19 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 
                 addTransformMetadata(triJson, tri);
 
+                // Save vertex Point IDs
+                json vertexIdsJson = json::array();
+                for (size_t i = 0; i < 3; ++i) {
+                    auto vPtr = tri->getVertexPoint(i);
+                    if (vPtr) {
+                        vertexIdsJson.push_back(static_cast<int>(vPtr->getID()));
+                    } else {
+                        vertexIdsJson.push_back(-1);
+                    }
+                }
+                triJson["vertexIds"] = vertexIdsJson;
+                
+                // Keep vertices for legacy compatibility
                 auto vertices = tri->getInteractableVertices();
                 json verticesJson = json::array();
                 for (const auto& v : vertices) {
@@ -503,6 +541,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 }
                 triJson["vertices"] = verticesJson;
                 triJson["color"] = colorToHex(tri->getColor());
+                triJson["thickness"] = tri->getThickness();
                 trianglesArray.push_back(triJson);
             }
         }
@@ -517,6 +556,15 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 
                 addTransformMetadata(rpolyJson, rpoly);
 
+                // Save center and first vertex Point IDs
+                if (auto centerPt = rpoly->getCenterPoint()) {
+                    rpolyJson["centerPointID"] = centerPt->getID();
+                }
+                if (auto firstVertPt = rpoly->getFirstVertexPoint()) {
+                    rpolyJson["firstVertexPointID"] = firstVertPt->getID();
+                }
+                
+                // Keep vertices for legacy compatibility
                 auto vertices = rpoly->getInteractableVertices();
                 json verticesJson = json::array();
                 for (const auto& v : vertices) {
@@ -525,6 +573,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 rpolyJson["vertices"] = verticesJson;
                 rpolyJson["sides"] = rpoly->getNumSides();
                 rpolyJson["color"] = colorToHex(rpoly->getColor());
+                rpolyJson["thickness"] = rpoly->getThickness();
                 regularPolygonsArray.push_back(rpolyJson);
             }
         }
@@ -581,6 +630,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
                 opJson["showLabel"] = op->getShowLabel();
                 sf::Vector2f offset = op->getLabelOffset();
                 opJson["labelOffset"] = { offset.x, offset.y };
+                addTransformMetadata(opJson, op);
                 objectPointsArray.push_back(opJson);
             }
         }

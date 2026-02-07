@@ -47,12 +47,13 @@
 #include <iostream>   // For debugging
 #include <memory>
 #include <optional>
+#include <type_traits>
 #include <variant>  // Required for std::get_if
 #include <vector>
-#include <type_traits>
 
 #include "Intersection.h"
 #include "IntersectionSystem.h"
+
 // CGAL includes (ensure these are appropriate for your Types.h)
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // If Kernel is EPECK
 #include <CGAL/intersections.h>
@@ -67,15 +68,14 @@
 #include "Constants.h"
 #include "GUI.h"
 #include "Grid.h"
+#include "LatexRenderer.h"
 #include "Line.h"
 #include "ObjectPoint.h"
 #include "Point.h"
-#include "Types.h"  // For Point_2, Line_2 etc.
 #include "PointUtils.h"
+#include "Types.h"         // For Point_2, Line_2 etc.
 #include "VariantUtils.h"  // For safe_get_point
 
-
-#include "LatexRenderer.h"
 // #include "Command.h" // If base Command class is needed directly
 // #include "GenericDeleteCommand.h" // If used directly here
 // #include "ObjectType.h" // If ObjectType enum is defined here and not
@@ -84,12 +84,15 @@ float Constants::CURRENT_ZOOM = 1.0f;
 // Constructor
 GeometryEditor::GeometryEditor()
     : settings(0, 0, 2),
-      window(sf::VideoMode(sf::VideoMode::getDesktopMode().width * 0.7f, sf::VideoMode::getDesktopMode().height * 0.7f), "FluxGeo",
-             sf::Style::Default, settings),
       // Initialize drawing view: Width = 30 units (approx), centered at (0,0)
-      drawingView(sf::Vector2f(0.f, 0.f), sf::Vector2f(20.0f, 20.0f * (static_cast<float>(sf::VideoMode::getDesktopMode().height) / static_cast<float>(sf::VideoMode::getDesktopMode().width)))),
+      drawingView(sf::Vector2f(0.f, 0.f),
+                  sf::Vector2f(20.0f,
+                               20.0f * (static_cast<float>(sf::VideoMode::getDesktopMode().height) /
+                                        static_cast<float>(sf::VideoMode::getDesktopMode().width)))),
       // Initialize GUI view: matches window pixels exactly (top-left 0,0)
-      guiView(sf::FloatRect(0.f, 0.f, static_cast<float>(sf::VideoMode::getDesktopMode().width * 0.8f),
+      guiView(sf::FloatRect(0.f,
+                            0.f,
+                            static_cast<float>(sf::VideoMode::getDesktopMode().width * 0.8f),
                             static_cast<float>(sf::VideoMode::getDesktopMode().height * 0.8f))),
       gui(),
       grid(Constants::GRID_SIZE, true),
@@ -99,25 +102,53 @@ GeometryEditor::GeometryEditor()
 // Other members like vectors, bools, pointers are default-initialized or
 // initialized in-class (in .h)
 {
+  // 1. Determine Window Dimensions & Position
+  unsigned int width = sf::VideoMode::getDesktopMode().width * 0.7f;
+  unsigned int height = sf::VideoMode::getDesktopMode().height * 0.7f;
+
+  // Default to Center of Screen
+  int x = (sf::VideoMode::getDesktopMode().width - width) / 2;
+  int y = (sf::VideoMode::getDesktopMode().height - height) / 2;
+
+  // 2. Load Preferences (Overrides Defaults)
+    std::ifstream in("window.ini");
+    if (in.is_open()) {
+        unsigned int savedW, savedH;
+        int savedX, savedY;
+        if (in >> savedW >> savedH >> savedX >> savedY) {
+            width = savedW;
+            height = savedH;
+            x = savedX;
+            y = savedY;
+        }
+        in.close();
+    }
+
+  // 3. Create Window with preferred state
+    window.create(sf::VideoMode(width, height), "FluxGeo", sf::Style::Default, settings);
+    window.setPosition(sf::Vector2i(x, y));
+    window.setVerticalSyncEnabled(true);
+    window.setFramerateLimit(120);
+    
+    // Sync internal state
+    m_lastWindowSize = window.getSize();
+
   loadFont();
   LatexRenderer::setDefaultFont(defaultFont);
   m_lastWindowSize = window.getSize();
   // Initialize Shared Font for Points
   if (Button::getFontLoaded()) {
-      Point::commonFont = &Button::getFont();
+    Point::commonFont = &Button::getFont();
   }
-  
+
   // Use resetView() to establish the desired default zoom
   window.setVerticalSyncEnabled(true);
   window.setFramerateLimit(120);
-  
+
   // Center the window on the screen
   auto desktop = sf::VideoMode::getDesktopMode();
   auto windowSize = window.getSize();
-  window.setPosition(sf::Vector2i(
-      (desktop.width - windowSize.x) / 2,
-      (desktop.height - windowSize.y) / 2
-  ));
+  window.setPosition(sf::Vector2i((desktop.width - windowSize.x) / 2, (desktop.height - windowSize.y) / 2));
 
   // Initialize hoverMessageText
   if (Button::getFontLoaded()) {
@@ -139,10 +170,7 @@ GeometryEditor::GeometryEditor()
   textBoxPreviewShape.setOutlineColor(sf::Color(0, 120, 255, 200));
   textBoxPreviewShape.setOutlineThickness(1.0f);
 
-
-
   // gui.setView(guiView); // Or gui.updateView(guiView);
-
 
   // Initialize Axes (as Class Members)
   auto xAxisStart = std::make_shared<Point>(Point_2(-1e8, 0), Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, objectIdCounter++);
@@ -176,15 +204,15 @@ std::vector<std::shared_ptr<Point>> GeometryEditor::getAllPoints() const {
 
 std::vector<std::shared_ptr<GeometricObject>> GeometryEditor::getAllObjects() const {
   std::vector<std::shared_ptr<GeometricObject>> all;
-  for (auto &pt : points) all.push_back(pt);
-  for (auto &op : ObjectPoints) all.push_back(op);
-  for (auto &line : lines) all.push_back(line);
-  for (auto &circ : circles) all.push_back(circ);
-  for (auto &ang : angles) all.push_back(ang);
-  for (auto &rect : rectangles) all.push_back(rect);
-  for (auto &poly : polygons) all.push_back(poly);
-  for (auto &reg : regularPolygons) all.push_back(reg);
-  for (auto &tri : triangles) all.push_back(tri);
+  for (auto& pt : points) all.push_back(pt);
+  for (auto& op : ObjectPoints) all.push_back(op);
+  for (auto& line : lines) all.push_back(line);
+  for (auto& circ : circles) all.push_back(circ);
+  for (auto& ang : angles) all.push_back(ang);
+  for (auto& rect : rectangles) all.push_back(rect);
+  for (auto& poly : polygons) all.push_back(poly);
+  for (auto& reg : regularPolygons) all.push_back(reg);
+  for (auto& tri : triangles) all.push_back(tri);
   return all;
 }
 void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
@@ -227,6 +255,10 @@ void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
 }
 GeometryEditor::~GeometryEditor() {
   try {
+    std::ofstream out("window.ini");
+    auto size = window.getSize();
+    auto pos = window.getPosition();
+    out << size.x << " " << size.y << " " << pos.x << " " << pos.y;
     // First, add a debug message
     std::cout << "GeometryEditor shutting down, cleaning up objects in safe order..." << std::endl;
     clearAllDeletionTracking();
@@ -283,7 +315,7 @@ GeometryEditor::~GeometryEditor() {
     // 7. Clear Triangles
     std::cout << "Clearing Triangles..." << std::endl;
     triangles.clear();
-    
+
     // 8. Clear Rectangles, Polygons, RegularPolygons
     std::cout << "Clearing Shapes..." << std::endl;
     rectangles.clear();
@@ -295,19 +327,19 @@ GeometryEditor::~GeometryEditor() {
     points.clear();
 
     std::cout << "GeometryEditor shutdown complete." << std::endl;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Exception in GeometryEditor destructor: " << e.what() << std::endl;
   } catch (...) {
     std::cerr << "Unknown exception in GeometryEditor destructor" << std::endl;
   }
 }
-std::shared_ptr<Circle> GeometryEditor::getCircleSharedPtr(Circle *rawPtr) {
+std::shared_ptr<Circle> GeometryEditor::getCircleSharedPtr(Circle* rawPtr) {
   if (!rawPtr) {
     return nullptr;
   }
 
   // Search through the circles vector to find the matching pointer
-  for (auto &circlePtr : circles) {
+  for (auto& circlePtr : circles) {
     if (circlePtr.get() == rawPtr) {
       // Create a shared_ptr from the raw pointer, but don't let it manage the
       // lifetime
@@ -320,13 +352,13 @@ std::shared_ptr<Circle> GeometryEditor::getCircleSharedPtr(Circle *rawPtr) {
             << std::endl;
   return nullptr;
 }
-std::shared_ptr<Line> GeometryEditor::getLineSharedPtr(Line *rawPtr) {
+std::shared_ptr<Line> GeometryEditor::getLineSharedPtr(Line* rawPtr) {
   if (!rawPtr) {
     return nullptr;
   }
 
   // Search through the lines vector to find the matching shared_ptr
-  for (auto &linePtr : lines) {
+  for (auto& linePtr : lines) {
     if (linePtr.get() == rawPtr) {
       // Return the actual shared_ptr, not a fake one
       return linePtr;
@@ -340,7 +372,7 @@ std::shared_ptr<Line> GeometryEditor::getLineSharedPtr(Line *rawPtr) {
 // Helper to find shared_ptr from raw pointer across all object containers
 std::shared_ptr<GeometricObject> GeometryEditor::findSharedPtr(GeometricObject* raw) {
   if (!raw) return nullptr;
-  
+
   // Lambda to check a container
   auto check = [&](auto& container) -> std::shared_ptr<GeometricObject> {
     for (auto& ptr : container) {
@@ -348,7 +380,7 @@ std::shared_ptr<GeometricObject> GeometryEditor::findSharedPtr(GeometricObject* 
     }
     return nullptr;
   };
-  
+
   // Check all containers
   if (auto p = check(rectangles)) return p;
   if (auto p = check(polygons)) return p;
@@ -358,12 +390,12 @@ std::shared_ptr<GeometricObject> GeometryEditor::findSharedPtr(GeometricObject* 
   if (auto p = check(lines)) return p;
   if (auto p = check(points)) return p;
   if (auto p = check(textLabels)) return p;
-  
+
   // Check ObjectPoints separately (they're shared_ptr<ObjectPoint> not shared_ptr<GeometricObject>)
   for (auto& ptr : ObjectPoints) {
     if (ptr.get() == raw) return std::static_pointer_cast<GeometricObject>(ptr);
   }
-  
+
   return nullptr;
 }
 
@@ -376,15 +408,14 @@ void GeometryEditor::run() {
     // Process events
     try {
       handleEvents(*this);
-    } catch (const CGAL::Uncertain_conversion_exception &e) {
+    } catch (const CGAL::Uncertain_conversion_exception& e) {
       std::cerr << "GeometryEditor::run: Caught Uncertain_conversion_exception "
                    "during event handling: "
                 << e.what() << std::endl;
       // Consider setting a flag to inform the user or take appropriate action
       // For now, we'll continue execution but log the error
-    } catch (const std::exception &e) {
-      std::cerr << "GeometryEditor::run: Caught exception during event handling: " << e.what()
-                << std::endl;
+    } catch (const std::exception& e) {
+      std::cerr << "GeometryEditor::run: Caught exception during event handling: " << e.what() << std::endl;
     } catch (...) {
       std::cerr << "GeometryEditor::run: Caught unknown exception during event "
                    "handling"
@@ -394,13 +425,13 @@ void GeometryEditor::run() {
     // Update
     try {
       update(sf::seconds(dt));
-    } catch (const CGAL::Uncertain_conversion_exception &e) {
+    } catch (const CGAL::Uncertain_conversion_exception& e) {
       std::cerr << "GeometryEditor::run: Caught Uncertain_conversion_exception "
                    "during update: "
                 << e.what() << std::endl;
       // Try to repair any problematic data
       attemptToRepairGeometricObjects();
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
       std::cerr << "GeometryEditor::run: Caught exception during update: " << e.what() << std::endl;
       attemptToRepairGeometricObjects();
     } catch (...) {
@@ -411,15 +442,14 @@ void GeometryEditor::run() {
     // Render
     try {
       render();
-    } catch (const CGAL::Uncertain_conversion_exception &e) {
+    } catch (const CGAL::Uncertain_conversion_exception& e) {
       std::cerr << "GeometryEditor::run: Caught Uncertain_conversion_exception "
                    "during rendering: "
                 << e.what() << std::endl;
       // For render exceptions, we might want to do a simpler backup render
       emergencyRender();
-    } catch (const std::exception &e) {
-      std::cerr << "GeometryEditor::run: Caught exception during rendering: " << e.what()
-                << std::endl;
+    } catch (const std::exception& e) {
+      std::cerr << "GeometryEditor::run: Caught exception during rendering: " << e.what() << std::endl;
       emergencyRender();
     } catch (...) {
       std::cerr << "GeometryEditor::run: Caught unknown exception during rendering" << std::endl;
@@ -430,7 +460,7 @@ void GeometryEditor::run() {
 
 void GeometryEditor::attemptToRepairGeometricObjects() {
   // Try to fix data in all important geometric objects
-  for (auto &line : lines) {
+  for (auto& line : lines) {
     if (line) {
       line->attemptDataRepair();
     }
@@ -441,8 +471,7 @@ void GeometryEditor::attemptToRepairGeometricObjects() {
 void GeometryEditor::emergencyRender() {
   try {
     // Reset views to default state
-    sf::View defaultView(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x),
-                                       static_cast<float>(window.getSize().y)));
+    sf::View defaultView(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
 
     // Clear with a recognizable color to indicate emergency mode
     window.clear(sf::Color(255, 240, 240));  // Light red background
@@ -503,7 +532,7 @@ void GeometryEditor::updateConstraintsOnly() {
   try {
     // RESURRECTION FIX: Remove isValid checks and call update() to allow resurrection
     // Update all lines (including hidden ones that might resurrect)
-    for (auto &linePtr : lines) {
+    for (auto& linePtr : lines) {
       if (linePtr) {
         // Call update() instead of just maintainConstraints() so resurrection logic runs
         linePtr->update();
@@ -512,7 +541,7 @@ void GeometryEditor::updateConstraintsOnly() {
 
     // Update ObjectPoints to stay on their host objects
     // RESURRECTION FIX: Remove isValid() check
-    for (auto &objPointPtr : ObjectPoints) {
+    for (auto& objPointPtr : ObjectPoints) {
       if (objPointPtr) {
         objPointPtr->updatePositionFromHost();
       }
@@ -520,7 +549,7 @@ void GeometryEditor::updateConstraintsOnly() {
 
     // Update dependent points (transformations, intersections, etc.)
     // RESURRECTION FIX: Remove isValid() check so hidden points can resurrect
-    for (auto &pt : points) {
+    for (auto& pt : points) {
       if (!pt) continue;
       if (pt->isDependent() || pt->isIntersectionPoint() || pt->getType() == ObjectType::IntersectionPoint) {
         pt->update();
@@ -534,7 +563,7 @@ void GeometryEditor::updateConstraintsOnly() {
     // updates Visual updates happen automatically when positions change via
     // setCGALPosition
 
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error in updateConstraintsOnly: " << e.what() << std::endl;
   }
 }
@@ -546,12 +575,10 @@ void GeometryEditor::render() {
 
     // Only log view properties if debugging is enabled
     if (Constants::DEBUG_GEOMETRY_UPDATES) {
-      std::cout << "Drawing View - Size: (" << drawingView.getSize().x << ", "
-                << drawingView.getSize().y << "), Center: (" << drawingView.getCenter().x << ", "
-                << drawingView.getCenter().y << ")" << std::endl;
-      std::cout << "GUI View - Size: (" << guiView.getSize().x << ", " << guiView.getSize().y
-                << "), Center: (" << guiView.getCenter().x << ", " << guiView.getCenter().y << ")"
-                << std::endl;
+      std::cout << "Drawing View - Size: (" << drawingView.getSize().x << ", " << drawingView.getSize().y << "), Center: ("
+                << drawingView.getCenter().x << ", " << drawingView.getCenter().y << ")" << std::endl;
+      std::cout << "GUI View - Size: (" << guiView.getSize().x << ", " << guiView.getSize().y << "), Center: (" << guiView.getCenter().x << ", "
+                << guiView.getCenter().y << ")" << std::endl;
     }
 
     // Get zoom level from view (for safety checks)
@@ -560,10 +587,8 @@ void GeometryEditor::render() {
 
     // CRITICAL FIX: Reset the views to their default state if they seem
     // corrupted
-    if (zoomLevel <= 1e-10f || zoomLevel >= 1e10f || std::isnan(zoomLevel) ||
-        std::isinf(zoomLevel)) {
-      std::cerr << "Error: View appears corrupted with zoom level " << zoomLevel
-                << ". Resetting views to default." << std::endl;
+    if (zoomLevel <= 1e-10f || zoomLevel >= 1e10f || std::isnan(zoomLevel) || std::isinf(zoomLevel)) {
+      std::cerr << "Error: View appears corrupted with zoom level " << zoomLevel << ". Resetting views to default." << std::endl;
 
       // Reset drawing view to default state
       resetView();
@@ -599,45 +624,44 @@ void GeometryEditor::render() {
 
     // Helper lambda for ghost rendering
     auto drawObject = [&](auto& obj) {
-        if (!obj || !obj->isValid()) return;
+      if (!obj || !obj->isValid()) return;
 
-        // Check if we are in Ghost Mode (Hide Tool active)
-        bool ghostMode = (m_currentToolType == ObjectType::Hide);
+      // Check if we are in Ghost Mode (Hide Tool active)
+      bool ghostMode = (m_currentToolType == ObjectType::Hide);
 
-        float objectScale = scale;
-        if (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment) {
-          float thickness = obj->getThickness();
-          if (thickness > 0.0f) {
-            objectScale = scale * (thickness / Constants::LINE_THICKNESS_DEFAULT);
-          }
+      float objectScale = scale;
+      if (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment) {
+        float thickness = obj->getThickness();
+        if (thickness > 0.0f) {
+          objectScale = scale * (thickness / Constants::LINE_THICKNESS_DEFAULT);
         }
+      }
 
-        // Pass forceVisible=true if in ghost mode
-        // The object's draw method handles the alpha/transparency logic if valid but hidden
-        obj->draw(window, objectScale, ghostMode);
+      // Pass forceVisible=true if in ghost mode
+      // The object's draw method handles the alpha/transparency logic if valid but hidden
+      obj->draw(window, objectScale, ghostMode);
     };
 
     // points
-    for (auto &pt : points) drawObject(pt);
+    for (auto& pt : points) drawObject(pt);
     // lines
-    for (auto &ln : lines) drawObject(ln);
+    for (auto& ln : lines) drawObject(ln);
     // circles
-    for (auto &ci : circles) drawObject(ci);
+    for (auto& ci : circles) drawObject(ci);
     // rectangles
-    for (auto &rc : rectangles) drawObject(rc);
+    for (auto& rc : rectangles) drawObject(rc);
     // polygons
-    for (auto &pg : polygons) drawObject(pg);
+    for (auto& pg : polygons) drawObject(pg);
     // regular polygons
-    for (auto &rp : regularPolygons) drawObject(rp);
+    for (auto& rp : regularPolygons) drawObject(rp);
     // triangles
-    for (auto &tr : triangles) drawObject(tr);
+    for (auto& tr : triangles) drawObject(tr);
     // object‐points
-    for (auto &op : ObjectPoints) drawObject(op);
+    for (auto& op : ObjectPoints) drawObject(op);
     // angles
-    for (auto &ag : angles) drawObject(ag);
+    for (auto& ag : angles) drawObject(ag);
     // text labels
-    for (auto &tl : textLabels) drawObject(tl);
-
+    for (auto& tl : textLabels) drawObject(tl);
 
     // --- Preview lines ---
     // Draw existing preview Line objects without triggering heavy updates
@@ -652,39 +676,34 @@ void GeometryEditor::render() {
     if (hasPreviewLineOverlay) {
       window.draw(previewLineOverlay);
     }
-    
+
     // Draw snapping visuals for tool feedback
     PointUtils::drawSnappingVisuals(window, m_snapState, scale);
 
     // selection box
     if (isDrawingSelectionBox) {
-        // dynamic thickness to keep it sharp (approx 2 pixels)
-        selectionBoxShape.setOutlineThickness(2.0f * scale);
-        window.draw(selectionBoxShape);
+      // dynamic thickness to keep it sharp (approx 2 pixels)
+      selectionBoxShape.setOutlineThickness(2.0f * scale);
+      window.draw(selectionBoxShape);
     }
 
     // preview circle
     if (isCreatingCircle && previewCircle && previewCircle->isValid()) previewCircle->draw(window, scale);
-    
+
     // preview rectangle
-    if (isCreatingRectangle && previewRectangle && previewRectangle->isValid())
-      previewRectangle->draw(window, scale);
-    
+    if (isCreatingRectangle && previewRectangle && previewRectangle->isValid()) previewRectangle->draw(window, scale);
+
     // preview rotatable rectangle
-    if (isCreatingRotatableRectangle && previewRectangle && previewRectangle->isValid())
-      previewRectangle->draw(window, scale);
-    
+    if (isCreatingRotatableRectangle && previewRectangle && previewRectangle->isValid()) previewRectangle->draw(window, scale);
+
     // preview polygon
-    if (isCreatingPolygon && previewPolygon && previewPolygon->isValid())
-      previewPolygon->draw(window, scale);
-    
+    if (isCreatingPolygon && previewPolygon && previewPolygon->isValid()) previewPolygon->draw(window, scale);
+
     // preview regular polygon
-    if (isCreatingRegularPolygon && previewRegularPolygon && previewRegularPolygon->isValid())
-      previewRegularPolygon->draw(window, scale);
+    if (isCreatingRegularPolygon && previewRegularPolygon && previewRegularPolygon->isValid()) previewRegularPolygon->draw(window, scale);
 
     // preview triangle
-    if (isCreatingTriangle && previewTriangle && previewTriangle->isValid())
-      previewTriangle->draw(window, scale);
+    if (isCreatingTriangle && previewTriangle && previewTriangle->isValid()) previewTriangle->draw(window, scale);
 
     // preview text box
     if (isCreatingTextBox) {
@@ -695,35 +714,48 @@ void GeometryEditor::render() {
     // --- LABEL PASS (Screen Space) ---
     // Switch to GUI view (1:1 pixels) for sharp text
     window.setView(guiView);
-    
+
     auto drawLabel = [&](const auto& obj) {
       if (!obj) return;
-      
+
       // Global Visibility Check
       if (m_labelVisibility == LabelVisibilityMode::None) return;
-      
+
       // Points Only Check
       if (m_labelVisibility == LabelVisibilityMode::PointsOnly) {
-          ObjectType t = obj->getType();
-          bool isPoint = (t == ObjectType::Point || t == ObjectType::ObjectPoint || 
-                          t == ObjectType::IntersectionPoint || t == ObjectType::Midpoint);
-          if (!isPoint) return;
+        ObjectType t = obj->getType();
+        bool isPoint = (t == ObjectType::Point || t == ObjectType::ObjectPoint || 
+                        t == ObjectType::IntersectionPoint || t == ObjectType::Midpoint);
+        
+        if (!isPoint) {
+            // SPECIAL CASE: Rectangles show vertex labels even in PointsOnly mode, 
+            // mirroring the behavior of Triangles/Polygons where vertex points are standalone.
+            if (t == ObjectType::Rectangle || t == ObjectType::RectangleRotatable) {
+                if (auto* rect = dynamic_cast<Rectangle*>(obj.get())) {
+                    if (rect->getCorner1Point()) rect->getCorner1Point()->drawLabelExplicit(window, drawingView);
+                    if (rect->getCornerBPoint()) rect->getCornerBPoint()->drawLabelExplicit(window, drawingView);
+                    if (rect->getCorner2Point()) rect->getCorner2Point()->drawLabelExplicit(window, drawingView);
+                    if (rect->getCornerDPoint()) rect->getCornerDPoint()->drawLabelExplicit(window, drawingView);
+                }
+            }
+            return;
+        }
       }
-      
+
       if (!obj->getShowLabel()) return;
-      obj->drawLabel(window, drawingView); // Pass original World View for mapping
+      obj->drawLabel(window, drawingView);  // Pass original World View for mapping
     };
-    
-    for (const auto &pt : points) drawLabel(pt);
-    for (const auto &op : ObjectPoints) drawLabel(op);
-    for (const auto &line : lines) drawLabel(line);
-    for (const auto &circ : circles) drawLabel(circ);
-    for (const auto &ang : angles) drawLabel(ang);
-    for (const auto &rect : rectangles) drawLabel(rect);
-    for (const auto &reg : regularPolygons) drawLabel(reg);
-    for (const auto &tri : triangles) drawLabel(tri);
-    for (const auto &poly : polygons) drawLabel(poly);
-    
+
+    for (const auto& pt : points) drawLabel(pt);
+    for (const auto& op : ObjectPoints) drawLabel(op);
+    for (const auto& line : lines) drawLabel(line);
+    for (const auto& circ : circles) drawLabel(circ);
+    for (const auto& ang : angles) drawLabel(ang);
+    for (const auto& rect : rectangles) drawLabel(rect);
+    for (const auto& reg : regularPolygons) drawLabel(reg);
+    for (const auto& tri : triangles) drawLabel(tri);
+    for (const auto& poly : polygons) drawLabel(poly);
+
     // hover message
     if (showHoverMessage) {
       window.setView(guiView);
@@ -736,98 +768,97 @@ void GeometryEditor::render() {
 
     // --- RENAME OVERLAY ---
     if (isRenaming && pointToRename) {
-         // Map point position to GUI space (Screen Space)
-         sf::Vector2f worldPos = pointToRename->getSFMLPosition();
-         sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
-         sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
+      // Map point position to GUI space (Screen Space)
+      sf::Vector2f worldPos = pointToRename->getSFMLPosition();
+      sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
+      sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
 
-         sf::Text text;
-         if (Button::getFontLoaded()) {
-             text.setFont(Button::getFont());
-         } 
-         text.setString(renameBuffer + "|"); // Cursor
-         text.setCharacterSize(16);
-         text.setFillColor(sf::Color::Black);
-         text.setPosition(uiPos + sf::Vector2f(15.f, -15.f)); // Offset
-         
-         sf::FloatRect bounds = text.getGlobalBounds();
-         sf::RectangleShape bg(sf::Vector2f(bounds.width + 10.f, bounds.height + 6.f));
-         bg.setPosition(bounds.left - 5.f, bounds.top - 3.f);
-         bg.setFillColor(sf::Color(255, 255, 255, 220)); // Semi-transparent white
-         bg.setOutlineColor(sf::Color(0, 100, 255));
-         bg.setOutlineThickness(1.0f);
-         
-         window.draw(bg);
-         window.draw(text);
-         
-         // Helper instruction
-         sf::Text hintText;
-         if (Button::getFontLoaded()) hintText.setFont(Button::getFont());
-         hintText.setString("Enter to Apply, Esc to Cancel");
-         hintText.setCharacterSize(12);
-         hintText.setFillColor(sf::Color(50, 50, 50));
-         hintText.setPosition(bg.getPosition() + sf::Vector2f(0.f, bg.getSize().y + 2.f));
-         window.draw(hintText);
+      sf::Text text;
+      if (Button::getFontLoaded()) {
+        text.setFont(Button::getFont());
+      }
+      text.setString(renameBuffer + "|");  // Cursor
+      text.setCharacterSize(16);
+      text.setFillColor(sf::Color::Black);
+      text.setPosition(uiPos + sf::Vector2f(15.f, -15.f));  // Offset
+
+      sf::FloatRect bounds = text.getGlobalBounds();
+      sf::RectangleShape bg(sf::Vector2f(bounds.width + 10.f, bounds.height + 6.f));
+      bg.setPosition(bounds.left - 5.f, bounds.top - 3.f);
+      bg.setFillColor(sf::Color(255, 255, 255, 220));  // Semi-transparent white
+      bg.setOutlineColor(sf::Color(0, 100, 255));
+      bg.setOutlineThickness(1.0f);
+
+      window.draw(bg);
+      window.draw(text);
+
+      // Helper instruction
+      sf::Text hintText;
+      if (Button::getFontLoaded()) hintText.setFont(Button::getFont());
+      hintText.setString("Enter to Apply, Esc to Cancel");
+      hintText.setCharacterSize(12);
+      hintText.setFillColor(sf::Color(50, 50, 50));
+      hintText.setPosition(bg.getPosition() + sf::Vector2f(0.f, bg.getSize().y + 2.f));
+      window.draw(hintText);
     }
 
-      // --- TEXT EDIT OVERLAY ---
-      if (isTextEditing && textEditingLabel) {
-         sf::Vector2f worldPos(
-           static_cast<float>(CGAL::to_double(textEditingLabel->getCGALPosition().x())),
-           static_cast<float>(CGAL::to_double(textEditingLabel->getCGALPosition().y())));
-         sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
-         sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
+    // --- TEXT EDIT OVERLAY ---
+    if (isTextEditing && textEditingLabel) {
+      sf::Vector2f worldPos(static_cast<float>(CGAL::to_double(textEditingLabel->getCGALPosition().x())),
+                            static_cast<float>(CGAL::to_double(textEditingLabel->getCGALPosition().y())));
+      sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
+      sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
 
-         sf::Text text;
-         if (Button::getFontLoaded()) {
-           text.setFont(Button::getFont());
-         }
-         text.setString(textEditBuffer.empty() ? "" : textEditBuffer);
-         text.setCharacterSize(16);
-         text.setFillColor(sf::Color::Black);
-         text.setPosition(uiPos + sf::Vector2f(10.f, -10.f));
-
-         sf::FloatRect bounds = text.getGlobalBounds();
-         float bgWidth = std::max(bounds.width + 10.f, 120.f);
-         float bgHeight = std::max(bounds.height + 8.f, 28.f);
-         sf::RectangleShape bg(sf::Vector2f(bgWidth, bgHeight));
-         bg.setPosition(text.getPosition().x - 5.f, text.getPosition().y - 4.f);
-         bg.setFillColor(sf::Color(255, 255, 255, 235));
-         bg.setOutlineColor(sf::Color(0, 120, 255));
-         bg.setOutlineThickness(1.0f);
-
-         window.draw(bg);
-         window.draw(text);
-
-         // Cursor
-         float blink = std::fmod(textCursorBlinkClock.getElapsedTime().asSeconds(), 1.0f);
-         if (blink < 0.5f) {
-           size_t idx = std::min(textCursorIndex, textEditBuffer.size());
-           sf::Vector2f cursorPos = text.findCharacterPos(static_cast<std::size_t>(idx));
-           sf::RectangleShape cursor(sf::Vector2f(1.5f, text.getCharacterSize() + 4.f));
-           cursor.setFillColor(sf::Color::Black);
-           cursor.setPosition(cursorPos.x, cursorPos.y - 2.f);
-           window.draw(cursor);
-         }
-
-         sf::Text hintText;
-         if (Button::getFontLoaded()) hintText.setFont(Button::getFont());
-         hintText.setString("Shift+Enter to apply, Esc to cancel");
-         hintText.setCharacterSize(12);
-         hintText.setFillColor(sf::Color(50, 50, 50));
-         hintText.setPosition(bg.getPosition() + sf::Vector2f(0.f, bg.getSize().y + 2.f));
-         window.draw(hintText);
-
-         // Symbol palette
-         if (showSymbolPalette && !useImGuiSymbolPalette && Button::getFontLoaded()) {
-           textSymbolPalette.setPosition(textPalettePosition);
-           textSymbolPalette.draw(window, Button::getFont(), true);
-         }
+      sf::Text text;
+      if (Button::getFontLoaded()) {
+        text.setFont(Button::getFont());
       }
+      text.setString(textEditBuffer.empty() ? "" : textEditBuffer);
+      text.setCharacterSize(16);
+      text.setFillColor(sf::Color::Black);
+      text.setPosition(uiPos + sf::Vector2f(10.f, -10.f));
+
+      sf::FloatRect bounds = text.getGlobalBounds();
+      float bgWidth = std::max(bounds.width + 10.f, 120.f);
+      float bgHeight = std::max(bounds.height + 8.f, 28.f);
+      sf::RectangleShape bg(sf::Vector2f(bgWidth, bgHeight));
+      bg.setPosition(text.getPosition().x - 5.f, text.getPosition().y - 4.f);
+      bg.setFillColor(sf::Color(255, 255, 255, 235));
+      bg.setOutlineColor(sf::Color(0, 120, 255));
+      bg.setOutlineThickness(1.0f);
+
+      window.draw(bg);
+      window.draw(text);
+
+      // Cursor
+      float blink = std::fmod(textCursorBlinkClock.getElapsedTime().asSeconds(), 1.0f);
+      if (blink < 0.5f) {
+        size_t idx = std::min(textCursorIndex, textEditBuffer.size());
+        sf::Vector2f cursorPos = text.findCharacterPos(static_cast<std::size_t>(idx));
+        sf::RectangleShape cursor(sf::Vector2f(1.5f, text.getCharacterSize() + 4.f));
+        cursor.setFillColor(sf::Color::Black);
+        cursor.setPosition(cursorPos.x, cursorPos.y - 2.f);
+        window.draw(cursor);
+      }
+
+      sf::Text hintText;
+      if (Button::getFontLoaded()) hintText.setFont(Button::getFont());
+      hintText.setString("Shift+Enter to apply, Esc to cancel");
+      hintText.setCharacterSize(12);
+      hintText.setFillColor(sf::Color(50, 50, 50));
+      hintText.setPosition(bg.getPosition() + sf::Vector2f(0.f, bg.getSize().y + 2.f));
+      window.draw(hintText);
+
+      // Symbol palette
+      if (showSymbolPalette && !useImGuiSymbolPalette && Button::getFontLoaded()) {
+        textSymbolPalette.setPosition(textPalettePosition);
+        textSymbolPalette.draw(window, Button::getFont(), true);
+      }
+    }
 
     window.display();
 
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Critical error in render(): " << e.what() << std::endl;
     emergencyRender();
   } catch (...) {
@@ -835,21 +866,17 @@ void GeometryEditor::render() {
     emergencyRender();
   }
 }
-GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sfml, float tolerance,
-                                                 const std::vector<ObjectType> &allowedTypes) {
+GeometricObject* GeometryEditor::lookForObjectAt(const sf::Vector2f& worldPos_sfml, float tolerance, const std::vector<ObjectType>& allowedTypes) {
   bool checkAll = allowedTypes.empty();
-  auto typeAllowed = [&](ObjectType type) {
-    return checkAll ||
-           (std::find(allowedTypes.begin(), allowedTypes.end(), type) != allowedTypes.end());
-  };
+  auto typeAllowed = [&](ObjectType type) { return checkAll || (std::find(allowedTypes.begin(), allowedTypes.end(), type) != allowedTypes.end()); };
 
   // Allow detection of invisible objects ONLY in Hide Tool mode
   bool canSelectInvisible = (m_currentToolType == ObjectType::Hide);
 
   // Helper for checking visibility
   auto isValidCandidate = [&](GeometricObject* obj) {
-      if (!obj || !obj->isValid()) return false;
-      return obj->isVisible() || canSelectInvisible;
+    if (!obj || !obj->isValid()) return false;
+    return obj->isVisible() || canSelectInvisible;
   };
 
   // Priority: ObjectPoints, then free Points, then Line endpoints (handled by
@@ -857,10 +884,8 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   // 1. Check ObjectPoints
   if (typeAllowed(ObjectType::ObjectPoint)) {
-    for (auto it = ObjectPoints.rbegin(); it != ObjectPoints.rend();
-         ++it) {  // Iterate in reverse for top-most
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+    for (auto it = ObjectPoints.rbegin(); it != ObjectPoints.rend(); ++it) {  // Iterate in reverse for top-most
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -869,8 +894,7 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 2. Check free Points / IntersectionPoints
   if (typeAllowed(ObjectType::Point) || typeAllowed(ObjectType::IntersectionPoint)) {
     for (auto it = points.rbegin(); it != points.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -878,11 +902,10 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   // 2.5 Check Shapes (Triangles, RegularPolygons, Polygons, Rectangles)
   // Checked in reverse render order (Top to Bottom)
-  
+
   if (typeAllowed(ObjectType::Triangle)) {
     for (auto it = triangles.rbegin(); it != triangles.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -890,8 +913,7 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   if (typeAllowed(ObjectType::RegularPolygon)) {
     for (auto it = regularPolygons.rbegin(); it != regularPolygons.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -899,8 +921,7 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   if (typeAllowed(ObjectType::Polygon)) {
     for (auto it = polygons.rbegin(); it != polygons.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -908,8 +929,7 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
   if (typeAllowed(ObjectType::Rectangle) || typeAllowed(ObjectType::RectangleRotatable)) {
     for (auto it = rectangles.rbegin(); it != rectangles.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -918,8 +938,7 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 2.75 Check Angles
   if (typeAllowed(ObjectType::Angle)) {
     for (auto it = angles.rbegin(); it != angles.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
@@ -928,19 +947,16 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 2.85 Check Text Labels
   if (typeAllowed(ObjectType::TextLabel)) {
     for (auto it = textLabels.rbegin(); it != textLabels.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         return it->get();
       }
     }
   }
 
   // 3. Check Lines (including Ray/Vector)
-  if (typeAllowed(ObjectType::Line) || typeAllowed(ObjectType::LineSegment) ||
-      typeAllowed(ObjectType::Ray) || typeAllowed(ObjectType::Vector)) {
+  if (typeAllowed(ObjectType::Line) || typeAllowed(ObjectType::LineSegment) || typeAllowed(ObjectType::Ray) || typeAllowed(ObjectType::Vector)) {
     for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         if (typeAllowed((*it)->getType())) {
           return it->get();
         }
@@ -951,8 +967,7 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
   // 4. Check Circles
   if (typeAllowed(ObjectType::Circle)) {
     for (auto it = circles.rbegin(); it != circles.rend(); ++it) {
-      if (isValidCandidate(it->get()) &&
-          (*it)->contains(worldPos_sfml, tolerance)) {
+      if (isValidCandidate(it->get()) && (*it)->contains(worldPos_sfml, tolerance)) {
         // Check for center point interaction first
         if ((*it)->isCenterPointHovered(worldPos_sfml, tolerance)) {
           return it->get();
@@ -972,9 +987,9 @@ GeometricObject *GeometryEditor::lookForObjectAt(const sf::Vector2f &worldPos_sf
 
 // Implementation for the std::initializer_list version (delegates to the vector
 // version)
-GeometricObject *GeometryEditor::lookForObjectAt(
-    const sf::Vector2f &worldPos_sfml, float tolerance,
-    std::initializer_list<ObjectType> allowedTypes_il) {
+GeometricObject* GeometryEditor::lookForObjectAt(const sf::Vector2f& worldPos_sfml,
+                                                 float tolerance,
+                                                 std::initializer_list<ObjectType> allowedTypes_il) {
   std::vector<ObjectType> allowedTypes_vec(allowedTypes_il.begin(), allowedTypes_il.end());
   return lookForObjectAt(worldPos_sfml, tolerance, allowedTypes_vec);
 }
@@ -988,19 +1003,15 @@ void GeometryEditor::toggleGrid() {
 
 void GeometryEditor::setCurrentTool(ObjectType newTool) {
   // Debug output to track tool changes
-  std::cout << "setCurrentTool called: Changing from " << static_cast<int>(m_currentToolType)
-            << " to " << static_cast<int>(newTool) << std::endl;
+  std::cout << "setCurrentTool called: Changing from " << static_cast<int>(m_currentToolType) << " to " << static_cast<int>(newTool) << std::endl;
 
   // Transformation tools should preserve selection to allow multi-object transformations
-  bool isTransformTool = (newTool == ObjectType::ReflectAboutLine || 
-                          newTool == ObjectType::ReflectAboutPoint ||
-                          newTool == ObjectType::ReflectAboutCircle || 
-                          newTool == ObjectType::RotateAroundPoint ||
-                          newTool == ObjectType::TranslateByVector || 
-                          newTool == ObjectType::DilateFromPoint);
+  bool isTransformTool =
+      (newTool == ObjectType::ReflectAboutLine || newTool == ObjectType::ReflectAboutPoint || newTool == ObjectType::ReflectAboutCircle ||
+       newTool == ObjectType::RotateAroundPoint || newTool == ObjectType::TranslateByVector || newTool == ObjectType::DilateFromPoint);
 
   if (!isTransformTool || (selectedObjects.empty() && !selectedObject)) {
-      clearSelection();
+    clearSelection();
   }
   clearTempSelectedObjects();
   deselectAllAndClearInteractionState(*this, isTransformTool);
@@ -1099,34 +1110,33 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
         gui.toggleButton("Detach", true);
         break;
       default:
-        std::cout << "setCurrentTool: Unhandled tool type for GUI "
-                  << static_cast<int>(m_currentToolType) << ", defaulting to Move." << std::endl;
+        std::cout << "setCurrentTool: Unhandled tool type for GUI " << static_cast<int>(m_currentToolType) << ", defaulting to Move." << std::endl;
         gui.toggleButton("Move", true);  // Fallback to Move tool active
         break;
     }
   }
 }
 
-const sf::View &GeometryEditor::getDrawingView() const { return drawingView; }
+const sf::View& GeometryEditor::getDrawingView() const { return drawingView; }
 
-void GeometryEditor::createCircle(const Point_2 &center, double radius, const sf::Color &color) {
+void GeometryEditor::createCircle(const Point_2& center, double radius, const sf::Color& color) {
   sf::Color selectedColor = getCurrentColor();
-  
+
   // Create center point
   auto centerPoint = std::make_unique<Point>(center, 5.0f, selectedColor);
-  Point *centerPtr = centerPoint.get();
+  Point* centerPtr = centerPoint.get();
   points.push_back(std::move(centerPoint));
-  
+
   // Create circle attached to the center point
   circles.push_back(std::make_shared<Circle>(centerPtr, nullptr, radius, selectedColor));
   std::cout << "Circle created programmatically." << std::endl;
 }
 
 // --- Centralized Point Factory ---
-std::shared_ptr<Point> GeometryEditor::createPoint(const Point_2 &cgalPos) {
+std::shared_ptr<Point> GeometryEditor::createPoint(const Point_2& cgalPos) {
   unsigned int id = objectIdCounter++;
   auto newPoint = std::make_shared<Point>(cgalPos, Constants::CURRENT_ZOOM, currentColor, id);
-  newPoint->setRadius(currentPointSize); // Apply current point size
+  newPoint->setRadius(currentPointSize);  // Apply current point size
   if (showGlobalLabels) {
     std::string label = LabelManager::instance().getNextLabel(getAllPoints());
     newPoint->setLabel(label);
@@ -1135,15 +1145,13 @@ std::shared_ptr<Point> GeometryEditor::createPoint(const Point_2 &cgalPos) {
   return newPoint;
 }
 
-std::shared_ptr<Point> GeometryEditor::createPoint(const sf::Vector2f &sfmlPos) {
-    return createPoint(toCGALPoint(sfmlPos));
-}
+std::shared_ptr<Point> GeometryEditor::createPoint(const sf::Vector2f& sfmlPos) { return createPoint(toCGALPoint(sfmlPos)); }
 
 void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<Point> newPt) {
   if (!oldPt || !newPt || oldPt == newPt) return;
 
   // Update lines to reference the new point
-  for (auto &linePtr : lines) {
+  for (auto& linePtr : lines) {
     if (!linePtr || !linePtr->isValid()) continue;
     auto start = linePtr->getStartPointObjectShared();
     auto end = linePtr->getEndPointObjectShared();
@@ -1162,50 +1170,50 @@ void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<
   }
 
   // Update circle centers/radii if they reference the old point
-  for (auto &circlePtr : circles) {
+  for (auto& circlePtr : circles) {
     if (!circlePtr || !circlePtr->isValid()) continue;
-    
+
     // Check Center
     if (circlePtr->getCenterPointObject() == oldPt.get()) {
       circlePtr->setCenterPointObject(newPt.get());
     }
-    
+
     // Check Radius Point
     if (circlePtr->getRadiusPointObject() == oldPt.get()) {
-        circlePtr->setRadiusPoint(newPt);
+      circlePtr->setRadiusPoint(newPt);
     }
-    
-    circlePtr->update(); // Update shape after changes
+
+    circlePtr->update();  // Update shape after changes
   }
-  
+
   // SANITIZE / UPDATE EDITOR REFERENCES
   if (selectedObject == oldPt.get()) {
-      selectedObject = newPt.get();
-      newPt->setSelected(true);
+    selectedObject = newPt.get();
+    newPt->setSelected(true);
   }
   if (hoveredObject == oldPt.get()) {
-      hoveredObject = newPt.get();
-      newPt->setHovered(true);
+    hoveredObject = newPt.get();
+    newPt->setHovered(true);
   }
   if (lineCreationPoint1 == oldPt) lineCreationPoint1 = newPt;
   // If we are dragging the old point, we should probably update drag target?
   // But replacePoint is called ON RELEASE, so dragging is done.
-  
+
   // Remove the old point from the editor to prevent ghost points
   auto it = std::remove(points.begin(), points.end(), oldPt);
   if (it != points.end()) {
-      points.erase(it, points.end());
-      std::cout << "Replaced point removed from master list." << std::endl;
+    points.erase(it, points.end());
+    std::cout << "Replaced point removed from master list." << std::endl;
   }
-  
+
   // Also check ObjectPoints
-  for(size_t i=0; i<ObjectPoints.size(); ) {
-      if (ObjectPoints[i] == oldPt) {
-          ObjectPoints.erase(ObjectPoints.begin() + i);
-          std::cout << "Replaced point removed from ObjectPoints list." << std::endl;
-      } else {
-          ++i;
-      }
+  for (size_t i = 0; i < ObjectPoints.size();) {
+    if (ObjectPoints[i] == oldPt) {
+      ObjectPoints.erase(ObjectPoints.begin() + i);
+      std::cout << "Replaced point removed from ObjectPoints list." << std::endl;
+    } else {
+      ++i;
+    }
   }
 
   // Update polygon vertices (match by proximity)
@@ -1213,7 +1221,7 @@ void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<
   Point_2 oldPos = oldPt->getCGALPosition();
   Point_2 newPos = newPt->getCGALPosition();
 
-  for (auto &poly : polygons) {
+  for (auto& poly : polygons) {
     if (!poly || !poly->isValid()) continue;
     auto verts = poly->getVertices();
     for (size_t i = 0; i < verts.size(); ++i) {
@@ -1224,7 +1232,7 @@ void GeometryEditor::replacePoint(std::shared_ptr<Point> oldPt, std::shared_ptr<
     }
   }
 
-  for (auto &tri : triangles) {
+  for (auto& tri : triangles) {
     if (!tri || !tri->isValid()) continue;
     auto verts = tri->getVertices();
     for (size_t i = 0; i < verts.size(); ++i) {
@@ -1259,10 +1267,10 @@ void GeometryEditor::update(sf::Time deltaTime) {
       std::string resultText = textEditorDialog.getResultText();
       bool isLatex = textEditorDialog.isLatexResult();
       float fontSize = textEditorDialog.getFontSize();
-      
+
       textEditingLabel->setRawContent(resultText, isLatex);
       textEditingLabel->setFontSize(fontSize);
-      
+
       setGUIMessage("Text: Label updated.");
     }
     textEditingLabel = nullptr;
@@ -1281,33 +1289,33 @@ void GeometryEditor::update(sf::Time deltaTime) {
   }
 
   // Update all geometric objects to ensure constraints and states are maintained
-  for (const auto &obj : lines) {
+  for (const auto& obj : lines) {
     if (obj) obj->update();
   }
-  for (const auto &obj : circles) {
-     if (obj) obj->update();
+  for (const auto& obj : circles) {
+    if (obj) obj->update();
   }
-  for (const auto &obj : rectangles) {
-     if (obj) obj->update();
+  for (const auto& obj : rectangles) {
+    if (obj) obj->update();
   }
-  for (const auto &obj : polygons) {
-     if (obj) obj->update();
+  for (const auto& obj : polygons) {
+    if (obj) obj->update();
   }
-  for (const auto &obj : regularPolygons) {
-     if (obj) obj->update();
+  for (const auto& obj : regularPolygons) {
+    if (obj) obj->update();
   }
-  for (const auto &obj : triangles) {
-     if (obj) obj->update();
+  for (const auto& obj : triangles) {
+    if (obj) obj->update();
   }
-  for (const auto &obj : points) {
-     if (obj) obj->update();
+  for (const auto& obj : points) {
+    if (obj) obj->update();
   }
-  for (const auto &obj : ObjectPoints) {
-     if (obj) obj->update();
+  for (const auto& obj : ObjectPoints) {
+    if (obj) obj->update();
   }
-    for (const auto &obj : angles) {
-      if (obj) obj->update();
-    }
+  for (const auto& obj : angles) {
+    if (obj) obj->update();
+  }
 
   // Always update existing intersections to maintain correct positions
   // regardless of whether auto-intersections is enabled
@@ -1356,13 +1364,13 @@ void GeometryEditor::resetCreationStates() {
   anglePointA = nullptr;
   angleVertex = nullptr;
   anglePointB = nullptr;
-  if(angleLine1) angleLine1->setSelected(false);
+  if (angleLine1) angleLine1->setSelected(false);
   angleLine1 = nullptr;
   angleLine2 = nullptr;
 
   // Reset Compass Tool State
   for (auto* obj : m_compassSelection) {
-    if(obj) obj->setSelected(false);
+    if (obj) obj->setSelected(false);
   }
   m_compassSelection.clear();
   m_previewCompassCenter.reset();
@@ -1376,7 +1384,7 @@ void GeometryEditor::resetCreationStates() {
 void GeometryEditor::resetParallelLineToolState() {
   m_parallelReference.reset();
   m_isPlacingParallel = false;
-  
+
   // ✅ FIX: Properly cleanup preview line before reset to prevent crashes
   if (m_parallelPreviewLine) {
     try {
@@ -1386,7 +1394,7 @@ void GeometryEditor::resetParallelLineToolState() {
     }
   }
   m_parallelPreviewLine.reset();
-  
+
   // ✅ ZOMBIE-KILL: Clear selection state to prevent drag contamination
   if (selectedObject) {
     selectedObject->setSelected(false);
@@ -1403,7 +1411,7 @@ void GeometryEditor::resetParallelLineToolState() {
 void GeometryEditor::resetPerpendicularLineToolState() {
   m_perpendicularReference.reset();
   m_isPlacingPerpendicular = false;
-  
+
   // ✅ FIX: Properly cleanup preview line before reset to prevent crashes
   if (m_perpendicularPreviewLine) {
     try {
@@ -1413,7 +1421,7 @@ void GeometryEditor::resetPerpendicularLineToolState() {
     }
   }
   m_perpendicularPreviewLine.reset();
-  
+
   // ✅ ZOMBIE-KILL: Clear selection state to prevent drag contamination
   if (selectedObject) {
     selectedObject->setSelected(false);
@@ -1450,8 +1458,8 @@ void GeometryEditor::findAllIntersections() {
     }
 
     // Count potential line-circle intersections
-    for (const auto &line : lines) {
-      for (const auto &circle : circles) {
+    for (const auto& line : lines) {
+      for (const auto& circle : circles) {
         if (!line || !circle) continue;
 
         auto intersections = findIntersection(line->getCGALLine(), circle->getCGALCircle());
@@ -1464,8 +1472,7 @@ void GeometryEditor::findAllIntersections() {
       for (size_t j = i + 1; j < circles.size(); ++j) {
         if (!circles[i] || !circles[j]) continue;
 
-        auto intersections =
-            findIntersection(circles[i]->getCGALCircle(), circles[j]->getCGALCircle());
+        auto intersections = findIntersection(circles[i]->getCGALCircle(), circles[j]->getCGALCircle());
         circleCircle += intersections.size();
       }
     }
@@ -1477,7 +1484,7 @@ void GeometryEditor::findAllIntersections() {
               << "Total: " << (lineLine + lineCircle + circleCircle) << std::endl;
 
     std::cout << "Use the Intersection tool to create specific intersections." << std::endl;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Exception in findAllIntersections: " << e.what() << std::endl;
   } catch (...) {
     std::cerr << "Unknown exception in findAllIntersections" << std::endl;
@@ -1486,22 +1493,16 @@ void GeometryEditor::findAllIntersections() {
 
 // Implementation of coordinate conversion methods
 
-sf::Vector2f GeometryEditor::toSFMLVector(const Point_2 &cgal_point) const {
-  return sf::Vector2f(static_cast<float>(CGAL::to_double(cgal_point.x())),
-                      static_cast<float>(CGAL::to_double(cgal_point.y())));
+sf::Vector2f GeometryEditor::toSFMLVector(const Point_2& cgal_point) const {
+  return sf::Vector2f(static_cast<float>(CGAL::to_double(cgal_point.x())), static_cast<float>(CGAL::to_double(cgal_point.y())));
 }
-Vector_2 GeometryEditor::toCGALVector(const sf::Vector2f &sfmlVector) const {
-  return Vector_2(sfmlVector.x, sfmlVector.y);
-}
+Vector_2 GeometryEditor::toCGALVector(const sf::Vector2f& sfmlVector) const { return Vector_2(sfmlVector.x, sfmlVector.y); }
 // Implementation of utility methods
-float GeometryEditor::getScaledTolerance(const sf::View &currentView) const {
-  return Constants::MOUSE_OVER_TOLERANCE *
-         (currentView.getSize().x / static_cast<float>(Constants::WINDOW_WIDTH));
+float GeometryEditor::getScaledTolerance(const sf::View& currentView) const {
+  return Constants::MOUSE_OVER_TOLERANCE * (currentView.getSize().x / static_cast<float>(Constants::WINDOW_WIDTH));
 }
 
-float GeometryEditor::length(const sf::Vector2f &vec) const {
-  return std::sqrt(vec.x * vec.x + vec.y * vec.y);
-}
+float GeometryEditor::length(const sf::Vector2f& vec) const { return std::sqrt(vec.x * vec.x + vec.y * vec.y); }
 
 // Make sure this is called whenever the view changes
 void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
@@ -1529,8 +1530,7 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
   sf::Vector2f oldCenter = drawingView.getCenter();
 
   // Preserve zoom and center, only update view size based on new window size
-  sf::Vector2f newViewSize(static_cast<float>(width) * currentZoom,
-                           contentHeight * currentZoom);
+  sf::Vector2f newViewSize(static_cast<float>(width) * currentZoom, contentHeight * currentZoom);
   drawingView.setSize(newViewSize.x, -newViewSize.y);  // Keep Y+ up
   drawingView.setCenter(oldCenter);
 
@@ -1544,40 +1544,40 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
 }
 
 void GeometryEditor::resetView() {
-    // 1. Define the "Perfect Grid" Density
-    // 48.0f means 1 world unit = 48 screen pixels.
-    // This density is spacious enough for the grid to show 1, 2, 3...
-    const float pixelsPerUnit = 48.0f; 
+  // 1. Define the "Perfect Grid" Density
+  // 48.0f means 1 world unit = 48 screen pixels.
+  // This density is spacious enough for the grid to show 1, 2, 3...
+  const float pixelsPerUnit = 48.0f;
 
-    // 2. Get current window dimensions
-    const sf::Vector2u winSize = window.getSize();
+  // 2. Get current window dimensions
+  const sf::Vector2u winSize = window.getSize();
 
-    // 3. Calculate View Size in World Units
-    // ViewWidth = ScreenWidth / PixelsPerUnit
-    float viewW = static_cast<float>(winSize.x) / pixelsPerUnit;
-    float viewH = static_cast<float>(winSize.y) / pixelsPerUnit;
+  // 3. Calculate View Size in World Units
+  // ViewWidth = ScreenWidth / PixelsPerUnit
+  float viewW = static_cast<float>(winSize.x) / pixelsPerUnit;
+  float viewH = static_cast<float>(winSize.y) / pixelsPerUnit;
 
-    // 4. Apply to Drawing View
-    // Note: We use negative height (-viewH) to enforce Y-Up (Cartesian) coordinates.
-    drawingView.setSize(viewW, -viewH);
-    drawingView.setCenter(0.0f, 0.0f);
-    window.setView(drawingView);
+  // 4. Apply to Drawing View
+  // Note: We use negative height (-viewH) to enforce Y-Up (Cartesian) coordinates.
+  drawingView.setSize(viewW, -viewH);
+  drawingView.setCenter(0.0f, 0.0f);
+  window.setView(drawingView);
 
-    // 5. Reset GUI View (Standard 1:1 pixel mapping for UI overlays)
-    guiView.setSize(static_cast<float>(winSize.x), static_cast<float>(winSize.y));
-    guiView.setCenter(static_cast<float>(winSize.x) / 2.0f, static_cast<float>(winSize.y) / 2.0f);
+  // 5. Reset GUI View (Standard 1:1 pixel mapping for UI overlays)
+  guiView.setSize(static_cast<float>(winSize.x), static_cast<float>(winSize.y));
+  guiView.setCenter(static_cast<float>(winSize.x) / 2.0f, static_cast<float>(winSize.y) / 2.0f);
 
-    // 6. Sync Global Zoom Variable
-    // Update the zoom tracker so mouse wheel operations don't "jump"
-    if (Constants::WINDOW_HEIGHT > 0) {
-        Constants::CURRENT_ZOOM = std::abs(drawingView.getSize().y) / static_cast<float>(Constants::WINDOW_HEIGHT);
-    }
+  // 6. Sync Global Zoom Variable
+  // Update the zoom tracker so mouse wheel operations don't "jump"
+  if (Constants::WINDOW_HEIGHT > 0) {
+    Constants::CURRENT_ZOOM = std::abs(drawingView.getSize().y) / static_cast<float>(Constants::WINDOW_HEIGHT);
+  }
 
-    // 7. Force Grid Update to match the new view
-    grid.update(drawingView, winSize);
+  // 7. Force Grid Update to match the new view
+  grid.update(drawingView, winSize);
 }
 
-void GeometryEditor::startPanning(const sf::Vector2f &mousePos) {
+void GeometryEditor::startPanning(const sf::Vector2f& mousePos) {
   // Set the panning state
   isPanning = true;
   // Store the mouse position
@@ -1591,7 +1591,7 @@ void GeometryEditor::startPanning(const sf::Vector2f &mousePos) {
   showHoverMessage = false;
 }
 
-void GeometryEditor::panView(const sf::Vector2f &delta_view) {
+void GeometryEditor::panView(const sf::Vector2f& delta_view) {
   // Update the view position based on the delta
   drawingView.move(delta_view);
   window.setView(drawingView);  // Apply the updated view to the window
@@ -1602,85 +1602,85 @@ void GeometryEditor::stopPanning() { isPanning = false; }
 bool GeometryEditor::hasSelectedObject() const { return selectedObject != nullptr; }
 
 // Implement the intersection functions
-void GeometryEditor::createIntersectionPoint(Line *line1, Line *line2) {
+void GeometryEditor::createIntersectionPoint(Line* line1, Line* line2) {
   try {
     Line_2 cline1(line1->getStartPoint(), line1->getEndPoint());
     Line_2 cline2(line2->getStartPoint(), line2->getEndPoint());
 
     // --- Helper: Business Logic (Reuse) ---
     auto processPoint = [&](const Point_2& p) {
-        // 1. Check if point is actually ON the segments (Bounding Box Check)
-        auto isPointOnSegments = [&](const Point_2& pt) {
-             auto check = [&](Line* l) {
-                if (l->getType() == ObjectType::LineSegment) {
-                    double px = CGAL::to_double(pt.x());
-                    double py = CGAL::to_double(pt.y());
-                    Point_2 s = l->getStartPoint();
-                    Point_2 e = l->getEndPoint();
-                    
-                    double minX = std::min(CGAL::to_double(s.x()), CGAL::to_double(e.x())) - 0.001;
-                    double maxX = std::max(CGAL::to_double(s.x()), CGAL::to_double(e.x())) + 0.001;
-                    double minY = std::min(CGAL::to_double(s.y()), CGAL::to_double(e.y())) - 0.001;
-                    double maxY = std::max(CGAL::to_double(s.y()), CGAL::to_double(e.y())) + 0.001;
-                    
-                    if (px < minX || px > maxX || py < minY || py > maxY) return false;
-                }
-                return true;
-             };
-             return check(line1) && check(line2);
-        };
+      // 1. Check if point is actually ON the segments (Bounding Box Check)
+      auto isPointOnSegments = [&](const Point_2& pt) {
+        auto check = [&](Line* l) {
+          if (l->getType() == ObjectType::LineSegment) {
+            double px = CGAL::to_double(pt.x());
+            double py = CGAL::to_double(pt.y());
+            Point_2 s = l->getStartPoint();
+            Point_2 e = l->getEndPoint();
 
-        if (isPointOnSegments(p)) {
-            // 2. Check for Duplicates
-            bool exists = false;
-            double dupTol2 = 1e-6;
-            for (auto &pt : points) {
-                if (pt && pt->isValid()) {
-                    if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
-                        exists = true; break;
-                    }
-                }
+            double minX = std::min(CGAL::to_double(s.x()), CGAL::to_double(e.x())) - 0.001;
+            double maxX = std::max(CGAL::to_double(s.x()), CGAL::to_double(e.x())) + 0.001;
+            double minY = std::min(CGAL::to_double(s.y()), CGAL::to_double(e.y())) - 0.001;
+            double maxY = std::max(CGAL::to_double(s.y()), CGAL::to_double(e.y())) + 0.001;
+
+            if (px < minX || px > maxX || py < minY || py > maxY) return false;
+          }
+          return true;
+        };
+        return check(line1) && check(line2);
+      };
+
+      if (isPointOnSegments(p)) {
+        // 2. Check for Duplicates
+        bool exists = false;
+        double dupTol2 = 1e-6;
+        for (auto& pt : points) {
+          if (pt && pt->isValid()) {
+            if (CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), p)) < dupTol2) {
+              exists = true;
+              break;
             }
-            // 3. Create Point
-            if (!exists) {
-                auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM,
-                                                        Constants::INTERSECTION_POINT_COLOR);
-                newPoint->setIntersectionPoint(true);
-              std::string label = LabelManager::instance().getNextLabel(getAllPoints());
-              newPoint->setLabel(label);
-              newPoint->setShowLabel(true);
-                points.push_back(newPoint);
-                std::cout << "Line-Line intersection point created." << std::endl;
-            } else {
-                std::cout << "Intersection point already exists nearby." << std::endl;
-            }
-        } else {
-            std::cout << "Intersection outside segment bounds." << std::endl;
+          }
         }
+        // 3. Create Point
+        if (!exists) {
+          auto newPoint = std::make_shared<Point>(p, Constants::CURRENT_ZOOM, Constants::INTERSECTION_POINT_COLOR);
+          newPoint->setIntersectionPoint(true);
+          std::string label = LabelManager::instance().getNextLabel(getAllPoints());
+          newPoint->setLabel(label);
+          newPoint->setShowLabel(true);
+          points.push_back(newPoint);
+          std::cout << "Line-Line intersection point created." << std::endl;
+        } else {
+          std::cout << "Intersection point already exists nearby." << std::endl;
+        }
+      } else {
+        std::cout << "Intersection outside segment bounds." << std::endl;
+      }
     };
 
     // --- EXECUTION ---
     auto result = CGAL::intersection(cline1, cline2);
 
     if (result) {
-        // MAGIC: The compiler picks the correct 'safe_get_point' based on the type of result!
-        const Point_2* pPtr = safe_get_point<Point_2>(&(*result));
+      // MAGIC: The compiler picks the correct 'safe_get_point' based on the type of result!
+      const Point_2* pPtr = safe_get_point<Point_2>(&(*result));
 
-        if (pPtr) {
-            processPoint(*pPtr);
-        } else {
-            std::cout << "Intersection is not a single point (Overlap or other)." << std::endl;
-        }
+      if (pPtr) {
+        processPoint(*pPtr);
+      } else {
+        std::cout << "Intersection is not a single point (Overlap or other)." << std::endl;
+      }
     } else {
       std::cout << "Lines are parallel or do not intersect." << std::endl;
     }
 
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error creating line-line intersection: " << e.what() << std::endl;
   }
 }
 
-void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
+void GeometryEditor::createIntersectionPoint(Line* line, Circle* circle) {
   try {
     Line_2 cline(line->getStartPoint(), line->getEndPoint());
     Point_2 center = circle->getCenterPoint();
@@ -1693,39 +1693,39 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
       std::cout << "No intersection between line and circle." << std::endl;
       return;
     }
-    
+
     // Helper to check constraints for line segment
     auto isPointOnSegment = [&](const Point_2& pt) {
-         if (line->getType() == ObjectType::LineSegment) {
-             double px = CGAL::to_double(pt.x());
-             double py = CGAL::to_double(pt.y());
-             Point_2 s = line->getStartPoint();
-             Point_2 e = line->getEndPoint();
-             double sx = CGAL::to_double(s.x());
-             double ex = CGAL::to_double(e.x());
-             double sy = CGAL::to_double(s.y());
-             double ey = CGAL::to_double(e.y());
-             
-             double minX = std::min(sx, ex) - 0.001;
-             double maxX = std::max(sx, ex) + 0.001;
-             double minY = std::min(sy, ey) - 0.001;
-             double maxY = std::max(sy, ey) + 0.001;
-             
-             if (px < minX || px > maxX || py < minY || py > maxY) return false;
-         }
-         return true;
+      if (line->getType() == ObjectType::LineSegment) {
+        double px = CGAL::to_double(pt.x());
+        double py = CGAL::to_double(pt.y());
+        Point_2 s = line->getStartPoint();
+        Point_2 e = line->getEndPoint();
+        double sx = CGAL::to_double(s.x());
+        double ex = CGAL::to_double(e.x());
+        double sy = CGAL::to_double(s.y());
+        double ey = CGAL::to_double(e.y());
+
+        double minX = std::min(sx, ex) - 0.001;
+        double maxX = std::max(sx, ex) + 0.001;
+        double minY = std::min(sy, ey) - 0.001;
+        double maxY = std::max(sy, ey) + 0.001;
+
+        if (px < minX || px > maxX || py < minY || py > maxY) return false;
+      }
+      return true;
     };
 
     if (std::abs(distCenterToLine - radius) < 0.000001) {
       // Tangent case
       if (isPointOnSegment(projectedCenter)) {
-          auto newPoint = std::make_unique<Point>(projectedCenter, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-          newPoint->setIntersectionPoint(true);
-          std::string label = LabelManager::instance().getNextLabel(getAllPoints());
-          newPoint->setLabel(label);
-          newPoint->setShowLabel(true);
-          points.push_back(std::move(newPoint));
-          std::cout << "Line tangent to circle. Point created." << std::endl;
+        auto newPoint = std::make_unique<Point>(projectedCenter, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+        newPoint->setIntersectionPoint(true);
+        std::string label = LabelManager::instance().getNextLabel(getAllPoints());
+        newPoint->setLabel(label);
+        newPoint->setShowLabel(true);
+        points.push_back(std::move(newPoint));
+        std::cout << "Line tangent to circle. Point created." << std::endl;
       }
       return;
     }
@@ -1736,11 +1736,9 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
     double lineDirLength = std::sqrt(CGAL::to_double(lineDir.squared_length()));
     Vector_2 unitLineDir = Vector_2(lineDir.x() / lineDirLength, lineDir.y() / lineDirLength);
 
-    Point_2 intersection1(projectedCenter.x() + unitLineDir.x() * halfChordLength,
-                          projectedCenter.y() + unitLineDir.y() * halfChordLength);
+    Point_2 intersection1(projectedCenter.x() + unitLineDir.x() * halfChordLength, projectedCenter.y() + unitLineDir.y() * halfChordLength);
 
-    Point_2 intersection2(projectedCenter.x() - unitLineDir.x() * halfChordLength,
-                          projectedCenter.y() - unitLineDir.y() * halfChordLength);
+    Point_2 intersection2(projectedCenter.x() - unitLineDir.x() * halfChordLength, projectedCenter.y() - unitLineDir.y() * halfChordLength);
 
     if (isPointOnSegment(intersection1)) {
       auto newPoint = std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR);
@@ -1759,12 +1757,12 @@ void GeometryEditor::createIntersectionPoint(Line *line, Circle *circle) {
       points.push_back(std::move(newPoint));
     }
     std::cout << "Line-Circle intersection check complete." << std::endl;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error creating line-circle intersection: " << e.what() << std::endl;
   }
 }
 
-void GeometryEditor::calculateIntersectionBetween(GeometricObject *obj1, GeometricObject *obj2) {
+void GeometryEditor::calculateIntersectionBetween(GeometricObject* obj1, GeometricObject* obj2) {
   if (!obj1 || !obj2) {
     std::cout << "Cannot calculate intersection: One or both objects are invalid." << std::endl;
     return;
@@ -1780,7 +1778,7 @@ void GeometryEditor::calculateIntersectionBetween(GeometricObject *obj1, Geometr
         std::cout << "Intersection not supported between these object types." << std::endl;
       }
     }
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error calculating intersection: " << e.what() << std::endl;
   }
 
@@ -1789,7 +1787,7 @@ void GeometryEditor::calculateIntersectionBetween(GeometricObject *obj1, Geometr
   setCurrentTool(ObjectType::None);
 }
 
-void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
+void GeometryEditor::createIntersectionPoint(Circle* circle1, Circle* circle2) {
   try {
     // Get the CGAL representation of the circles
     Point_2 center1 = circle1->getCenterPoint();
@@ -1844,24 +1842,21 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
 
     // Calculate how far from center1 the radical line crosses the line between
     // centers
-    double a = (centerDistance * centerDistance + radius1 * radius1 - radius2 * radius2) /
-               (2.0 * centerDistance);
+    double a = (centerDistance * centerDistance + radius1 * radius1 - radius2 * radius2) / (2.0 * centerDistance);
 
     // Calculate the radical center (point on the line between centers)
     double radicalX = x1 + a * dx;
     double radicalY = y1 + a * dy;
 
     // If this is a tangent case (circles touch at one point)
-    if (std::abs(centerDistance - (radius1 + radius2)) < 0.000001 ||
-        std::abs(centerDistance - std::abs(radius1 - radius2)) < 0.000001) {
+    if (std::abs(centerDistance - (radius1 + radius2)) < 0.000001 || std::abs(centerDistance - std::abs(radius1 - radius2)) < 0.000001) {
       // Tangent case - one intersection point
       Point_2 intersectionPoint(radicalX, radicalY);
-      auto newPoint =
-          std::make_unique<Point>(intersectionPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-        newPoint->setIntersectionPoint(true);
-        std::string label = LabelManager::instance().getNextLabel(getAllPoints());
-        newPoint->setLabel(label);
-        newPoint->setShowLabel(true);
+      auto newPoint = std::make_unique<Point>(intersectionPoint, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+      newPoint->setIntersectionPoint(true);
+      std::string label = LabelManager::instance().getNextLabel(getAllPoints());
+      newPoint->setLabel(label);
+      newPoint->setShowLabel(true);
       points.push_back(std::move(newPoint));
       std::cout << "Circles are tangent. One intersection point created." << std::endl;
       return;
@@ -1881,10 +1876,8 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
     Point_2 intersection2(radicalX - perpDx * halfChordLength, radicalY - perpDy * halfChordLength);
 
     // Create intersection points
-    auto newPoint1 =
-        std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR);
-    auto newPoint2 =
-        std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+    auto newPoint1 = std::make_unique<Point>(intersection1, 1.0f, Constants::INTERSECTION_POINT_COLOR);
+    auto newPoint2 = std::make_unique<Point>(intersection2, 1.0f, Constants::INTERSECTION_POINT_COLOR);
 
     newPoint1->setIntersectionPoint(true);
     std::string label1 = LabelManager::instance().getNextLabel(getAllPoints());
@@ -1900,7 +1893,7 @@ void GeometryEditor::createIntersectionPoint(Circle *circle1, Circle *circle2) {
     points.push_back(std::move(newPoint2));
 
     std::cout << "Two circle-circle intersection points created." << std::endl;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error creating circle-circle intersection: " << e.what() << std::endl;
   }
 }
@@ -1930,21 +1923,19 @@ void GeometryEditor::resetApplicationState() {
     gui.toggleButton("Move", true);
 
     // Reset views to default
-    drawingView = sf::View(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x),
-                                         static_cast<float>(window.getSize().y)));
+    drawingView = sf::View(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
 
-    guiView = sf::View(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x),
-                                     static_cast<float>(window.getSize().y)));
+    guiView = sf::View(sf::FloatRect(0.f, 0.f, static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
 
     // Update grid
     handleResize(window.getSize().x, window.getSize().y);
 
     std::cout << "Application state reset complete." << std::endl;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error during application state reset: " << e.what() << std::endl;
   }
 }
-void GeometryEditor::setGUIMessage(const std::string &message) {
+void GeometryEditor::setGUIMessage(const std::string& message) {
   if (gui.isInitialized()) {  // Check if GUI is ready
     gui.setMessage(message);
   } else {
@@ -2012,10 +2003,8 @@ void GeometryEditor::cancelCurrentOperation() {
   selectionBoxShape.setSize(sf::Vector2f(0, 0));
 
   // Reset tool type if needed
-  if (m_currentToolType == ObjectType::Circle || m_currentToolType == ObjectType::Line ||
-      m_currentToolType == ObjectType::LineSegment ||
-      m_currentToolType == ObjectType::ParallelLine ||
-      m_currentToolType == ObjectType::PerpendicularLine) {
+  if (m_currentToolType == ObjectType::Circle || m_currentToolType == ObjectType::Line || m_currentToolType == ObjectType::LineSegment ||
+      m_currentToolType == ObjectType::ParallelLine || m_currentToolType == ObjectType::PerpendicularLine) {
     setCurrentTool(ObjectType::None);
   }
 
@@ -2069,51 +2058,49 @@ void GeometryEditor::deleteSelected() {
   std::vector<std::shared_ptr<Triangle>> trianglesToDelete;
 
   // Collect selected objects by their actual shared_ptr (keeps them alive)
-  for (auto &ptr : points) {
+  for (auto& ptr : points) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       pointsToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : lines) {
+  for (auto& ptr : lines) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       linesToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : circles) {
+  for (auto& ptr : circles) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       circlesToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : ObjectPoints) {
+  for (auto& ptr : ObjectPoints) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       objPointsToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : rectangles) {
+  for (auto& ptr : rectangles) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       rectanglesToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : polygons) {
+  for (auto& ptr : polygons) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       polygonsToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : regularPolygons) {
+  for (auto& ptr : regularPolygons) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       regularPolygonsToDelete.push_back(ptr);
     }
   }
-  for (auto &ptr : triangles) {
+  for (auto& ptr : triangles) {
     if (ptr && ptr->isSelected() && (!ptr->isLocked() || ptr->isDependent())) {
       trianglesToDelete.push_back(ptr);
     }
   }
 
-  size_t totalToDelete = pointsToDelete.size() + linesToDelete.size() + 
-                         circlesToDelete.size() + objPointsToDelete.size() +
-                         rectanglesToDelete.size() + polygonsToDelete.size() +
-                         regularPolygonsToDelete.size() + trianglesToDelete.size();
+  size_t totalToDelete = pointsToDelete.size() + linesToDelete.size() + circlesToDelete.size() + objPointsToDelete.size() +
+                         rectanglesToDelete.size() + polygonsToDelete.size() + regularPolygonsToDelete.size() + trianglesToDelete.size();
 
   if (totalToDelete == 0) {
     std::cout << "No objects currently selected for deletion." << std::endl;
@@ -2121,7 +2108,6 @@ void GeometryEditor::deleteSelected() {
   }
 
   std::cout << "Deleting " << totalToDelete << " selected object(s)." << std::endl;
-
 
   // === PHASE 2: CLEAR REFERENCES - Prevent UI from accessing deleted objects ===
   selectedObject = nullptr;
@@ -2137,7 +2123,7 @@ void GeometryEditor::deleteSelected() {
   // Shapes own their ObjectPoints, so we must delete them too
   auto collectDependentObjPoints = [this](GeometricObject* host) {
     std::vector<std::shared_ptr<ObjectPoint>> dependents;
-    for (auto &objPtr : ObjectPoints) {
+    for (auto& objPtr : ObjectPoints) {
       if (objPtr && objPtr->getHostObject() == host) {
         dependents.push_back(objPtr);
       }
@@ -2146,45 +2132,45 @@ void GeometryEditor::deleteSelected() {
   };
 
   // Collect all dependent ObjectPoints from shapes being deleted
-  for (auto &circlePtr : circlesToDelete) {
+  for (auto& circlePtr : circlesToDelete) {
     auto deps = collectDependentObjPoints(circlePtr.get());
-    for (auto &dep : deps) {
+    for (auto& dep : deps) {
       if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
         objPointsToDelete.push_back(dep);
         std::cout << "  + Adding dependent ObjectPoint from Circle" << std::endl;
       }
     }
   }
-  for (auto &rectPtr : rectanglesToDelete) {
+  for (auto& rectPtr : rectanglesToDelete) {
     auto deps = collectDependentObjPoints(rectPtr.get());
-    for (auto &dep : deps) {
+    for (auto& dep : deps) {
       if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
         objPointsToDelete.push_back(dep);
         std::cout << "  + Adding dependent ObjectPoint from Rectangle" << std::endl;
       }
     }
   }
-  for (auto &polyPtr : polygonsToDelete) {
+  for (auto& polyPtr : polygonsToDelete) {
     auto deps = collectDependentObjPoints(polyPtr.get());
-    for (auto &dep : deps) {
+    for (auto& dep : deps) {
       if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
         objPointsToDelete.push_back(dep);
         std::cout << "  + Adding dependent ObjectPoint from Polygon" << std::endl;
       }
     }
   }
-  for (auto &regPolyPtr : regularPolygonsToDelete) {
+  for (auto& regPolyPtr : regularPolygonsToDelete) {
     auto deps = collectDependentObjPoints(regPolyPtr.get());
-    for (auto &dep : deps) {
+    for (auto& dep : deps) {
       if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
         objPointsToDelete.push_back(dep);
         std::cout << "  + Adding dependent ObjectPoint from RegularPolygon" << std::endl;
       }
     }
   }
-  for (auto &triPtr : trianglesToDelete) {
+  for (auto& triPtr : trianglesToDelete) {
     auto deps = collectDependentObjPoints(triPtr.get());
-    for (auto &dep : deps) {
+    for (auto& dep : deps) {
       if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
         objPointsToDelete.push_back(dep);
         std::cout << "  + Adding dependent ObjectPoint from Triangle" << std::endl;
@@ -2192,21 +2178,20 @@ void GeometryEditor::deleteSelected() {
     }
   }
   // NEW: Collect dependent ObjectPoints from Lines being deleted
-  for (auto &linePtr : linesToDelete) {
+  for (auto& linePtr : linesToDelete) {
     auto deps = collectDependentObjPoints(linePtr.get());
-    for (auto &dep : deps) {
-        if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
-            objPointsToDelete.push_back(dep);
-            std::cout << "  + Adding dependent ObjectPoint from Line" << std::endl;
-        }
+    for (auto& dep : deps) {
+      if (std::find(objPointsToDelete.begin(), objPointsToDelete.end(), dep) == objPointsToDelete.end()) {
+        objPointsToDelete.push_back(dep);
+        std::cout << "  + Adding dependent ObjectPoint from Line" << std::endl;
+      }
     }
   }
 
   // Collect dependent Lines from Points being deleted
-  for (auto &pointPtr : pointsToDelete) {
-    for (auto &linePtr : lines) {
-      if (linePtr && (linePtr->getStartPointObject() == pointPtr.get() ||
-                      linePtr->getEndPointObject() == pointPtr.get())) {
+  for (auto& pointPtr : pointsToDelete) {
+    for (auto& linePtr : lines) {
+      if (linePtr && (linePtr->getStartPointObject() == pointPtr.get() || linePtr->getEndPointObject() == pointPtr.get())) {
         if (std::find(linesToDelete.begin(), linesToDelete.end(), linePtr) == linesToDelete.end()) {
           linesToDelete.push_back(linePtr);
           std::cout << "  + Adding dependent Line from Point" << std::endl;
@@ -2217,8 +2202,8 @@ void GeometryEditor::deleteSelected() {
 
   // === PHASE 3.5: DISPATCH COMMAND ===
   std::vector<std::shared_ptr<GeometricObject>> objectsToDelete;
-  auto appendObjects = [&objectsToDelete](auto &vec) {
-    for (auto &ptr : vec) {
+  auto appendObjects = [&objectsToDelete](auto& vec) {
+    for (auto& ptr : vec) {
       if (ptr) {
         objectsToDelete.push_back(std::static_pointer_cast<GeometricObject>(ptr));
       }
@@ -2238,8 +2223,6 @@ void GeometryEditor::deleteSelected() {
   std::cout << "=== deleteSelected() COMPLETE ===" << std::endl;
 }
 
-
-
 // Add getIDIfAvailable() to GeometricObject.h (virtual method) and implement in derived classes
 // Example for GeometricObject.h:
 // virtual int getIDIfAvailable() const { return -1; } // Default implementation
@@ -2249,27 +2232,27 @@ void GeometryEditor::deleteSelected() {
 
 // Helper function (you might need to add this to GeometryEditor or a utility
 // class)
-bool GeometryEditor::objectExistsInAnyList(GeometricObject *obj) {
+bool GeometryEditor::objectExistsInAnyList(GeometricObject* obj) {
   if (!obj) return false;
-  for (const auto &p : points)
+  for (const auto& p : points)
     if (p.get() == obj) return true;
-  for (const auto &l : lines)
+  for (const auto& l : lines)
     if (l.get() == obj) return true;
-  for (const auto &c : circles)
+  for (const auto& c : circles)
     if (c.get() == obj) return true;
-  for (const auto &op : ObjectPoints)
+  for (const auto& op : ObjectPoints)
     if (op.get() == obj) return true;
-  for (const auto &r : rectangles)
+  for (const auto& r : rectangles)
     if (r.get() == obj) return true;
-  for (const auto &p : polygons)
+  for (const auto& p : polygons)
     if (p.get() == obj) return true;
-  for (const auto &rp : regularPolygons)
+  for (const auto& rp : regularPolygons)
     if (rp.get() == obj) return true;
-  for (const auto &t : triangles)
+  for (const auto& t : triangles)
     if (t.get() == obj) return true;
-  for (const auto &a : angles)
+  for (const auto& a : angles)
     if (a.get() == obj) return true;
-  for (const auto &tl : textLabels)
+  for (const auto& tl : textLabels)
     if (tl.get() == obj) return true;
   return false;
 }
@@ -2279,7 +2262,7 @@ void GeometryEditor::updateAllGeometry() {
   try {
     // Update points
     // RESURRECTION FIX: Remove isValid() check to allow points to resurrect
-    for (auto &point : points) {
+    for (auto& point : points) {
       if (point) {
         point->update();
       }
@@ -2287,7 +2270,7 @@ void GeometryEditor::updateAllGeometry() {
 
     // Update lines and their constraints
     // RESURRECTION FIX: Remove isValid() check to allow lines to resurrect
-    for (auto &line : lines) {
+    for (auto& line : lines) {
       if (line) {
         line->update();
         line->maintainConstraints();
@@ -2296,7 +2279,7 @@ void GeometryEditor::updateAllGeometry() {
 
     // Update circles
     // RESURRECTION FIX: Remove isValid() check to allow circles to resurrect
-    for (auto &circle : circles) {
+    for (auto& circle : circles) {
       if (circle) {
         circle->update();
       }
@@ -2304,28 +2287,28 @@ void GeometryEditor::updateAllGeometry() {
 
     // Update object points
     // RESURRECTION FIX: Remove isValid() check to allow object points to resurrect
-    for (auto &objPoint : ObjectPoints) {
+    for (auto& objPoint : ObjectPoints) {
       if (objPoint) {
         objPoint->update();
       }
     }
 
     // Update angles
-    for (auto &angle : angles) {
+    for (auto& angle : angles) {
       if (angle) {
         angle->update();
       }
     }
 
     // Update text labels
-    for (auto &label : textLabels) {
+    for (auto& label : textLabels) {
       if (label && label->isValid()) {
         label->update();
       }
     }
 
     std::cout << "All geometry updated" << std::endl;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << "Error updating geometry: " << e.what() << std::endl;
   }
 }
@@ -2345,14 +2328,12 @@ void GeometryEditor::updateScaleFactor() {
 }
 void GeometryEditor::loadFont() {
   if (!defaultFont.loadFromFile(Constants::DEFAULT_FONT_PATH)) {
-    std::cerr << "Error: Could not load default font from " << Constants::DEFAULT_FONT_PATH
-              << std::endl;
+    std::cerr << "Error: Could not load default font from " << Constants::DEFAULT_FONT_PATH << std::endl;
     // Handle error: perhaps use a fallback or throw an exception
     // For now, we'll just print an error. The program might crash if text is
     // used without a loaded font.
   } else {
-    std::cout << "Default font loaded successfully from " << Constants::DEFAULT_FONT_PATH
-              << std::endl;
+    std::cout << "Default font loaded successfully from " << Constants::DEFAULT_FONT_PATH << std::endl;
   }
   // Initialize any text objects that use this font AFTER it's loaded
   // gui.setFont(defaultFont); // Removed: GUI doesn't support setFont
@@ -2362,15 +2343,13 @@ void GeometryEditor::loadFont() {
 
 void GeometryEditor::setupDefaultViews() {
   // Setup drawingView
-  drawingView.setSize(static_cast<float>(window.getSize().x),
-                      static_cast<float>(window.getSize().y));
+  drawingView.setSize(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y));
   drawingView.setCenter(0.f, 0.f);  // Or your preferred default center
   // drawingView.zoom(1.0f); // Set initial zoom if needed
 
   // Setup guiView (usually maps directly to window coordinates)
   guiView.setSize(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y));
-  guiView.setCenter(static_cast<float>(window.getSize().x) / 2.f,
-                    static_cast<float>(window.getSize().y) / 2.f);
+  guiView.setCenter(static_cast<float>(window.getSize().x) / 2.f, static_cast<float>(window.getSize().y) / 2.f);
 
   std::cout << "Default views set up." << std::endl;
 }
@@ -2382,30 +2361,28 @@ void GeometryEditor::changeSelectedObjectColor(sf::Color newColor) {
 
   switch (selectedObject->getType()) {
     case ObjectType::Point:
-      static_cast<Point *>(selectedObject)->setColor(newColor);
+      static_cast<Point*>(selectedObject)->setColor(newColor);
       break;
     case ObjectType::Line:
     case ObjectType::LineSegment:
-      static_cast<Line *>(selectedObject)->setColor(newColor);
+      static_cast<Line*>(selectedObject)->setColor(newColor);
       break;
     case ObjectType::Circle:
-      static_cast<Circle *>(selectedObject)->setColor(newColor);
+      static_cast<Circle*>(selectedObject)->setColor(newColor);
       break;
     default:
       break;
   }
 
-  std::cout << "Changed selected object color to RGB(" << (int)newColor.r << ", " << (int)newColor.g
-            << ", " << (int)newColor.b << ")" << std::endl;
+  std::cout << "Changed selected object color to RGB(" << (int)newColor.r << ", " << (int)newColor.g << ", " << (int)newColor.b << ")" << std::endl;
 }
 
 void GeometryEditor::safeDeleteLine(std::shared_ptr<Line> lineToDelete) {
   if (!lineToDelete) return;
-  Line *rawLinePtr = lineToDelete.get();
+  Line* rawLinePtr = lineToDelete.get();
 
   if (isObjectBeingDeleted(rawLinePtr)) {
-    std::cout << "safeDeleteLine: Line " << lineToDelete->getID()
-              << " is already marked for/being deleted. Skipping." << std::endl;
+    std::cout << "safeDeleteLine: Line " << lineToDelete->getID() << " is already marked for/being deleted. Skipping." << std::endl;
     return;
   }
   markObjectForDeletion(rawLinePtr);
@@ -2433,7 +2410,7 @@ void GeometryEditor::safeDeleteLine(std::shared_ptr<Line> lineToDelete) {
 
     try {
       lineToDelete->setHovered(false);  // Ensure the object itself knows it's not hovered
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
       std::cerr << "Error clearing hover during line deletion: " << e.what() << std::endl;
     }
 
@@ -2462,21 +2439,18 @@ void GeometryEditor::safeDeleteLine(std::shared_ptr<Line> lineToDelete) {
       lines.erase(it);
       std::cout << "Line " << lineToDelete->getID() << " removed from lines vector." << std::endl;
     } else {
-      std::cout << "safeDeleteLine: Line " << lineToDelete->getID()
-                << " not found in lines vector (possibly already removed)." << std::endl;
+      std::cout << "safeDeleteLine: Line " << lineToDelete->getID() << " not found in lines vector (possibly already removed)." << std::endl;
     }
 
     unmarkObjectForDeletion(rawLinePtr);  // Successfully processed and removed
     std::cout << "safeDeleteLine: Successfully deleted Line " << lineToDelete->getID() << std::endl;
 
-  } catch (const std::exception &e) {
-    std::cerr << "Error during safe line deletion of " << lineToDelete->getID() << ": " << e.what()
-              << std::endl;
-    unmarkObjectForDeletion(
-        rawLinePtr);  // Unmark on error, as processing for this line (by this call) is over.
+  } catch (const std::exception& e) {
+    std::cerr << "Error during safe line deletion of " << lineToDelete->getID() << ": " << e.what() << std::endl;
+    unmarkObjectForDeletion(rawLinePtr);  // Unmark on error, as processing for this line (by this call) is over.
   }
 }
-void GeometryEditor::clearHoverReferences(GeometricObject *obj) {
+void GeometryEditor::clearHoverReferences(GeometricObject* obj) {
   // This function is called when an object `obj` might be deleted or its state reset.
   // We need to ensure that if `editor.hoveredObject` was pointing to `obj`,
   // it's properly cleared.
@@ -2485,8 +2459,7 @@ void GeometryEditor::clearHoverReferences(GeometricObject *obj) {
     // by its own logic or by the caller of clearHoverReferences.
     // Here, we just clear the editor's pointer to it.
     hoveredObject = nullptr;
-    std::cout << "GeometryEditor::clearHoverReferences: Cleared editor.hoveredObject for " << obj
-              << std::endl;
+    std::cout << "GeometryEditor::clearHoverReferences: Cleared editor.hoveredObject for " << obj << std::endl;
   }
   // If HandleEvents.cpp had its own static g_lastHoveredObject, this is where you'd
   // need a way to tell HandleEvents.cpp to clear its static variable.
@@ -2521,10 +2494,9 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
   if (m_hoveredIntersectionLine2 && m_hoveredIntersectionLine2.get() == objToDelete) {
     m_hoveredIntersectionLine2.reset();
   }
-  if (m_isHoveringIntersection &&
-      ((!m_hoveredIntersectionLine1 && !m_hoveredIntersectionLine2) ||
-       (m_hoveredIntersectionLine1 && m_hoveredIntersectionLine1.get() == objToDelete) ||
-       (m_hoveredIntersectionLine2 && m_hoveredIntersectionLine2.get() == objToDelete))) {
+  if (m_isHoveringIntersection && ((!m_hoveredIntersectionLine1 && !m_hoveredIntersectionLine2) ||
+                                   (m_hoveredIntersectionLine1 && m_hoveredIntersectionLine1.get() == objToDelete) ||
+                                   (m_hoveredIntersectionLine2 && m_hoveredIntersectionLine2.get() == objToDelete))) {
     m_isHoveringIntersection = false;
   }
 
@@ -2538,8 +2510,7 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
   if (previewCircle && previewCircle.get() == objToDelete) previewCircle.reset();
   if (previewRectangle && previewRectangle.get() == objToDelete) previewRectangle.reset();
   if (previewPolygon && previewPolygon.get() == objToDelete) previewPolygon.reset();
-  if (previewRegularPolygon && previewRegularPolygon.get() == objToDelete)
-    previewRegularPolygon.reset();
+  if (previewRegularPolygon && previewRegularPolygon.get() == objToDelete) previewRegularPolygon.reset();
   if (previewTriangle && previewTriangle.get() == objToDelete) previewTriangle.reset();
 
   if (lineCreationPoint1 && lineCreationPoint1.get() == objToDelete) lineCreationPoint1.reset();
@@ -2556,8 +2527,8 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
   }
 
   if (objToDelete->getType() == ObjectType::Point) {
-    auto deletedPoint = static_cast<const Point *>(objToDelete);
-    for (auto &circle : circles) {
+    auto deletedPoint = static_cast<const Point*>(objToDelete);
+    for (auto& circle : circles) {
       if (circle && circle->getCenterPointObject() == deletedPoint) {
         circle->clearCenterPoint();
         circle->setVisible(false);
@@ -2576,8 +2547,7 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
   }
 
   try {
-    DynamicIntersection::removeConstraintsInvolving(const_cast<GeometricObject*>(objToDelete),
-                                                    *this);
+    DynamicIntersection::removeConstraintsInvolving(const_cast<GeometricObject*>(objToDelete), *this);
   } catch (...) {
   }
 }
@@ -2586,17 +2556,17 @@ void GeometryEditor::sanitizeReferences(const GeometricObject* objToDelete) {
 // PROJECT SAVE/LOAD/EXPORT
 // ============================================================================
 
-#include "ProjectSerializer.h"
 #include "Deserializer.h"
+#include "ProjectSerializer.h"
 
 void GeometryEditor::clearScene() {
   std::cout << "GeometryEditor::clearScene: Clearing all objects..." << std::endl;
-  
+
   // Cancel any ongoing operations
   cancelOperation();
   selectedObject = nullptr;
   hoveredObject = nullptr;
-  
+
   // Clear all object containers
   ObjectPoints.clear();
   lines.clear();
@@ -2607,7 +2577,7 @@ void GeometryEditor::clearScene() {
   regularPolygons.clear();
   points.clear();
   textLabels.clear();
-  
+
   std::cout << "GeometryEditor::clearScene: Scene cleared." << std::endl;
 }
 
@@ -2636,30 +2606,28 @@ void GeometryEditor::exportSVG(const std::string& filepath) {
 }
 
 void GeometryEditor::clearSelection() {
-    if (selectedObject) {
-        selectedObject->setSelected(false);
-        selectedObject = nullptr;
-    }
-    for (auto* obj : selectedObjects) {
-        if (obj) obj->setSelected(false);
-    }
-    selectedObjects.clear();
+  if (selectedObject) {
+    selectedObject->setSelected(false);
+    selectedObject = nullptr;
+  }
+  for (auto* obj : selectedObjects) {
+    if (obj) obj->setSelected(false);
+  }
+  selectedObjects.clear();
 }
 
 void GeometryEditor::toggleAxes() {
   bool newState = false;
   if (xAxis) {
-      newState = !xAxis->isVisible();
-      xAxis->setVisible(newState);
+    newState = !xAxis->isVisible();
+    xAxis->setVisible(newState);
   }
   if (yAxis) {
-      // If xAxis exists, we sync to it. If not, we toggle yAxis based on its own state
-      if (!xAxis) newState = !yAxis->isVisible();
-      yAxis->setVisible(newState);
+    // If xAxis exists, we sync to it. If not, we toggle yAxis based on its own state
+    if (!xAxis) newState = !yAxis->isVisible();
+    yAxis->setVisible(newState);
   }
   setGUIMessage(newState ? "Axes Visible" : "Axes Hidden");
 }
 
-bool GeometryEditor::areAxesVisible() const {
-  return xAxis && xAxis->isVisible();
-}
+bool GeometryEditor::areAxesVisible() const { return xAxis && xAxis->isVisible(); }

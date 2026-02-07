@@ -32,6 +32,7 @@
 #include "GeometricObject.h"
 #include "GeometryEditor.h"
 #include "Line.h"
+#include "IntersectionPoint.h"
 #include "ObjectPoint.h"
 #include "Point.h"
 #include "Polygon.h"
@@ -217,6 +218,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
     // Deferred transform points (need to be created after base objects)
     std::vector<json> deferredTransformPoints;
+    std::vector<json> pendingIntersectionPoints;
     std::vector<json> pendingLines;
     std::vector<json> pendingPolygons;
     std::vector<json> pendingCircles;
@@ -252,6 +254,14 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
         applyCommonPointFields(jPoint, newPoint);
         applyTransformMetadata(jPoint, newPoint);
+        if (jPoint.contains("isIntersectionPoint") && jPoint["isIntersectionPoint"].get<bool>()) {
+          newPoint->setIntersectionPoint(true);
+          newPoint->setDependent(true);
+          newPoint->setLocked(true);
+        }
+        if (jPoint.contains("line1Id") || jPoint.contains("line2Id")) {
+          pendingIntersectionPoints.push_back(jPoint);
+        }
 
         editor.points.push_back(newPoint);
         registerObject(static_cast<unsigned int>(id), newPoint);
@@ -424,25 +434,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
     // 2c. Load Rectangles
     if (data.contains("rectangles")) {
       for (const auto& rectJson : data["rectangles"]) {
-        if (!rectJson.contains("vertices")) continue;
-        auto verticesJson = rectJson["vertices"];
-        if (verticesJson.size() < 2) continue;
-
-        double x1, y1, x2, y2;
-        if (verticesJson[0].is_array()) {
-          x1 = verticesJson[0][0].get<double>();
-          y1 = verticesJson[0][1].get<double>();
-          int idx2 = (verticesJson.size() == 4) ? 2 : 1;
-          x2 = verticesJson[idx2][0].get<double>();
-          y2 = verticesJson[idx2][1].get<double>();
-        } else {
-          x1 = verticesJson[0].value("x", 0.0);
-          y1 = verticesJson[0].value("y", 0.0);
-          int idx2 = (verticesJson.size() == 4) ? 2 : 1;
-          x2 = verticesJson[idx2].value("x", 0.0);
-          y2 = verticesJson[idx2].value("y", 0.0);
-        }
-
+        std::shared_ptr<Rectangle> rect;
         sf::Color color = sf::Color::Black;
         if (rectJson.contains("color")) {
           color = colorFromJson(rectJson["color"], color);
@@ -451,24 +443,78 @@ bool Deserializer::loadProject(GeometryEditor& editor,
         int id = rectJson.value("id", -1);
         bool isRotatable = rectJson.value("isRotatable", false);
         double height = rectJson.value("height", 0.0);
-        // Note: width is not needed as rectangle is reconstructed from corners
 
-        auto rect = std::make_shared<Rectangle>(
-            Point_2(x1, y1), Point_2(x2, y2), isRotatable, color,
-            static_cast<unsigned int>(std::max(id, 0)));
+        // Try loading by Point IDs first (preferred method)
+        if (rectJson.contains("corner1ID") && rectJson.contains("corner2ID")) {
+          int c1Id = rectJson["corner1ID"].get<int>();
+          int c2Id = rectJson["corner2ID"].get<int>();
+          
+          auto corner1 = getPoint(c1Id);
+          auto corner2 = getPoint(c2Id);
+          
+          if (corner1 && corner2) {
+            // Use pointer-based constructor to reuse existing Points
+            if (isRotatable && height > 0) {
+              rect = std::make_shared<Rectangle>(
+                  corner1, corner2, height, color,
+                  static_cast<unsigned int>(std::max(id, 0)));
+            } else {
+              rect = std::make_shared<Rectangle>(
+                  corner1, corner2, isRotatable, color,
+                  static_cast<unsigned int>(std::max(id, 0)));
+            }
+            
+            // Set dependent corners if they exist
+            if (rectJson.contains("cornerBID") && rectJson.contains("cornerDID")) {
+              int cbId = rectJson["cornerBID"].get<int>();
+              int cdId = rectJson["cornerDID"].get<int>();
+              auto cornerB = getPoint(cbId);
+              auto cornerD = getPoint(cdId);
+              if (cornerB && cornerD) {
+                rect->setDependentCornerPoints(cornerB, cornerD);
+              }
+            }
+          }
+        }
+        
+        // Legacy fallback: load by coordinates (creates duplicate Points)
+        if (!rect && rectJson.contains("vertices")) {
+          auto verticesJson = rectJson["vertices"];
+          if (verticesJson.size() >= 2) {
+            double x1, y1, x2, y2;
+            if (verticesJson[0].is_array()) {
+              x1 = verticesJson[0][0].get<double>();
+              y1 = verticesJson[0][1].get<double>();
+              int idx2 = (verticesJson.size() == 4) ? 2 : 1;
+              x2 = verticesJson[idx2][0].get<double>();
+              y2 = verticesJson[idx2][1].get<double>();
+            } else {
+              x1 = verticesJson[0].value("x", 0.0);
+              y1 = verticesJson[0].value("y", 0.0);
+              int idx2 = (verticesJson.size() == 4) ? 2 : 1;
+              x2 = verticesJson[idx2].value("x", 0.0);
+              y2 = verticesJson[idx2].value("y", 0.0);
+            }
 
-        rect->setThickness(
-            rectJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+            rect = std::make_shared<Rectangle>(
+                Point_2(x1, y1), Point_2(x2, y2), isRotatable, color,
+                static_cast<unsigned int>(std::max(id, 0)));
 
-        // Restore rotatable rectangle dimensions
-        if (isRotatable && height > 0) {
-          rect->setHeight(height);
+            if (isRotatable && height > 0) {
+              rect->setHeight(height);
+            }
+          }
         }
 
-        applyTransformMetadata(rectJson, rect);
+        if (rect) {
+          rect->setThickness(
+              rectJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
 
-        editor.rectangles.push_back(rect);
-        if (id > 0) registerObject(static_cast<unsigned int>(id), rect);
+          applyTransformMetadata(rectJson, rect);
+
+          editor.rectangles.push_back(rect);
+          if (id > 0) registerObject(static_cast<unsigned int>(id), rect);
+        }
       }
     }
 
@@ -543,48 +589,67 @@ bool Deserializer::loadProject(GeometryEditor& editor,
     // 2e. Load Triangles
     if (data.contains("triangles")) {
       for (const auto& triJson : data["triangles"]) {
-        if (!triJson.contains("vertices")) continue;
-        auto verticesJson = triJson["vertices"];
-        if (verticesJson.size() < 3) continue;
-
-        std::vector<Point_2> pts;
-        for (int i = 0; i < 3; ++i) {
-          if (verticesJson[i].is_array()) {
-            pts.emplace_back(verticesJson[i][0].get<double>(),
-                             verticesJson[i][1].get<double>());
-          } else {
-            pts.emplace_back(verticesJson[i].value("x", 0.0),
-                             verticesJson[i].value("y", 0.0));
-          }
-        }
-
+        std::shared_ptr<Triangle> triangle;
         sf::Color color = sf::Color::Black;
         if (triJson.contains("color")) {
           color = colorFromJson(triJson["color"], color);
         }
 
         int id = triJson.value("id", -1);
-        auto triangle = std::make_shared<Triangle>(
-            pts[0], pts[1], pts[2], color,
-            static_cast<unsigned int>(std::max(id, 0)));
+        
+        // Try loading by Point IDs first (preferred method)
+        if (triJson.contains("vertexIds") && triJson["vertexIds"].is_array()) {
+          auto vIds = triJson["vertexIds"];
+          if (vIds.size() >= 3) {
+            auto v1 = getPoint(vIds[0].get<int>());
+            auto v2 = getPoint(vIds[1].get<int>());
+            auto v3 = getPoint(vIds[2].get<int>());
+            
+            if (v1 && v2 && v3) {
+              triangle = std::make_shared<Triangle>(
+                  v1, v2, v3, color,
+                  static_cast<unsigned int>(std::max(id, 0)));
+            }
+          }
+        }
+        
+        // Legacy fallback: load by coordinates (creates duplicate Points)
+        if (!triangle && triJson.contains("vertices")) {
+          auto verticesJson = triJson["vertices"];
+          if (verticesJson.size() >= 3) {
+            std::vector<Point_2> pts;
+            for (int i = 0; i < 3; ++i) {
+              if (verticesJson[i].is_array()) {
+                pts.emplace_back(verticesJson[i][0].get<double>(),
+                                verticesJson[i][1].get<double>());
+              } else {
+                pts.emplace_back(verticesJson[i].value("x", 0.0),
+                                verticesJson[i].value("y", 0.0));
+              }
+            }
 
-        triangle->setThickness(
-            triJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+            triangle = std::make_shared<Triangle>(
+                pts[0], pts[1], pts[2], color,
+                static_cast<unsigned int>(std::max(id, 0)));
+          }
+        }
 
-        applyTransformMetadata(triJson, triangle);
+        if (triangle) {
+          triangle->setThickness(
+              triJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
 
-        editor.triangles.push_back(triangle);
-        if (id > 0) registerObject(static_cast<unsigned int>(id), triangle);
+          applyTransformMetadata(triJson, triangle);
+
+          editor.triangles.push_back(triangle);
+          if (id > 0) registerObject(static_cast<unsigned int>(id), triangle);
+        }
       }
     }
 
     // 2f. Load Regular Polygons
     if (data.contains("regularPolygons")) {
       for (const auto& rpolyJson : data["regularPolygons"]) {
-        if (!rpolyJson.contains("vertices")) continue;
-        auto verticesJson = rpolyJson["vertices"];
-        if (verticesJson.empty()) continue;
-
+        std::shared_ptr<RegularPolygon> rpoly;
         int sides = rpolyJson.value("sides", 3);
         int id = rpolyJson.value("id", -1);
 
@@ -593,46 +658,109 @@ bool Deserializer::loadProject(GeometryEditor& editor,
           color = colorFromJson(rpolyJson["color"], color);
         }
 
-        // Calculate center and first vertex
-        double cx = 0.0, cy = 0.0;
-        double fx = 0.0, fy = 0.0;
-
-        if (verticesJson[0].is_array()) {
-          fx = verticesJson[0][0].get<double>();
-          fy = verticesJson[0][1].get<double>();
-        } else {
-          fx = verticesJson[0].value("x", 0.0);
-          fy = verticesJson[0].value("y", 0.0);
-        }
-
-        for (const auto& v : verticesJson) {
-          if (v.is_array()) {
-            cx += v[0].get<double>();
-            cy += v[1].get<double>();
-          } else {
-            cx += v.value("x", 0.0);
-            cy += v.value("y", 0.0);
+        // Try loading by Point IDs first (preferred method)
+        if (rpolyJson.contains("centerPointID") && rpolyJson.contains("firstVertexPointID")) {
+          int centerId = rpolyJson["centerPointID"].get<int>();
+          int firstVertId = rpolyJson["firstVertexPointID"].get<int>();
+          
+          auto centerPt = getPoint(centerId);
+          auto firstVertPt = getPoint(firstVertId);
+          
+          if (centerPt && firstVertPt) {
+            rpoly = std::make_shared<RegularPolygon>(
+                centerPt, firstVertPt, sides, color,
+                static_cast<unsigned int>(std::max(id, 0)));
           }
         }
-        cx /= verticesJson.size();
-        cy /= verticesJson.size();
+        
+        // Legacy fallback: load by coordinates (creates duplicate Points)
+        if (!rpoly && rpolyJson.contains("vertices")) {
+          auto verticesJson = rpolyJson["vertices"];
+          if (!verticesJson.empty()) {
+            // Calculate center and first vertex
+            double cx = 0.0, cy = 0.0;
+            double fx = 0.0, fy = 0.0;
 
-        auto rpoly = std::make_shared<RegularPolygon>(
-            Point_2(cx, cy), Point_2(fx, fy), sides, color,
-            static_cast<unsigned int>(std::max(id, 0)));
+            if (verticesJson[0].is_array()) {
+              fx = verticesJson[0][0].get<double>();
+              fy = verticesJson[0][1].get<double>();
+            } else {
+              fx = verticesJson[0].value("x", 0.0);
+              fy = verticesJson[0].value("y", 0.0);
+            }
 
-        rpoly->setThickness(
-            rpolyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+            for (const auto& v : verticesJson) {
+              if (v.is_array()) {
+                cx += v[0].get<double>();
+                cy += v[1].get<double>();
+              } else {
+                cx += v.value("x", 0.0);
+                cy += v.value("y", 0.0);
+              }
+            }
+            cx /= verticesJson.size();
+            cy /= verticesJson.size();
 
-        applyTransformMetadata(rpolyJson, rpoly);
+            rpoly = std::make_shared<RegularPolygon>(
+                Point_2(cx, cy), Point_2(fx, fy), sides, color,
+                static_cast<unsigned int>(std::max(id, 0)));
+          }
+        }
 
-        editor.regularPolygons.push_back(rpoly);
-        if (id > 0) registerObject(static_cast<unsigned int>(id), rpoly);
+        if (rpoly) {
+          rpoly->setThickness(
+              rpolyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+          applyTransformMetadata(rpolyJson, rpoly);
+
+          editor.regularPolygons.push_back(rpoly);
+          if (id > 0) registerObject(static_cast<unsigned int>(id), rpoly);
+        }
       }
     }
 
     std::cout << "[Deserializer] Pass 2 Complete: " << objectMap.size()
               << " total objects." << std::endl;
+
+    // ========================================================================
+    // PASS 2.5: REPLACE INTERSECTION PLACEHOLDERS WITH IntersectionPoint
+    // ========================================================================
+    for (const auto& jPoint : pendingIntersectionPoints) {
+      int id = jPoint.value("id", -1);
+      int line1Id = jPoint.value("line1Id", -1);
+      int line2Id = jPoint.value("line2Id", -1);
+
+      auto line1 = std::dynamic_pointer_cast<Line>(getObject(line1Id));
+      auto line2 = std::dynamic_pointer_cast<Line>(getObject(line2Id));
+      if (!line1 || !line2) continue;
+
+      sf::Color color = sf::Color::Black;
+      if (jPoint.contains("color")) {
+        color = colorFromJson(jPoint["color"], color);
+      }
+
+      Point_2 pos(jPoint.value("x", 0.0), jPoint.value("y", 0.0));
+      if (auto existing = getPoint(id)) {
+        pos = existing->getCGALPosition();
+      }
+
+      auto ip = IntersectionPoint::create(line1, line2, pos, color);
+      if (id > 0) ip->setID(static_cast<unsigned int>(id));
+      ip->setIntersectionPoint(true);
+      ip->setDependent(true);
+      ip->setLocked(true);
+      applyCommonPointFields(jPoint, ip);
+      applyTransformMetadata(jPoint, ip);
+
+      auto it = std::find_if(editor.points.begin(), editor.points.end(),
+          [&](const std::shared_ptr<Point>& p) { return p && p->getID() == static_cast<unsigned int>(id); });
+      if (it != editor.points.end()) {
+        *it = ip;
+      } else {
+        editor.points.push_back(ip);
+      }
+      if (id > 0) registerObject(static_cast<unsigned int>(id), ip);
+    }
 
     // ========================================================================
     // PASS 3: RESTORE DEPENDENCIES (Transformations, Constraints, etc.)
@@ -945,6 +1073,7 @@ bool Deserializer::loadProject(GeometryEditor& editor,
         if (newObjPoint) {
           if (id > 0) newObjPoint->setID(static_cast<unsigned int>(id));
           newObjPoint->setVisible(visible);
+          applyTransformMetadata(opJson, newObjPoint);
           if (opJson.contains("label"))
             newObjPoint->setLabel(opJson.value("label", ""));
           if (opJson.contains("showLabel"))
