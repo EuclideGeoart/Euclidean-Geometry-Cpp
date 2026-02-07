@@ -175,21 +175,9 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
 
  private:
 
-  // --- Labeling ---
-  std::string m_label;
-  
-public: // Public for initialization in GeometryEditor
-    static const sf::Font* commonFont; // Shared font pointer
+public: 
+    static const sf::Font* commonFont; 
 
-public:
-    void setLabel(const std::string& label) { m_label = label; }
-    std::string getLabel() const { return m_label; }
-    void setShowLabel(bool show) override { GeometricObject::setShowLabel(show); }
-    bool getShowLabel() const override { return GeometricObject::getShowLabel(); }
-    void setLabelOffset(const sf::Vector2f& offset) override { GeometricObject::setLabelOffset(offset); }
-    const sf::Vector2f& getLabelOffset() const override { return GeometricObject::getLabelOffset(); }
-    void setDependent(bool dependent) override { GeometricObject::setDependent(dependent); }
-    bool isDependent() const override { return GeometricObject::isDependent(); }
     void setCreatedWithShape(bool created) { m_createdWithShape = created; }
     bool isCreatedWithShape() const { return m_createdWithShape; }
 };

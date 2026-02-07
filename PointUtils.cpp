@@ -964,3 +964,88 @@ std::vector<std::string> LabelManager::getNextLabels(int count, const std::vecto
     
     return result;
 }
+
+std::string LabelManager::getNextGreekLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects) {
+    // α, β, γ, δ, ε, ζ, η, θ, ι, κ, λ, μ, ν, ξ, ο, π, ρ, σ, τ, υ, φ, χ, ψ, ω
+    static const std::vector<std::string> greekLetters = {
+        "\xce\xb1", "\xce\xb2", "\xce\xb3", "\xce\xb4", "\xce\xb5", "\xce\xb6", 
+        "\xce\xb7", "\xce\xb8", "\xce\xb9", "\xce\xba", "\xce\xbb", "\xce\xbc", 
+        "\xce\xbd", "\xce\xbe", "\xce\xbf", "\xcf\x80", "\xcf\x81", "\xcf\x83", 
+        "\xcf\x84", "\xcf\x85", "\xcf\x86", "\xcf\x87", "\xcf\x88", "\xcf\x89"
+    };
+
+    std::set<std::string> usedLabels;
+    for (const auto& obj : existingObjects) {
+        if (obj && !obj->getLabel().empty()) {
+            usedLabels.insert(obj->getLabel());
+        }
+    }
+
+    int index = 0;
+    while (true) {
+        std::string label;
+        int letterIdx = index % static_cast<int>(greekLetters.size());
+        int subscript = index / static_cast<int>(greekLetters.size());
+        
+        label = greekLetters[letterIdx];
+        if (subscript > 0) {
+            label += "_{" + std::to_string(subscript) + "}";
+        }
+        
+        if (usedLabels.find(label) == usedLabels.end()) {
+            return label;
+        }
+        index++;
+        if (index > 1000) break;
+    }
+    return "";
+}
+
+std::string LabelManager::getNextLineLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects) {
+    std::set<std::string> usedLabels;
+    for (const auto& obj : existingObjects) {
+        if (obj && !obj->getLabel().empty()) {
+            usedLabels.insert(obj->getLabel());
+        }
+    }
+
+    int index = 0;
+    while (true) {
+        std::string label;
+        char base = 'a' + (index % 26);
+        int subscript = index / 26;
+        
+        label += base;
+        if (subscript > 0) {
+            label += "_{" + std::to_string(subscript) + "}";
+        }
+        
+        if (usedLabels.find(label) == usedLabels.end()) {
+            return label;
+        }
+        index++;
+        if (index > 1000) break;
+    }
+    return "";
+}
+
+std::string LabelManager::getNextPolygonLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects) {
+    std::set<std::string> usedLabels;
+    for (const auto& obj : existingObjects) {
+        if (obj && !obj->getLabel().empty()) {
+            usedLabels.insert(obj->getLabel());
+        }
+    }
+
+    int index = 1;
+    while (true) {
+        std::string label = "poly" + std::to_string(index);
+        
+        if (usedLabels.find(label) == usedLabels.end()) {
+            return label;
+        }
+        index++;
+        if (index > 1000) break;
+    }
+    return "";
+}

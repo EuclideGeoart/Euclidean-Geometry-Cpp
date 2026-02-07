@@ -500,27 +500,30 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   // Clear any existing items (in case constructor is called multiple times)
   m_contextMenu.clear();
   
-  // Item 1: Toggle Label (for Points only)
-  m_contextMenu.addItem("Toggle Label", [](GeometryEditor& ed) {
-    std::cout << "[ContextMenu] 'Toggle Label' executed" << std::endl;
-    // Work with multi-selection
-    if (!ed.selectedObjects.empty()) {
-      for (auto* obj : ed.selectedObjects) {
-        auto point = dynamic_cast<Point*>(obj);
-        if (point) {
-          bool currentlyVisible = point->getShowLabel();
-          point->setShowLabel(!currentlyVisible);
-          std::cout << "  -> Label " << (currentlyVisible ? "hidden" : "shown") << " for point " << point->getLabel() << std::endl;
-        }
-      }
-    } else if (ed.selectedObject) {
-      auto point = dynamic_cast<Point*>(ed.selectedObject);
-      if (point) {
-        bool currentlyVisible = point->getShowLabel();
-        point->setShowLabel(!currentlyVisible);
-        std::cout << "  -> Label " << (currentlyVisible ? "hidden" : "shown") << " for point " << point->getLabel() << std::endl;
-      }
-    }
+  // New Labeling Options (GeoGebra Style)
+  m_contextMenu.addItem("Label: Hidden", [](GeometryEditor& ed) {
+    auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Hidden); }
+  });
+  
+  m_contextMenu.addItem("Label: Name", [](GeometryEditor& ed) {
+    auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Name); }
+  });
+  
+  m_contextMenu.addItem("Label: Name & Value", [](GeometryEditor& ed) {
+    auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::NameAndValue); }
+  });
+  
+  m_contextMenu.addItem("Label: Value", [](GeometryEditor& ed) {
+    auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Value); }
+  });
+  
+  m_contextMenu.addItem("Label: Caption", [](GeometryEditor& ed) {
+    auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
+    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Caption); }
   });
   
   // Item 2: Rotate 90° CW
@@ -920,6 +923,13 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       // Universal Smart Snapping Toggle
       if (ImGui::Checkbox("Universal Snapping", &editor.m_universalSnappingEnabled)) {
         std::cout << "Universal Snapping " << (editor.m_universalSnappingEnabled ? "ON" : "OFF") << std::endl;
+      }
+
+      // Label Visibility Control
+      const char* labelModes[] = { "Show All Labels", "Points Only", "Hide All Labels" };
+      int currentLabelMode = static_cast<int>(editor.m_labelVisibility);
+      if (ImGui::Combo("Labels", &currentLabelMode, labelModes, IM_ARRAYSIZE(labelModes))) {
+          editor.m_labelVisibility = static_cast<GeometryEditor::LabelVisibilityMode>(currentLabelMode);
       }
 
       if (ImGui::Button("Reset View", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0))) {

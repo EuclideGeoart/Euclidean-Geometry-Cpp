@@ -1,6 +1,7 @@
 #include "Circle.h"
 #include "ObjectPoint.h"
 #include "Constants.h"
+#include "PointUtils.h"
 #include "Transforms.h"
 #include "Line.h"
 #include <cmath>
@@ -85,6 +86,20 @@ void Circle::setRadiusPoint(std::shared_ptr<Point> pt) {
         // So distance is same.
         updateSFMLShape();
         updateHostedPoints(); // In case any object points depend on radius?
+    }
+}
+
+void Circle::set3PointDefinition(std::shared_ptr<Point> p1, std::shared_ptr<Point> p2, std::shared_ptr<Point> p3) {
+    m_p1 = p1;
+    m_p2 = p2;
+    m_p3 = p3;
+    m_is3PointCircle = (p1 && p2 && p3 != nullptr);
+
+    if (m_is3PointCircle && m_selfHandle) {
+        if (p1) p1->addDependent(shared_from_this());
+        if (p2) p2->addDependent(shared_from_this());
+        if (p3) p3->addDependent(shared_from_this());
+        update(); // Force initial calculation
     }
 }
 
@@ -237,6 +252,71 @@ void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) cons
     window.draw(centerShape);
 }
 
+void Circle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
+  if (!isVisible() || !getShowLabel() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isValid()) return;
+
+  Point_2 centerCgal = getCenterPoint();
+  double r = m_radius;
+  
+  // Position label on the ring at 45 degrees
+  double angle = 0.785398; // pi/4
+  Point_2 labelPosCgal(centerCgal.x() + FT(r * std::cos(angle)), centerCgal.y() + FT(r * std::sin(angle)));
+  
+  sf::Vector2f labelPos(static_cast<float>(CGAL::to_double(labelPosCgal.x())), 
+                        static_cast<float>(CGAL::to_double(labelPosCgal.y())));
+
+  sf::Vector2i screenPos = window.mapCoordsToPixel(labelPos, worldView);
+
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Value: {
+      // Area = pi * r^2
+      double area = 3.141592653589793 * r * r;
+      labelStr = std::to_string(static_cast<int>(std::round(area)));
+      break;
+    }
+    case LabelMode::NameAndValue: {
+      labelStr = getLabel();
+      double area = 3.141592653589793 * r * r;
+      labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
+      break;
+    }
+    case LabelMode::Caption: labelStr = getCaption(); break;
+    default: break;
+  }
+
+  if (labelStr.empty()) return;
+
+  sf::Text text;
+  text.setFont(*Point::commonFont);
+  text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+  
+  sf::Color textColor = m_color;
+  // Fallback for very bright colors on white background
+  if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
+  text.setFillColor(textColor);
+
+  sf::Vector2f finalPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+  
+  // Offset slightly outward from center
+  sf::Vector2f centerSfml(static_cast<float>(CGAL::to_double(centerCgal.x())), 
+                          static_cast<float>(CGAL::to_double(centerCgal.y())));
+  sf::Vector2f dir = labelPos - centerSfml;
+  float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+  if (len > 1e-6f) {
+      finalPos += (dir / len) * 15.0f; // 15 pixels outward
+  }
+
+  text.setPosition(std::round(finalPos.x), std::round(finalPos.y));
+  sf::FloatRect bounds = text.getLocalBounds();
+  text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
+
+  window.draw(text);
+}
+
 bool Circle::contains(const sf::Vector2f &worldPos_sfml, float tolerance) const {
   if (!isValid() || !m_visible) return false;
 
@@ -301,6 +381,21 @@ bool Circle::isValid() const {
     if (!std::isfinite(distSq) || distSq <= 0.0) return false;
     Point_2 center((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
     return CGAL::is_finite(center.x()) && CGAL::is_finite(center.y());
+  }
+
+  if (m_is3PointCircle) {
+    if (!m_p1 || !m_p2 || !m_p3) return false;
+    if (!m_p1->isValid() || !m_p2->isValid() || !m_p3->isValid()) return false;
+    Point_2 a = m_p1->getCGALPosition();
+    Point_2 b = m_p2->getCGALPosition();
+    Point_2 c = m_p3->getCGALPosition();
+    if (CGAL::collinear(a, b, c)) return false;
+    try {
+        Point_2 center = CGAL::circumcenter(a, b, c);
+        return CGAL::is_finite(center.x()) && CGAL::is_finite(center.y());
+    } catch (...) {
+        return false;
+    }
   }
 
   if (!m_centerPoint) return false;
@@ -398,7 +493,31 @@ void Circle::update() {
     }
   }
 
-  // 4. Standard Logic - Always recalculate geometry after resurrection
+  // 4. 3-Point Circle Logic
+  if (m_is3PointCircle && m_p1 && m_p2 && m_p3) {
+    bool pValid = m_p1->isValid() && m_p2->isValid() && m_p3->isValid();
+    if (pValid) {
+        Point_2 a = m_p1->getCGALPosition();
+        Point_2 b = m_p2->getCGALPosition();
+        Point_2 c = m_p3->getCGALPosition();
+        if (!CGAL::collinear(a, b, c)) {
+            if (!this->isVisible()) this->setVisible(true);
+
+            Point_2 center = CGAL::circumcenter(a, b, c);
+            if (m_centerPoint) {
+                m_centerPoint->setCGALPosition(center);
+            }
+            m_radius = std::sqrt(CGAL::to_double(CGAL::squared_distance(center, a)));
+        } else {
+            if (this->isVisible()) this->setVisible(false);
+        }
+    } else {
+        if (this->isVisible()) this->setVisible(false);
+        return;
+    }
+  }
+
+  // 5. Standard Logic - Always recalculate geometry after resurrection
   updateSFMLShape();
   updateHostedPoints();
 }

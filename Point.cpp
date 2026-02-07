@@ -477,14 +477,34 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
 
 void Point::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
   if (!m_visible) return;
-  if (!m_showLabel || m_label.empty() || !Point::commonFont) return;
+  if (!getShowLabel() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
   drawLabelExplicit(window, worldView);
 }
 
 void Point::drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldView) const {
   if (!m_visible) return;
-  if (m_label.empty() || !Point::commonFont) return;
+  if (!Point::commonFont) return;
   if (!isValid()) return;
+
+  std::string labelStr = "";
+  switch (getLabelMode()) {
+      case LabelMode::Name: labelStr = getLabel(); break;
+      case LabelMode::Value: {
+          // Coordinates - Use precision? Fixed to int for now to match angle
+          labelStr = "(" + std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.x())))) + ", " + 
+                           std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.y())))) + ")";
+          break;
+      }
+      case LabelMode::NameAndValue: {
+           labelStr = getLabel() + (getLabel().empty() ? "" : " = ") + "(" + std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.x())))) + ", " + 
+                           std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.y())))) + ")";
+           break;
+      }
+      case LabelMode::Caption: labelStr = getCaption(); break;
+      default: break;
+  }
+
+  if (labelStr.empty()) return;
 
   // 1. World -> Screen conversion
   sf::Vector2f worldPos = cgalToSFML(m_cgalPosition);

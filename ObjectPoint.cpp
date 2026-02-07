@@ -65,7 +65,22 @@ ObjectPoint::ObjectPoint(std::shared_ptr<Line> hostLine, double relativePosition
       m_relativePositionOnLine(relativePosition),
       m_angleOnCircleRad(0) {
   if (!hostLine) throw std::invalid_argument("Host line cannot be null");
-  // no shared_from_this() here
+
+  // Clamp for segments or rays
+  if (hostLine->isSegment()) {
+    const Kernel::FT zero = safe_zero_ft();
+    const Kernel::FT one = safe_one_ft();
+    if (m_relativePositionOnLine < zero) {
+      m_relativePositionOnLine = zero;
+    } else if (m_relativePositionOnLine > one) {
+      m_relativePositionOnLine = one;
+    }
+  } else if (hostLine->getType() == ObjectType::Ray) {
+    const Kernel::FT zero = safe_zero_ft();
+    if (m_relativePositionOnLine < zero) {
+      m_relativePositionOnLine = zero;
+    }
+  }
 }
 // In ObjectPoint.cpp - REMOVE shared_from_this from constructor:
 ObjectPoint::ObjectPoint(std::shared_ptr<Circle> hostCircle, double angleRad,
@@ -532,7 +547,7 @@ void ObjectPoint::calculateAttachmentParameters() {
       // Calculate relative position using defined variables
       m_relativePositionOnLine = dotProduct_ft / lineSqLength_ft;
 
-      // Clamp for segments
+      // Clamp for segments or rays
       if (hostLine->isSegment()) {
         const Kernel::FT zero = safe_zero_ft();
         const Kernel::FT one = safe_one_ft();
@@ -540,6 +555,11 @@ void ObjectPoint::calculateAttachmentParameters() {
           m_relativePositionOnLine = zero;
         } else if (m_relativePositionOnLine > one) {
           m_relativePositionOnLine = one;
+        }
+      } else if (hostLine->getType() == ObjectType::Ray) {
+        const Kernel::FT zero = safe_zero_ft();
+        if (m_relativePositionOnLine < zero) {
+          m_relativePositionOnLine = zero;
         }
       }
     }
@@ -1039,7 +1059,7 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
       if (!CGAL::is_zero(lineLength)) {
         m_relativePositionOnLine = (pointVector * lineVector) / lineLength;
 
-        // Clamp between 0 and 1 for line segments
+        // Clamp for segments or rays
         if (line->isSegment()) {
           const Kernel::FT zero = safe_zero_ft();
           const Kernel::FT one = safe_one_ft();
@@ -1047,6 +1067,11 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
             m_relativePositionOnLine = zero;
           } else if (m_relativePositionOnLine > one) {
             m_relativePositionOnLine = one;
+          }
+        } else if (line->getType() == ObjectType::Ray) {
+          const Kernel::FT zero = safe_zero_ft();
+          if (m_relativePositionOnLine < zero) {
+            m_relativePositionOnLine = zero;
           }
         }
 
@@ -1109,7 +1134,25 @@ void ObjectPoint::updateFromMousePos(const sf::Vector2f &mousePos) {
             }
             case ObjectType::RegularPolygon: {
               auto* reg = static_cast<RegularPolygon*>(hostShape.get());
-              reg->setCreationPointPosition(vertexIndex, cgalMousePos);
+              if (vertexIndex == 0) {
+                reg->setCreationPointPosition(0, cgalMousePos);
+              } else {
+                int sides = reg->getNumSides();
+                if (sides >= 3) {
+                  Point_2 center = reg->getCenter();
+                  double cx = CGAL::to_double(center.x());
+                  double cy = CGAL::to_double(center.y());
+                  double dx = CGAL::to_double(cgalMousePos.x()) - cx;
+                  double dy = CGAL::to_double(cgalMousePos.y()) - cy;
+                  double radius = std::sqrt(dx * dx + dy * dy);
+                  double targetAngle = std::atan2(dy, dx);
+                  double step = 2.0 * M_PI / static_cast<double>(sides);
+                  double firstAngle = targetAngle - static_cast<double>(vertexIndex) * step;
+                  Point_2 newFirst(FT(cx + std::cos(firstAngle) * radius),
+                                   FT(cy + std::sin(firstAngle) * radius));
+                  reg->setCreationPointPosition(1, newFirst);
+                }
+              }
               break;
             }
             case ObjectType::Triangle: {

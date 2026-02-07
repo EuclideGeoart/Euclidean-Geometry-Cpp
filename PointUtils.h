@@ -179,13 +179,18 @@ public:
      */
     std::string getNextLabel(const std::vector<std::shared_ptr<Point>>& existingPoints);
 
-    /**
-     * @brief Generates multiple unique labels at once
-     * @param count Number of labels needed
-     * @param existingPoints Collection of points to check for collision
-     * @return Vector of unique label strings
-     */
     std::vector<std::string> getNextLabels(int count, const std::vector<std::shared_ptr<Point>>& existingPoints);
+    
+    std::string getNextGreekLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects);
+
+    std::string getNextLineLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects);
+    
+    /**
+     * @brief Generates the next available polygon label (poly1, poly2...)
+     * @param existingObjects Collection of objects to check for collision
+     * @return Unique label string
+     */
+    std::string getNextPolygonLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects);
 
 private:
     LabelManager() : m_visible(true), m_fontSize(18) {}
