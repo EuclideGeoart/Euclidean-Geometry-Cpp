@@ -19,7 +19,7 @@ void handleEvents(GeometryEditor &editor);
 void deleteObject(GeometryEditor &editor, GeometricObject *objToDelete);
 
 // Helper function for deselecting objects and clearing interaction state
-void deselectAllAndClearInteractionState(GeometryEditor &editor);
+void deselectAllAndClearInteractionState(GeometryEditor &editor, bool preserveSelection = false);
 
 void markObjectForDeletion(GeometricObject* obj);
 void unmarkObjectForDeletion(GeometricObject* obj);

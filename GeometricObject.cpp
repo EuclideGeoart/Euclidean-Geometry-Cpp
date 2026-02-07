@@ -142,6 +142,42 @@ void GeometricObject::notifyDependents() {
     m_dependents = std::move(validDependents);
 }
 
+// --- NEW Zoom-Independent Halo Logic ---
+void GeometricObject::drawHalo(sf::RenderTarget& target, float screenRadius) const {
+    // 1. Get the current view
+    const sf::View& view = target.getView();
+
+    // 2. Calculate Scale Factor (1 pixel in screen = ? units in world)
+    // We use the width ratio of the view size to the target pixel size.
+    float zoomFactor = 1.0f;
+    if (target.getSize().x > 0) {
+        zoomFactor = view.getSize().x / static_cast<float>(target.getSize().x);
+    }
+
+    // 3. Scale the radius so it remains constant in Screen Pixels
+    float worldRadius = screenRadius * zoomFactor;
+
+    sf::CircleShape halo(worldRadius);
+    halo.setOrigin(worldRadius, worldRadius);
+    
+    // Get position from virtual interface (Point, ObjectPoint, etc should implement this)
+    Point_2 cgalPos = getCGALPosition();
+    float x = static_cast<float>(CGAL::to_double(cgalPos.x()));
+    float y = static_cast<float>(CGAL::to_double(cgalPos.y()));
+    
+    halo.setPosition(x, y);
+    
+    // Transparent fill
+    halo.setFillColor(sf::Color::Transparent);
+    
+    // Use universal selection color for the halo
+    halo.setOutlineColor(Constants::SELECTION_UNIVERSAL_COLOR);
+    // Constant screen thickness (e.g., 2 pixels)
+    halo.setOutlineThickness(2.0f * zoomFactor);
+    
+    target.draw(halo);
+}
+
 namespace {
 Point_2 projectPointOntoSegmentCgal(const Point_2 &point, const Segment_2 &segment) {
   const Point_2 a = segment.source();

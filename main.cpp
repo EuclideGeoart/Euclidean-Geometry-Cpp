@@ -47,6 +47,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <filesystem>
 
 void run_exception_tests(); // Declaration for the function in
                             // test_exceptions.cpp
@@ -91,38 +92,56 @@ int main() {
 
     ImGui::SFML::Init(editor.window);
     setupImGuiStyle();
-    ImGuiIO& io = ImGui::GetIO();
-    io.Fonts->Clear();
-    ImFont* font = nullptr;
 
-#if defined(_WIN32) || defined(_WIN64)
-    font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 24.0f);
-    if (!font) {
-      font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 24.0f);
-    }
-#elif defined(__linux__)
-    // Common Linux font locations and fallbacks
-    font = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24.0f);
-    if (!font) {
-      font = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/msttcorefonts/Arial.ttf", 24.0f);
-    }
-    if (!font) {
-      font = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 24.0f);
-    }
-#else
-    // Unknown platform: try common Windows paths as a last resort
-    font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 24.0f);
-    if (!font) {
-      font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 24.0f);
-    }
-#endif
+     // --- FONT LOADING (ROBUST WINDOWS FIX) ---
+  ImGuiIO& io = ImGui::GetIO();
+  io.Fonts->Clear();
 
-    // Ensure we always have at least a default font to avoid an empty UI
-    if (!font) {
-      font = io.Fonts->AddFontDefault();
-    }
+  // 1. Base Font: Segoe UI (Standard Windows UI Font)
+  // We use this for readable English text.
+  ImFontConfig baseConfig;
+  ImFont* baseFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 20.0f, &baseConfig);
+  if (!baseFont) {
+      baseFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 18.0f);
+  }
 
-    ImGui::SFML::UpdateFontTexture();
+  // 2. Symbol Font: Segoe UI Symbol (Contains Math, Greek, Geometric shapes)
+  // We MERGE this into the base font so they can be used together.
+  ImFontConfig symbolConfig;
+  symbolConfig.MergeMode = true; 
+  symbolConfig.PixelSnapH = true;
+  
+  // Define extensive ranges for Math, Greek, and Arrows
+  static const ImWchar icon_ranges[] = {
+      0x0020, 0x00FF, // Basic Latin + Latin Supplement
+      0x0370, 0x03FF, // Greek
+      0x2000, 0x206F, // General Punctuation
+      0x2070, 0x209F, // Superscripts and Subscripts
+      0x20A0, 0x20CF, // Currency Symbols
+      0x2100, 0x214F, // Letterlike Symbols
+      0x2150, 0x218F, // Number Forms
+      0x2190, 0x21FF, // Arrows
+      0x2200, 0x22FF, // Mathematical Operators (KEY FOR GEOMETRY)
+      0x2300, 0x23FF, // Miscellaneous Technical
+      0x2500, 0x257F, // Box Drawing
+      0x25A0, 0x25FF, // Geometric Shapes
+      0,
+  };
+
+  // Try loading Segoe UI Symbol, fallback to Arial if missing
+  if (std::filesystem::exists("C:\\Windows\\Fonts\\seguisym.ttf")) {
+      io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguisym.ttf", 20.0f, &symbolConfig, icon_ranges);
+      std::cout << "Loaded Segoe UI Symbol for robust character support." << std::endl;
+  } else {
+      std::cout << "Segoe UI Symbol not found, falling back to Arial for symbols." << std::endl;
+      io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 18.0f, &symbolConfig, icon_ranges);
+  }
+
+  // 3. Build Texture
+  ImGui::SFML::UpdateFontTexture(); 
+  
+  // Set default font for Geometry Tool buttons too
+  Button::loadFont();
     io.FontGlobalScale = 1.0f;
 
     sf::Clock deltaClock;

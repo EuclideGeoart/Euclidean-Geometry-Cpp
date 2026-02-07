@@ -914,25 +914,13 @@ void ObjectPoint::draw(sf::RenderWindow &window, float scale, bool forceVisible)
 
 
 // --- Interaction ---
-sf::FloatRect ObjectPoint::getGlobalBounds() const {
-  float interactionRadius =
-      Constants::OBJECT_POINT_RADIUS + Constants::OBJECT_POINT_INTERACTION_PADDING;
-  sf::Vector2f pos = ObjectPoint_cgalToSFML(Point::getCGALPosition());
-  return sf::FloatRect(pos.x - interactionRadius, pos.y - interactionRadius, 2 * interactionRadius,
-                       2 * interactionRadius);
-}
 
 bool ObjectPoint::contains(const sf::Vector2f &worldPos_sfml, float tolerance) const {
-  // Use the larger of: visual interaction radius OR the dynamic tolerance
-  // This ensures we don't snap from too far away when zoomed in (dynamic tolerance shrinks)
-  float interactionRadius = Constants::OBJECT_POINT_RADIUS +
-                            Constants::OBJECT_POINT_INTERACTION_PADDING;
-  // Use the provided tolerance - it already accounts for screen-space scaling
-  float effectiveRadius = std::max(interactionRadius, tolerance);
+  // Stop using fixed padding. Match standard Point behavior.
   sf::Vector2f shapePos_sfml = m_sfmlShape.getPosition();
   sf::Vector2f diff = worldPos_sfml - shapePos_sfml;
   float distSq = diff.x * diff.x + diff.y * diff.y;
-  return distSq <= effectiveRadius * effectiveRadius;
+  return distSq <= tolerance * tolerance;
 }
 
 void ObjectPoint::setSelected(bool sel) {

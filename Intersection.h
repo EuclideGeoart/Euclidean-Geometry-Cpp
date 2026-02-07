@@ -62,6 +62,7 @@ std::vector<std::shared_ptr<Point>> createCircleCircleIntersection(
 void updateAllIntersections(GeometryEditor &editor);
 void removeConstraintsInvolving(const GeometricObject *obj, GeometryEditor &editor);
 void removeIntersectionsInvolving(const std::shared_ptr<Line> &line, GeometryEditor &editor);
+void removeIntersectionPoint(const std::shared_ptr<Point> &point, GeometryEditor &editor);
 
 // Save/load helpers
 std::vector<IntersectionConstraint> getActiveIntersectionConstraints();

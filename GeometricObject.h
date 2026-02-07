@@ -144,6 +144,9 @@ class GeometricObject {
   // Added getColor for serialization support
   virtual sf::Color getColor() const { return m_color; }
   
+  // Generic Halo Helper
+  virtual void drawHalo(sf::RenderTarget& target, float radius) const;
+  
   // Hosted ObjectPoint management (Generic for all shapes)
   virtual void addChildPoint(std::shared_ptr<ObjectPoint> point);
   virtual void removeChildPoint(ObjectPoint* point);

@@ -689,6 +689,12 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
     GeometryEditor &editor,
     const sf::Vector2f &worldPos_sfml,
     float tolerance) {
+  // PASS 0: Priority Snapping (Restore regression)
+  if (editor.m_snapTargetPoint && editor.m_snapTargetPoint->isValid()) {
+      std::cout << "[SNAP] PointUtils using pre-calculated snap target: " << editor.m_snapTargetPoint->getID() << std::endl;
+      return editor.m_snapTargetPoint;
+  }
+
   const bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) ||
                             sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
   const bool allowExistingPointSnap = isAltPressed;
@@ -757,7 +763,7 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
       newPoint->setIntersectionPoint(true);
       newPoint->setFillColor(Constants::INTERSECTION_POINT_COLOR);
       newPoint->setSelected(false);
-      newPoint->lock();
+      // newPoint->lock(); // Do not lock, otherwise it cannot be selected
       return newPoint;
   }
 
@@ -900,7 +906,10 @@ std::shared_ptr<Point> PointUtils::createSmartPoint(
   }
 
   // 4) Free point
-  // 4) Free point
+  if (editor.m_currentToolType == ObjectType::Intersection) {
+      return nullptr; // Intersection tool should ONLY create intersections
+  }
+
   Point_2 cgalPos = editor.toCGALPoint(worldPos_sfml);
   // Centralized factory handles creation, labeling, and registration
   return editor.createPoint(cgalPos);

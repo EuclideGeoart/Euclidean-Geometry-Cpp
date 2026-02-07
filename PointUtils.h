@@ -156,9 +156,6 @@ static std::optional<IntersectionHit> getHoveredIntersection(
 /**
  * @brief Utility for automatic label generation
  */
-/**
- * @brief Utility for automatic label generation
- */
 class LabelManager {
 public:
     static LabelManager& instance() {

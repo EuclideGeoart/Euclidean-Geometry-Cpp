@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "DynamicIntersection.h"
+#include "Intersection.h"
 #include "ForwardDeclarations.h"
 #include "GeometricObject.h"
 #include "Point.h"
@@ -17,6 +18,7 @@
 #include "RegularPolygon.h"
 #include "Triangle.h"
 #include "Angle.h"
+#include "TextLabel.h"
 #include "ObjectType.h"
 #include "Types.h"
 
@@ -157,6 +159,11 @@ class CreateCommandT : public Command {
         pushUnique(editor.angles, casted);
         break;
       }
+      case ObjectType::TextLabel: {
+        auto casted = std::dynamic_pointer_cast<TextLabel>(obj);
+        pushUnique(editor.textLabels, casted);
+        break;
+      }
       default:
         break;
     }
@@ -276,6 +283,11 @@ class CreateCommandT : public Command {
         removePtr(editor.angles, casted);
         break;
       }
+      case ObjectType::TextLabel: {
+        auto casted = std::dynamic_pointer_cast<TextLabel>(obj);
+        removePtr(editor.textLabels, casted);
+        break;
+      }
       default:
         break;
     }
@@ -326,6 +338,9 @@ class DeleteCommandT : public Command {
     for (auto &pointPtr : m_points) {
       removeObject(pointPtr);
     }
+    for (auto &tlPtr : m_textLabels) {
+      removeObject(tlPtr);
+    }
   }
 
   void undo() override {
@@ -337,6 +352,7 @@ class DeleteCommandT : public Command {
     addObjects(m_regularPolygons, m_editor.regularPolygons);
     addObjects(m_triangles, m_editor.triangles);
     addObjects(m_angles, m_editor.angles);
+    addObjects(m_textLabels, m_editor.textLabels);
     addObjects(m_objPoints, m_editor.ObjectPoints);
   }
 
@@ -355,6 +371,7 @@ class DeleteCommandT : public Command {
   std::vector<std::shared_ptr<RegularPolygon>> m_regularPolygons;
   std::vector<std::shared_ptr<Triangle>> m_triangles;
   std::vector<std::shared_ptr<Angle>> m_angles;
+  std::vector<std::shared_ptr<TextLabel>> m_textLabels;
 
   template <typename T>
   static bool containsPtr(const std::vector<std::shared_ptr<T>> &vec,
@@ -381,7 +398,7 @@ class DeleteCommandT : public Command {
   void categorizeObjects() {
     for (auto &obj : m_objects) {
       if (!obj) continue;
-      if (obj->isLocked()) continue;
+      if (obj->isLocked() && !obj->isDependent()) continue;
       switch (obj->getType()) {
         case ObjectType::Point:
         case ObjectType::IntersectionPoint:
@@ -416,6 +433,9 @@ class DeleteCommandT : public Command {
           break;
         case ObjectType::Angle:
           addUnique(m_angles, std::dynamic_pointer_cast<Angle>(obj));
+          break;
+        case ObjectType::TextLabel:
+          addUnique(m_textLabels, std::dynamic_pointer_cast<TextLabel>(obj));
           break;
         default:
           break;
@@ -485,11 +505,22 @@ class DeleteCommandT : public Command {
       return;
     }
     if (auto pointPtr = std::dynamic_pointer_cast<Point>(ptr)) {
+      if (pointPtr->isIntersectionPoint()) {
+        try {
+          DynamicIntersection::removeIntersectionPoint(pointPtr, m_editor);
+        } catch (...) {
+        }
+        return;
+      }
       removePtr(m_editor.points, pointPtr);
       return;
     }
     if (auto anglePtr = std::dynamic_pointer_cast<Angle>(ptr)) {
       removePtr(m_editor.angles, anglePtr);
+      return;
+    }
+    if (auto tlPtr = std::dynamic_pointer_cast<TextLabel>(ptr)) {
+      removePtr(m_editor.textLabels, tlPtr);
       return;
     }
   }

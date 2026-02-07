@@ -73,6 +73,15 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui-sfml)
+include_directories(libs/MicroTeX/src)
+include_directories(libs/tinyxml2)
+
+# Collect all MicroTeX source files
+file(GLOB_RECURSE MICROTEX_SOURCES "libs/MicroTeX/src/*.cpp")
+# Remove platform backends and samples (we provide our own SFML bridge)
+list(FILTER MICROTEX_SOURCES EXCLUDE REGEX ".*/platform/.*")
+list(FILTER MICROTEX_SOURCES EXCLUDE REGEX ".*/samples/.*")
+list(FILTER MICROTEX_SOURCES EXCLUDE REGEX ".*/example/.*")
 
 # Define Sources list dynamically to handle platform differences
 set(SOURCES
@@ -88,6 +97,11 @@ set(SOURCES
     ObjectPoint.cpp
     Triangle.cpp
     Angle.cpp
+    TextLabel.cpp
+    LatexRenderer.cpp
+    MicroTeXSFML.cpp
+    SymbolPalette.cpp
+    TextEditorDialog.cpp
     GUI.cpp
     Grid.cpp
     HandleEvents.cpp
@@ -100,6 +114,7 @@ set(SOURCES
     LineToolMode.cpp
     QuickProfiler.cpp
     ContextMenu.cpp
+    ConstraintUtils.cpp
     PointUtils.cpp
     ProjectSerializer.cpp
     Deserializer.cpp
@@ -111,6 +126,8 @@ set(SOURCES
     libs/imgui/imgui_widgets.cpp
     libs/imgui/imgui_demo.cpp
     libs/imgui-sfml/imgui-SFML.cpp
+    libs/tinyxml2/tinyxml2.cpp
+    ${MICROTEX_SOURCES}
 )
 
 # ImGui-SFML compatibility shim for ImGui 1.92 API changes
@@ -168,6 +185,22 @@ else()
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/arial.ttf
             ${CMAKE_BINARY_DIR}/arial.ttf
+            ${CMAKE_SOURCE_DIR}/latinmodern-math.otf
+            ${CMAKE_BINARY_DIR}/latinmodern-math.otf
+    )
+endif()
+# --- Copy MicroTeX Resources (The 'res' folder) ---
+if(WIN32)
+    add_custom_command(TARGET FluxGeo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/libs/MicroTeX/res
+            $<TARGET_FILE_DIR:FluxGeo>/res
+    )
+else()
+    add_custom_command(TARGET FluxGeo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/libs/MicroTeX/res
+            ${CMAKE_BINARY_DIR}/res
     )
 endif()
 

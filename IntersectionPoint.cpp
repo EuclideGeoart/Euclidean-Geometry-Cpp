@@ -16,6 +16,7 @@ IntersectionPoint::IntersectionPoint(std::shared_ptr<Line> line1, std::shared_pt
     // No, standard dependency is usually Point <- Line. Here it's Line -> Point.
     // We'll assume the editor calls update() or we implement specific observers later.
     // For the "Dynamic Intersection" task, we simply recalculate in update().
+    m_isIntersectionPoint = true;
 }
 
 std::shared_ptr<IntersectionPoint> IntersectionPoint::create(std::shared_ptr<Line> line1, std::shared_ptr<Line> line2, 

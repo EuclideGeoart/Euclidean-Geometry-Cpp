@@ -165,11 +165,15 @@ class Point : public GeometricObject, public std::enable_shared_from_this<Point>
   // void updateSFMLPosition(); // Removed, replaced by updateSFMLShape
   bool m_isHovered;
   bool m_isDragging;
-  bool m_isIntersectionPoint;
   bool m_isInitialized;
   bool m_deferConstraintUpdates;
   bool m_createdWithShape = false;
   std::vector<std::weak_ptr<Line>> m_connectedLines;  // Lines connected to this point
+
+ protected:
+  bool m_isIntersectionPoint;
+
+ private:
 
   // --- Labeling ---
   std::string m_label;

@@ -60,6 +60,7 @@
 #include "GUI.h"  // For editor.gui
 #include "GeometricObject.h"
 #include "GeometryEditor.h"  // Needs full definition for editor members
+#include "HandleEvents.h"
 #include "HandleMousePress.h"
 #include "Intersection.h"    // Use Master Implementation
 #include "Line.h"
@@ -76,6 +77,7 @@
 #include "Types.h"
 #include "PointUtils.h"
 #include "VariantUtils.h"
+#include "ConstraintUtils.h"  // For isPointConstrainedByLine
 #include <imgui.h>
 #include <imgui-SFML.h>
 
@@ -196,7 +198,19 @@ void unmarkObjectForDeletion(GeometricObject* obj) {
 
 bool isObjectBeingDeleted(GeometricObject* obj) { return objectsBeingDeleted.find(obj) != objectsBeingDeleted.end(); }
 
-void deselectAllAndClearInteractionState(GeometryEditor& editor) {
+void deselectAllAndClearInteractionState(GeometryEditor& editor, bool preserveSelection) {
+  if (preserveSelection) {
+    // ONLY clear interaction states, KEEP selection flags and lists
+    editor.activeVertexIndex = -1;
+    editor.activeVertexShape = nullptr;
+    editor.hoveredVertexIndex = -1;
+    editor.hoveredVertexShape = nullptr;
+    editor.dragMode = DragMode::None;
+    editor.isDragging = false;
+    editor.m_selectedEndpoint = EndpointSelection::None;
+    editor.fillTarget = nullptr;
+    return;
+  }
   // Safely deselect all objects with more robust error handling
 
   try {
@@ -326,6 +340,17 @@ void deselectAllAndClearInteractionState(GeometryEditor& editor) {
     }
   } catch (const std::exception& e) {
     std::cerr << "Exception processing angles in deselectAll: " << e.what() << std::endl;
+  }
+
+  // Deselect all text labels
+  try {
+    for (auto& labelPtr : editor.textLabels) {
+      if (labelPtr && labelPtr->isValid()) {
+        labelPtr->setSelected(false);
+      }
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Exception processing text labels in deselectAll: " << e.what() << std::endl;
   }
   // Reset editor vertex state
   editor.activeVertexIndex = -1;
@@ -504,6 +529,7 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     collectSelected(editor.regularPolygons);
     collectSelected(editor.triangles);
     collectSelected(editor.angles);
+    collectSelected(editor.textLabels);
 
     auto addToDelete = [&](const std::shared_ptr<GeometricObject>& obj) {
       if (!obj) return;
@@ -541,6 +567,7 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
     objectsToDelete.insert(objectsToDelete.end(), dependents.begin(), dependents.end());
 
     if (!objectsToDelete.empty()) {
+      editor.clearSelection(); // Prevent dangling pointers in selectedObjects
       auto cmd = std::make_shared<DeleteCommand>(editor, objectsToDelete);
       editor.commandManager.execute(cmd);
       std::cout << "Executed Undo-able Delete for " << objectsToDelete.size() << " objects." << std::endl;
@@ -586,6 +613,19 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   sf::Vector2i pixelPos(moveEvent.x, moveEvent.y);
   sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+
+  if (editor.m_currentToolType == ObjectType::TextLabel && editor.isCreatingTextBox) {
+    editor.textBoxCurrent_sfml = worldPos;
+    sf::Vector2f start = editor.textBoxStart_sfml;
+    sf::Vector2f end = editor.textBoxCurrent_sfml;
+    float left = std::min(start.x, end.x);
+    float top = std::min(start.y, end.y);
+    float width = std::abs(end.x - start.x);
+    float height = std::abs(end.y - start.y);
+    editor.textBoxPreviewShape.setPosition(left, top);
+    editor.textBoxPreviewShape.setSize(sf::Vector2f(width, height));
+    return;
+  }
 
   // Dynamic hover tolerance (match selection/preview logic)
   double dynamicWorldTolerance = getDynamicSelectionTolerance(editor);
@@ -804,10 +844,12 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   editor.currentMousePos_sfml = worldPos;
 
-  // === FREE POINT TOOL STICKY PROJECTION ===
-  // When Free Point tool is active, project cursor onto nearby lines/circles for visual feedback
-  if (editor.m_currentToolType == ObjectType::Point) {
-    float snapTolerance = getDynamicSelectionTolerance(editor);
+  // === FREE POINT / LINE TOOL STICKY PROJECTION ===
+  // When Point or Line tools are active, project cursor onto nearby objects for visual feedback
+  if (editor.m_currentToolType == ObjectType::Point || editor.m_currentToolType == ObjectType::ObjectPoint ||
+      editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment ||
+      editor.m_currentToolType == ObjectType::Ray || editor.m_currentToolType == ObjectType::Vector) {
+    float snapTolerance = getDynamicSnapTolerance(editor);  // Use dynamic snap tolerance
     bool isAltPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
 
     // Check for existing points ONLY if ALT is pressed (merge mode)
@@ -822,13 +864,37 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           pointPos = objPt->getCGALPosition();
         }
 
-        // Snap to existing point
-        editor.m_snapState = PointUtils::SnapState{};
-        editor.m_snapState.kind = PointUtils::SnapState::Kind::ExistingPoint;
-        editor.m_snapState.position = pointPos;
-        nearbyPoint->setHovered(true);
-        snappedToPoint = true;
+        // CRITICAL FIX: Secondary Distance Check - Enforce Strict Tolerance
+        sf::Vector2f candidatePos_sfml = editor.toSFMLVector(pointPos);
+        float dx = worldPos.x - candidatePos_sfml.x;
+        float dy = worldPos.y - candidatePos_sfml.y;
+        float distSq = dx * dx + dy * dy;
+        float tolSq = snapTolerance * snapTolerance;
+
+        if (distSq > tolSq) {
+          // We are visually "near" but logically "too far" for a snap.
+          // FORCE CLEAR the snap target.
+          editor.m_snapTargetPoint = nullptr;
+          editor.m_snapState = PointUtils::SnapState{};
+          nearbyPoint->setHovered(false);  // Remove Cyan highlight
+          std::cout << "[SNAP] Distance check FAILED: " << std::sqrt(distSq) << " > " << snapTolerance << std::endl;
+        } else {
+          // Valid snap - within strict tolerance
+          editor.m_snapState = PointUtils::SnapState{};
+          editor.m_snapState.kind = PointUtils::SnapState::Kind::ExistingPoint;
+          editor.m_snapState.position = pointPos;
+          
+          auto snappedPt = std::static_pointer_cast<Point>(editor.findSharedPtr(nearbyPoint));
+          editor.m_snapState.point = snappedPt;
+          editor.m_snapTargetPoint = snappedPt;
+          
+          nearbyPoint->setHovered(true);
+          snappedToPoint = true;
+          std::cout << "[SNAP] Distance check PASSED: " << std::sqrt(distSq) << " <= " << snapTolerance << std::endl;
+        }
       }
+    } else {
+        editor.m_snapTargetPoint = nullptr;
     }
 
     // If not snapped to a point, allow snapping to lines/circles (projection)
@@ -1035,21 +1101,59 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     }
   }
 
+
   // === UNIVERSAL SMART SNAPPING ===
-  if (editor.m_currentToolType == ObjectType::Point || editor.m_currentToolType == ObjectType::Line ||
+  if (editor.m_universalSnappingEnabled &&
+      (editor.m_currentToolType == ObjectType::Point || editor.m_currentToolType == ObjectType::Line ||
       editor.m_currentToolType == ObjectType::LineSegment || editor.m_currentToolType == ObjectType::Circle ||
       editor.m_currentToolType == ObjectType::Intersection || editor.m_currentToolType == ObjectType::Rectangle ||
       editor.m_currentToolType == ObjectType::RectangleRotatable || editor.m_currentToolType == ObjectType::Polygon ||
-      editor.m_currentToolType == ObjectType::RegularPolygon || editor.m_currentToolType == ObjectType::Triangle) {
-    float tolerance = getDynamicSelectionTolerance(editor);
+      editor.m_currentToolType == ObjectType::RegularPolygon || editor.m_currentToolType == ObjectType::Triangle)) {
+    float tolerance = getDynamicSnapTolerance(editor);  // Use dynamic SNAP tolerance for consistency
     editor.m_snapState = PointUtils::checkSnapping(editor, worldPos, tolerance);
 
     // Apply snap to cursor position if snapping is active (Alt key)
     bool isSnapping = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) || sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
 
     if (isSnapping && editor.m_snapState.kind != PointUtils::SnapState::Kind::None) {
-      cgalWorldPos = editor.m_snapState.position;
-      // worldPos = editor.toSFMLVector(cgalWorldPos); // Optional: Sync SFML pos if needed
+      // CRITICAL FIX: Strict Distance Validation - Enforce Visual-Logic Consistency
+      sf::Vector2f snapPos_sfml = editor.toSFMLVector(editor.m_snapState.position);
+      float dx = worldPos.x - snapPos_sfml.x;
+      float dy = worldPos.y - snapPos_sfml.y;
+      float distSq = dx * dx + dy * dy;
+      float tolSq = tolerance * tolerance;
+
+      bool shouldApplySnap = true;
+
+      // Distance Check: If snap position is outside tolerance, reject it
+      if (distSq > tolSq) {
+        std::cout << "[UNIVERSAL SNAP] Distance check FAILED: " << std::sqrt(distSq) << " > " << tolerance << std::endl;
+        shouldApplySnap = false;
+        editor.m_snapState = PointUtils::SnapState{};  // Clear snap state
+        editor.m_snapTargetPoint = nullptr;  // Clear snap target
+      }
+      
+      // Additional check: Reject constrained points for Rectangle tools
+      if (shouldApplySnap && (editor.m_currentToolType == ObjectType::Rectangle || 
+          editor.m_currentToolType == ObjectType::RectangleRotatable)) {
+        // Find the point at the snap position
+        GeometricObject* snapTarget = editor.lookForObjectAt(editor.toSFMLVector(editor.m_snapState.position), tolerance, 
+                                                              {ObjectType::Point, ObjectType::ObjectPoint});
+        if (snapTarget) {
+          auto snapPoint = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(snapTarget));
+          if (snapPoint && ConstraintUtils::isPointConstrainedByLine(editor, snapPoint)) {
+            std::cout << "[SNAP] Rejecting snap to constrained point at event level" << std::endl;
+            shouldApplySnap = false;
+            editor.m_snapState = PointUtils::SnapState{};
+            editor.m_snapTargetPoint = nullptr;
+          }
+        }
+      }
+      
+      if (shouldApplySnap) {
+        cgalWorldPos = editor.m_snapState.position;
+        // worldPos = editor.toSFMLVector(cgalWorldPos); // Optional: Sync SFML pos if needed
+      }
     }
   } else {
     editor.m_snapState = PointUtils::SnapState{};
@@ -1070,8 +1174,14 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     editor.selectionBoxShape.setSize(sf::Vector2f(width, height));
     return;
   } else if (sf::Mouse::isButtonPressed(sf::Mouse::Left) && !editor.isDragging &&  // Not dragging an existing object
-             editor.m_currentToolType == ObjectType::None &&                       // No tool active
-             !editor.isDrawingSelectionBox) {                                      // And not already drawing a
+             (editor.m_currentToolType == ObjectType::None ||
+              editor.m_currentToolType == ObjectType::ReflectAboutLine ||
+              editor.m_currentToolType == ObjectType::ReflectAboutPoint ||
+              editor.m_currentToolType == ObjectType::ReflectAboutCircle ||
+              editor.m_currentToolType == ObjectType::RotateAroundPoint ||
+              editor.m_currentToolType == ObjectType::TranslateByVector ||
+              editor.m_currentToolType == ObjectType::DilateFromPoint) &&  // Allow transform tools
+             !editor.isDrawingSelectionBox) {                              // And not already drawing a
     // selection box
 
     // Check if the mouse has moved significantly from the initial press to
@@ -1158,9 +1268,31 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // Handle preview rectangle
   if (shouldUpdatePreview && editor.isCreatingRectangle && editor.previewRectangle) {
+    // CRITICAL FIX: Use validated snap position for preview to ensure WYSIWYG
+    Point_2 targetPos = cgalWorldPos;  // Already validated by universal snapping above
+    
+    // Double-check: If we have a snap target, validate it one more time
+    if (editor.m_snapTargetPoint && editor.m_snapTargetPoint->isValid()) {
+      sf::Vector2f snapPos = editor.m_snapTargetPoint->getSFMLPosition();
+      float dx = worldPos.x - snapPos.x;
+      float dy = worldPos.y - snapPos.y;
+      float distSq = dx * dx + dy * dy;
+      float tolerance = getDynamicSnapTolerance(editor);
+      float tolSq = tolerance * tolerance;
+      
+      if (distSq <= tolSq) {
+        // Valid snap - use snapped position for preview
+        targetPos = editor.m_snapTargetPoint->getCGALPosition();
+      } else {
+        // Snap is stale - clear it and use mouse position
+        editor.m_snapTargetPoint = nullptr;
+        targetPos = cgalWorldPos;
+      }
+    }
+    
     // Update the rectangle so that it spans from the start corner (stored as corner1)
-    // to the current mouse position
-    editor.previewRectangle->setCorners(editor.rectangleCorner1, cgalWorldPos);
+    // to the validated target position (either snapped or mouse position)
+    editor.previewRectangle->setCorners(editor.rectangleCorner1, targetPos);
   }
 
   // Handle preview rotatable rectangle (3-step: base then height)
@@ -1244,6 +1376,25 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // Handle dragging
   if (editor.isDragging) {
+    // CRITICAL FIX: Stop "Zombie Dragging" during shape creation
+    const bool isCreatingShape = 
+        editor.isCreatingRectangle || editor.isCreatingRotatableRectangle ||
+        editor.m_currentToolType == ObjectType::Rectangle ||
+        editor.m_currentToolType == ObjectType::RectangleRotatable;
+    
+    if (isCreatingShape && (editor.dragMode == DragMode::MoveFreePoint || 
+                            editor.dragMode == DragMode::MoveLineEndpointStart ||
+                            editor.dragMode == DragMode::MoveLineEndpointEnd ||
+                            editor.dragMode == DragMode::DragObjectPoint ||
+                            editor.dragMode == DragMode::TranslateLine ||
+                            editor.dragMode == DragMode::TranslateShape ||
+                            editor.dragMode == DragMode::MoveShapeVertex)) {
+      editor.dragMode = DragMode::None;
+      editor.m_selectedEndpoint = EndpointSelection::None;
+      editor.isDragging = false;
+      return;  // Paralyze all dragging during rectangle creation
+    }
+    
     const bool creationModeActive =
         (editor.m_currentToolType != ObjectType::None) ||
         editor.isCreatingCircle || editor.isCreatingCircle3P || editor.isCreatingSemicircle ||
@@ -1251,7 +1402,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
         editor.isCreatingRectangle || editor.isCreatingRotatableRectangle || editor.isCreatingPolygon ||
         editor.isCreatingRegularPolygon || editor.isCreatingTriangle || editor.m_isPlacingParallel ||
         editor.m_isPlacingPerpendicular;
-    if (creationModeActive) {
+    if (creationModeActive &&
+        (editor.dragMode == DragMode::MoveFreePoint || editor.dragMode == DragMode::MoveLineEndpointStart ||
+         editor.dragMode == DragMode::MoveLineEndpointEnd || editor.dragMode == DragMode::DragObjectPoint)) {
       editor.dragMode = DragMode::None;
       editor.m_selectedEndpoint = EndpointSelection::None;
       editor.isDragging = false;
@@ -1396,7 +1549,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
          editor.dragMode == DragMode::MoveLineEndpointEnd || editor.dragMode == DragMode::DragObjectPoint)) {  // Added DragObjectPoint support
       // std::cout << "Ctrl held. Searching for snap..." << std::endl;
 
-      double bestDistSq = 1000.0;
+      double bestDistSq = 500.0;
       bool foundSnap = false;
       Point_2 snapLocation;
       std::shared_ptr<Point> bestSnapPoint;
@@ -1440,6 +1593,7 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
             foundSnap = true;
           }
         }
+        
 
         if (endPoint && endPoint.get() != draggedPointRaw) {
           double d2 = CGAL::to_double(CGAL::squared_distance(targetPos, endPoint->getCGALPosition()));
@@ -1451,8 +1605,20 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           }
         }
       }
+      // C. Check ObjectPoints
+        for (const auto& op : editor.ObjectPoints) {
+          if (!op || !op->isValid() || !op->isVisible()) continue;
+          if (op.get() == draggedPointRaw) continue;
+          double d = CGAL::to_double(CGAL::squared_distance(targetPos, op->getCGALPosition()));
+          if (d < bestDistSq) {
+            bestDistSq = d;
+            snapLocation = op->getCGALPosition();
+            bestSnapPoint = op;
+            foundSnap = true;
+          }
+        }
 
-      // C. APPLY SNAP
+      // D. APPLY SNAP
       if (foundSnap) {
         // std::cout << "SNAP! Adjusted pos to: " << snapLocation << std::endl;
         targetPos = snapLocation;
@@ -1761,6 +1927,11 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
               tri->move(delta_cgal);
               break;
             }
+            case ObjectType::TextLabel: {
+              auto* label = static_cast<TextLabel*>(editor.selectedObject);
+              label->move(delta_cgal);
+              break;
+            }
             default:
               break;
           }
@@ -1867,7 +2038,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     lastHoverCheckPos = worldPos;
 
     QUICK_PROFILE("HoverDetection");
-    float tolerance = static_cast<float>(dynamicWorldTolerance);
+    float tolerance = (editor.m_currentToolType != ObjectType::None) ? 
+                      getDynamicSnapTolerance(editor) : static_cast<float>(dynamicWorldTolerance);
     // IMPROVED: Only reset hover if something was previously hovered
 
     // Reset only the previously hovered object if it's still valid and not being deleted
@@ -2363,6 +2535,45 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
     return;  // GUI consumed the event
   }
 
+  if (mouseEvent.button == sf::Mouse::Left && editor.m_currentToolType == ObjectType::TextLabel && editor.isCreatingTextBox) {
+    editor.isCreatingTextBox = false;
+
+    sf::Vector2f start = editor.textBoxStart_sfml;
+    sf::Vector2f end = editor.textBoxCurrent_sfml;
+    float worldWidth = std::abs(end.x - start.x);
+    float threshold = getDynamicSelectionTolerance(editor) * 2.0f;
+
+    float boxWidthWorld = (worldWidth > threshold) ? worldWidth : 0.0f;
+
+    auto newLabel = std::make_shared<TextLabel>(editor.toCGALPoint(start),
+                                                "",
+                                                false,
+                                                editor.drawingFontSize,
+                                                editor.getCurrentColor(),
+                                                editor.objectIdCounter++);
+    newLabel->setBoxWidthWorld(boxWidthWorld);
+    editor.textLabels.push_back(newLabel);
+    editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLabel)));
+
+    editor.textBoxPreviewShape.setSize(sf::Vector2f(0.f, 0.f));
+
+    // Open text editor dialog
+    editor.textEditingLabel = newLabel;
+    editor.textEditorDialog.open("", false, editor.drawingFontSize);
+    editor.setGUIMessage("Text: Enter text in dialog (OK to confirm, Cancel to abort).");
+    {
+      sf::Vector2i screenPos = editor.window.mapCoordsToPixel(start, editor.drawingView);
+      sf::Vector2f uiPos = editor.window.mapPixelToCoords(screenPos, editor.guiView);
+      editor.textPalettePosition = uiPos + sf::Vector2f(0.f, 40.f);
+    }
+    editor.clearSelection();
+    newLabel->setSelected(true);
+    editor.selectedObject = newLabel.get();
+
+    editor.setGUIMessage("Text: Enter content (Shift+Enter to finish).");
+    return;
+  }
+
   // Check if we're releasing a selection box drag
   if (editor.isDrawingSelectionBox && mouseEvent.button == sf::Mouse::Left) {
     editor.isDrawingSelectionBox = false;
@@ -2372,7 +2583,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
     if (!isCtrlHeld) {
       editor.clearSelection();
-      deselectAllAndClearInteractionState(editor);
+      deselectAllAndClearInteractionState(editor, false);
     }
     sf::FloatRect selectionBox(std::min(editor.selectionBoxStart_sfml.x, worldPos.x), std::min(editor.selectionBoxStart_sfml.y, worldPos.y),
                                std::abs(worldPos.x - editor.selectionBoxStart_sfml.x), std::abs(worldPos.y - editor.selectionBoxStart_sfml.y));
@@ -2469,6 +2680,15 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
       for (auto& anglePtr : editor.angles) {
         if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && !anglePtr->isLocked() && selectionBox.intersects(anglePtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(anglePtr.get());
+        }
+      }
+      
+      // Add TextLabel selection
+      for (auto& labelPtr : editor.textLabels) {
+        if (labelPtr && labelPtr->isValid() && labelPtr->isVisible() && !labelPtr->isLocked()) {
+             if(selectionBox.intersects(labelPtr->getGlobalBounds())) {
+                 newlySelectedObjects.push_back(labelPtr.get());
+             }
         }
       }
 
@@ -2856,6 +3076,38 @@ void handleEvents(GeometryEditor& editor) {
         handleMouseWheelScroll(editor, event.mouseWheelScroll);
         break;
       case sf::Event::TextEntered:
+        if (editor.isTextEditing && editor.textEditingLabel) {
+          bool shiftPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
+          if (event.text.unicode == 8) {  // Backspace
+            if (editor.textCursorIndex > 0 && !editor.textEditBuffer.empty()) {
+              editor.textEditBuffer.erase(editor.textCursorIndex - 1, 1);
+              editor.textCursorIndex--;
+            }
+          } else if (event.text.unicode == 13) {  // Enter
+            if (shiftPressed) {
+              editor.textEditingLabel->setRawContent(editor.textEditBuffer, editor.textEditIsRich);
+              editor.textEditingLabel->setFontSize(editor.textEditFontSize);
+              editor.textEditingLabel->update();
+              editor.isTextEditing = false;
+              editor.textEditingLabel = nullptr;
+              editor.showSymbolPalette = false;
+              editor.setGUIMessage("Text updated.");
+            } else {
+              editor.textEditBuffer.insert(editor.textCursorIndex, "\n");
+              editor.textCursorIndex++;
+            }
+          } else if (event.text.unicode >= 32 && event.text.unicode < 128) {
+            char ch = static_cast<char>(event.text.unicode);
+            editor.textEditBuffer.insert(editor.textCursorIndex, 1, ch);
+            editor.textCursorIndex++;
+          }
+          editor.textCursorBlinkClock.restart();
+          if (editor.textEditingLabel) {
+            editor.textEditingLabel->setRawContent(editor.textEditBuffer, editor.textEditIsRich);
+            editor.textEditingLabel->setFontSize(editor.textEditFontSize);
+          }
+          break;
+        }
         if (editor.isRenaming) {
           if (event.text.unicode == 8) {  // Backspace
             if (!editor.renameBuffer.empty()) editor.renameBuffer.pop_back();
@@ -2876,6 +3128,56 @@ void handleEvents(GeometryEditor& editor) {
         }
         break;
       case sf::Event::KeyPressed:
+        if (editor.isTextEditing && editor.textEditingLabel) {
+          if (event.key.code == sf::Keyboard::Left) {
+            if (editor.textCursorIndex > 0) editor.textCursorIndex--;
+            editor.textCursorBlinkClock.restart();
+            break;
+          }
+          if (event.key.code == sf::Keyboard::Right) {
+            if (editor.textCursorIndex < editor.textEditBuffer.size()) editor.textCursorIndex++;
+            editor.textCursorBlinkClock.restart();
+            break;
+          }
+          if (event.key.code == sf::Keyboard::Home) {
+            editor.textCursorIndex = 0;
+            editor.textCursorBlinkClock.restart();
+            break;
+          }
+          if (event.key.code == sf::Keyboard::End) {
+            editor.textCursorIndex = editor.textEditBuffer.size();
+            editor.textCursorBlinkClock.restart();
+            break;
+          }
+          if (event.key.code == sf::Keyboard::Delete) {
+            if (editor.textCursorIndex < editor.textEditBuffer.size()) {
+              editor.textEditBuffer.erase(editor.textCursorIndex, 1);
+              editor.textCursorBlinkClock.restart();
+              editor.textEditingLabel->setRawContent(editor.textEditBuffer, editor.textEditIsRich);
+              editor.textEditingLabel->setFontSize(editor.textEditFontSize);
+            }
+            break;
+          }
+          if (event.key.code == sf::Keyboard::Escape) {
+            editor.isTextEditing = false;
+            editor.textEditingLabel = nullptr;
+            editor.showSymbolPalette = false;
+            editor.setGUIMessage("Text edit cancelled.");
+            break;
+          }
+          if (event.key.code == sf::Keyboard::Enter &&
+              (event.key.shift || sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::RShift))) {
+            editor.textEditingLabel->setRawContent(editor.textEditBuffer, editor.textEditIsRich);
+            editor.textEditingLabel->setFontSize(editor.textEditFontSize);
+            editor.textEditingLabel->update();
+            editor.isTextEditing = false;
+            editor.textEditingLabel = nullptr;
+            editor.showSymbolPalette = false;
+            editor.setGUIMessage("Text updated.");
+            break;
+          }
+          break;
+        }
         handleKeyPress(editor, event.key);
         if (event.key.code == sf::Keyboard::LAlt || event.key.code == sf::Keyboard::RAlt) {
           // Force update of snap state (magnet effect) immediately on key press
