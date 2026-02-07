@@ -76,7 +76,7 @@ void Grid::update(const sf::View &view, const sf::Vector2u &windowSize) {
   // Safety padding to ensure lines don't pop out at edges.
   // We add 'step' to the half-sizes to ensure we cover the full view plus a bit more.
   float step = m_currentGridSpacing;
-  float extraPad = step * 2.0f; // Generous padding
+  float extraPad = step * 1.0f; // Generous padding
 
   float left = center.x - size.x / 2.0f - extraPad;
   float right = center.x + size.x / 2.0f + extraPad;
