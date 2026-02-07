@@ -2645,12 +2645,6 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
         }
       }
       
-      // ObjectPoints
-      for (auto& objPointPtr : editor.ObjectPoints) {
-        if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible() && !objPointPtr->isLocked() && selectionBox.intersects(objPointPtr->getGlobalBounds())) {
-          newlySelectedObjects.push_back(objPointPtr.get());
-        }
-      }
       // Add Rectangle selection
       for (auto& rectPtr : editor.rectangles) {
         if (rectPtr && rectPtr->isValid() && rectPtr->isVisible() && !rectPtr->isLocked() && selectionBox.intersects(rectPtr->getGlobalBounds())) {
@@ -2706,14 +2700,6 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
       // primary selected object
       if (newlySelectedObjects.size() == 1) {
         editor.selectedObject = newlySelectedObjects[0];
-        if (editor.selectedObject) {
-          sf::Color selectedColor = editor.selectedObject->getColor();
-          editor.setCurrentColor(selectedColor);
-          editor.gui.setCurrentColor(selectedColor);
-          if (auto& picker = editor.gui.getColorPicker()) {
-            picker->setCurrentColor(selectedColor);
-          }
-        }
       }
       // If multiple objects are selected, editor.selectedObject remains
       // nullptr (as set by deselectAllAndClearInteractionState)

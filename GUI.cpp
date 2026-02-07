@@ -1160,12 +1160,15 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       }
 
       // Embedded Color Picker
-      static float colorBuf[4] = {0, 0, 0, 1};
-      // Sync picker with current color if selection changes (optional, but good UX)
-      // For now, just keep it independent or it might fight with multiple selections having different colors.
+      sf::Color currentSfColor = editor.getCurrentColor();
+      float colorBuf[4] = {
+          currentSfColor.r / 255.0f,
+          currentSfColor.g / 255.0f,
+          currentSfColor.b / 255.0f,
+          currentSfColor.a / 255.0f
+      };
 
-      ImGui::ColorEdit4("Custom", colorBuf, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_DisplayRGB);
-      if (ImGui::IsItemEdited()) {
+      if (ImGui::ColorEdit4("Custom", colorBuf, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_DisplayRGB)) {
         sf::Color c(static_cast<sf::Uint8>(colorBuf[0] * 255), static_cast<sf::Uint8>(colorBuf[1] * 255), static_cast<sf::Uint8>(colorBuf[2] * 255),
                     static_cast<sf::Uint8>(colorBuf[3] * 255));
         editor.setCurrentColor(c);

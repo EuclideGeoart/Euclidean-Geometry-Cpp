@@ -372,9 +372,9 @@ void Line::registerWithEndpoints() {
 
   if (m_endPoint) {
     try {
-      std::cout << "Registering line with end point" << std::endl;
-      m_endPoint->addConnectedLine(shared_from_this());  // ✅ UNCOMMENT THIS!
-      std::cout << "Successfully registered line " << getID() << " with end point " << m_endPoint->getID() << std::endl;
+      // std::cout << "Registering line with end point" << std::endl;
+      m_endPoint->addConnectedLine(shared_from_this());
+      // std::cout << "Successfully registered line " << getID() << " with end point " << m_endPoint->getID() << std::endl;
     } catch (const std::exception& e) {
       std::cerr << "Error registering with end point: " << e.what() << std::endl;
     }
@@ -1236,6 +1236,49 @@ void Line::update() {
     return;
   }
   m_isUpdatingInternally = true;
+
+  // 1. Validate Parents (Resurrection Logic - Robust Version)
+  // We only check for validity (not visibility) because construction points 
+  // for Parallels/Perpendiculars are hidden by default.
+  bool parentsAreValid = true;
+  if (!m_startPoint || !m_startPoint->isValid()) {
+    parentsAreValid = false;
+  }
+  if (!m_endPoint || !m_endPoint->isValid()) {
+    parentsAreValid = false;
+  }
+  
+  // CRITICAL FIX: For perpendicular/parallel lines, also check the reference object
+  // This is needed because the construction points might still be "valid" even when
+  // the reference object becomes invalid  
+  if (m_isParallelLine || m_isPerpendicularLine) {
+    auto refObj = m_constraintRefObject.lock();
+    if (refObj) {
+      // Reference object exists, check if it's valid
+      if (!refObj->isValid()) {
+        parentsAreValid = false;
+      }
+    }
+    // If refObj is null but we have a constraint direction, it's an axis-aligned line (valid)
+    // If refObj is null and direction is zero, that's invalid (shouldn't happen in normal use)
+  }
+
+  // 2. APPLY STATE (Persistence)
+  if (parentsAreValid) {
+    if (!this->isVisible()) {
+      this->setVisible(true); // RESURRECTION
+      // std::cout << "[RECOVERY] Resurrected Line " << getID() << " - Parents are now valid." << std::endl;
+    }
+  } else {
+    // If parents are invalid, we MUST be hidden.
+    if (this->isVisible()) {
+      this->setVisible(false); // HIDE
+      // std::cout << "[CACHED] Hiding Line " << getID() << " - Parents are invalid or hidden." << std::endl;
+    }
+    m_isUpdatingInternally = false;
+    m_externallyMovedEndpoint = nullptr;
+    return; // STOP calculation if parents are gone/invalid
+  }
 
   if (isDependent()) {
     updateDependentShape();

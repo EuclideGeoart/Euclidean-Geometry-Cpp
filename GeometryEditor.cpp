@@ -449,33 +449,27 @@ void GeometryEditor::updateConstraintsOnly() {
   QUICK_PROFILE("GeometryEditor::updateConstraintsOnly");
 
   try {
-    // Update constraints for all lines without full geometry rebuild
+    // RESURRECTION FIX: Remove isValid checks and call update() to allow resurrection
+    // Update all lines (including hidden ones that might resurrect)
     for (auto &linePtr : lines) {
-      if (linePtr && linePtr->isValid()) {
-        QUICK_PROFILE("Line::maintainConstraints");
-
-        // Use your existing method: getIsUnderDirectManipulation() instead of
-        // isUnderDirectManipulation()
-        if (!linePtr->getIsUnderDirectManipulation()) {
-          linePtr->maintainConstraints();
-        }
+      if (linePtr) {
+        // Call update() instead of just maintainConstraints() so resurrection logic runs
+        linePtr->update();
       }
     }
 
     // Update ObjectPoints to stay on their host objects
+    // RESURRECTION FIX: Remove isValid() check
     for (auto &objPointPtr : ObjectPoints) {
-      if (objPointPtr && objPointPtr->isValid()) {
-        QUICK_PROFILE("ObjectPoint::updatePositionFromHost");
-
-        // Use your existing method: updatePositionFromHost() instead of
-        // updatePosition()
+      if (objPointPtr) {
         objPointPtr->updatePositionFromHost();
       }
     }
 
     // Update dependent points (transformations, intersections, etc.)
+    // RESURRECTION FIX: Remove isValid() check so hidden points can resurrect
     for (auto &pt : points) {
-      if (!pt || !pt->isValid()) continue;
+      if (!pt) continue;
       if (pt->isDependent() || pt->isIntersectionPoint() || pt->getType() == ObjectType::IntersectionPoint) {
         pt->update();
       }
@@ -2196,30 +2190,34 @@ void GeometryEditor::updateAllGeometry() {
   // Update all objects to ensure consistency after manipulations
   try {
     // Update points
+    // RESURRECTION FIX: Remove isValid() check to allow points to resurrect
     for (auto &point : points) {
-      if (point && point->isValid()) {
+      if (point) {
         point->update();
       }
     }
 
     // Update lines and their constraints
+    // RESURRECTION FIX: Remove isValid() check to allow lines to resurrect
     for (auto &line : lines) {
-      if (line && line->isValid()) {
+      if (line) {
         line->update();
         line->maintainConstraints();
       }
     }
 
     // Update circles
+    // RESURRECTION FIX: Remove isValid() check to allow circles to resurrect
     for (auto &circle : circles) {
-      if (circle && circle->isValid()) {
+      if (circle) {
         circle->update();
       }
     }
 
     // Update object points
+    // RESURRECTION FIX: Remove isValid() check to allow object points to resurrect
     for (auto &objPoint : ObjectPoints) {
-      if (objPoint && objPoint->isValid()) {
+      if (objPoint) {
         objPoint->update();
       }
     }
