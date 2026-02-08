@@ -3,9 +3,9 @@
 #include <iostream>
 #include <CGAL/intersections.h>
 
-IntersectionPoint::IntersectionPoint(std::shared_ptr<Line> line1, std::shared_ptr<Line> line2, const Point_2& pos,
-                                   const sf::Color& color)
-    : Point(pos, 1.0f, color), m_line1(line1), m_line2(line2) {
+IntersectionPoint::IntersectionPoint(std::shared_ptr<Line> line1, std::shared_ptr<Line> line2, 
+                                   const Point_2& pos, const sf::Color& color, unsigned int id)
+    : Point(pos, 1.0f, color, id), m_line1(line1), m_line2(line2) {
     // We don't automatically register because we might be in creation phase
     // User/Factory should ensure registration if needed, but here we just observe
     // Actually, we need to know when lines move. IntersectionPoint should arguably observe them.
@@ -34,7 +34,40 @@ void IntersectionPoint::update() {
 }
 
 void IntersectionPoint::recalculateIntersection() {
-    // Check if parent lines still exist
+    // If user has set a visibility override, do not forcibly change visibility
+    if (hasVisibilityUserOverride()) {
+        // Still update validity and position, but don't change visibility
+        if (!areParentsValid()) {
+            m_isValid = false;
+            return;
+        }
+
+        auto l1 = m_line1.lock();
+        auto l2 = m_line2.lock();
+
+        if (!l1 || !l2) {
+            m_isValid = false;
+            return;
+        }
+
+        if (!l1->isValid() || !l2->isValid()) {
+            m_isValid = false;
+            return;
+        }
+
+        Line_2 cgalLine1 = l1->getCGALLine();
+        Line_2 cgalLine2 = l2->getCGALLine();
+        CGAL::Object result = CGAL::intersection(cgalLine1, cgalLine2);
+        if (const Point_2* ip = CGAL::object_cast<Point_2>(&result)) {
+            setCGALPosition(*ip);
+            m_isValid = true;
+        } else {
+            m_isValid = false;
+        }
+        return;
+    }
+
+    // Normal logic if no user override
     if (!areParentsValid()) {
         m_isValid = false;
         setVisible(false);
@@ -50,27 +83,20 @@ void IntersectionPoint::recalculateIntersection() {
         return;
     }
 
-    // Check if parent lines are valid (have valid endpoints)
     if (!l1->isValid() || !l2->isValid()) {
         m_isValid = false;
         setVisible(false);
         return;
     }
 
-    // Get CGAL lines
     Line_2 cgalLine1 = l1->getCGALLine();
     Line_2 cgalLine2 = l2->getCGALLine();
-
-    // Intersect
     CGAL::Object result = CGAL::intersection(cgalLine1, cgalLine2);
-
     if (const Point_2* ip = CGAL::object_cast<Point_2>(&result)) {
-        // Intersection found - resurrect the point
         setCGALPosition(*ip);
         m_isValid = true;
         setVisible(true);
     } else {
-        // Parallel or coincident - hide the point
         m_isValid = false;
         setVisible(false);
     }

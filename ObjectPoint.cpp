@@ -283,6 +283,18 @@ void ObjectPoint::setHost(std::shared_ptr<Circle> circleHost) {
 
   std::cout << "ObjectPoint::setHost - Circle host set successfully" << std::endl;
 }
+
+void ObjectPoint::relinkHost(std::shared_ptr<GeometricObject> host, double t, ObjectType hostType) {
+    setHost(host, hostType);
+    if (hostType == ObjectType::Circle) {
+        m_angleOnCircleRad = t;
+    } else {
+        m_relativePositionOnLine = Kernel::FT(t);
+        m_edgeRelativePos = t; // For shape edge
+    }
+    updatePositionFromHost();
+}
+
 // Fix the destructor to ensure proper cleanup
 ObjectPoint::~ObjectPoint() {
   std::cout << "ObjectPoint::~ObjectPoint: ENTERED for ObjectPoint " << this << std::endl;

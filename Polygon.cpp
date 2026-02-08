@@ -391,7 +391,9 @@ void Polygon::updateDependentShape() {
 
   updateSFMLShape();
   updateHostedPoints();
-  setVisible(parent->isVisible());
+  if (!hasVisibilityUserOverride()) {
+    setVisible(parent->isVisible());
+  }
 }
 
 void Polygon::setVertexPosition(size_t index, const Point_2 &value) {

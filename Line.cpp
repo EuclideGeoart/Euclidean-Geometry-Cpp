@@ -1308,7 +1308,9 @@ void Line::updateDependentShape() {
   updateCGALLine();
   updateSFMLShape();
   updateHostedPoints();
-  if (sourceLine->isVisible()) setVisible(true); // Restore visibility if source visible
+  if (!hasVisibilityUserOverride()) {
+      if (sourceLine->isVisible()) setVisible(true); // Restore visibility if source visible
+  }
 }
 
 void Line::update() {
@@ -1350,7 +1352,7 @@ void Line::update() {
 
   // 2. APPLY STATE (Persistence)
   if (parentsAreValid) {
-    if (!this->isVisible()) {
+    if (!this->isVisible() && !hasVisibilityUserOverride() && !m_isAxis) {
       this->setVisible(true); // RESURRECTION
       // std::cout << "[RECOVERY] Resurrected Line " << getID() << " - Parents are now valid." << std::endl;
     }

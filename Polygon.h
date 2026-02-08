@@ -37,6 +37,7 @@ class Polygon : public GeometricObject {
   virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const override;
   virtual void update() override;
   virtual void setColor(const sf::Color& color) override;
+  sf::Color getFillColor() const { return m_sfmlShape.getFillColor(); }
   virtual bool contains(const sf::Vector2f& screenPos, float tolerance) const override;
   virtual std::string getTypeString() const { return "Polygon"; }
   virtual void translate(const Vector_2& translation) override;

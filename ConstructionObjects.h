@@ -329,7 +329,7 @@ public:
         setLabel("M");
     }
     
-    void update() override {
+  void update() override {
         bool valid = false;
         Point_2 newPos;
 
@@ -352,6 +352,17 @@ public:
         } else {
             setVisible(false);
         }
+    }
+
+    void relinkTransformation(std::shared_ptr<GeometricObject> p1, std::shared_ptr<GeometricObject> p2, std::shared_ptr<GeometricObject> aux2 = nullptr) override {
+        (void)aux2;
+        parent1 = std::dynamic_pointer_cast<Point>(p1);
+        parent2 = std::dynamic_pointer_cast<Point>(p2);
+        parentLine = std::dynamic_pointer_cast<Line>(p1); // Handle Line-based midpoint via p1
+        if (parent1) parent1->addDependent(m_selfHandle);
+        if (parent2) parent2->addDependent(m_selfHandle);
+        if (parentLine) parentLine->addDependent(m_selfHandle);
+        update();
     }
 
 private:
@@ -445,6 +456,24 @@ public:
     } else {
         setVisible(false);
     }
+}
+
+void relinkTransformation(std::shared_ptr<GeometricObject> c, std::shared_ptr<GeometricObject> p1, std::shared_ptr<GeometricObject> p2 = nullptr) override {
+    centerPt = std::dynamic_pointer_cast<Point>(c);
+    if (auto ln = std::dynamic_pointer_cast<Line>(p1)) {
+        radiusLine = ln;
+        radiusP1.reset();
+        radiusP2.reset();
+    } else {
+        radiusP1 = std::dynamic_pointer_cast<Point>(p1);
+        radiusP2 = std::dynamic_pointer_cast<Point>(p2);
+        radiusLine.reset();
+    }
+    if (centerPt) centerPt->addDependent(m_selfHandle);
+    if (radiusP1) radiusP1->addDependent(m_selfHandle);
+    if (radiusP2) radiusP2->addDependent(m_selfHandle);
+    if (auto rl = radiusLine) rl->addDependent(m_selfHandle);
+    update();
 }
 
 private:

@@ -72,6 +72,7 @@ class Rectangle : public GeometricObject {
   // Additional methods (not overrides)
   sf::Color getColor() const override { return m_color; }
   Point_2 getCenter() const;
+  sf::Color getFillColor() const { return m_sfmlShape.getFillColor(); }
   bool isWithinDistance(const sf::Vector2f &screenPos, float tolerance) const;
   void rotateCCW(const Point_2 &center, double angleRadians);
 

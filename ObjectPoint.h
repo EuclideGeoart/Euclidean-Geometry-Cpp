@@ -46,6 +46,10 @@ public:
   ObjectPoint(std::shared_ptr<Circle> hostCircle, double angleRad,
               const sf::Color &color = Constants::OBJECT_POINT_DEFAULT_COLOR);
 
+  // Stub constructor for deserialization Pass 1
+  ObjectPoint(const Point_2 &pos, float zoom, const sf::Color &color, unsigned int id)
+      : Point(pos, zoom, color, id) {}
+
   virtual ~ObjectPoint(); // Virtual destructor
   // --- Factory Methods ---
   static std::shared_ptr<ObjectPoint> create(std::shared_ptr<Line> hostLine,
@@ -102,6 +106,7 @@ public:
   void setHost(std::shared_ptr<Line> lineHost);
   void setHost(std::shared_ptr<Circle> circleHost);
   void clearHost(); // Make sure this is public and correctly implemented
+  void relinkHost(std::shared_ptr<GeometricObject> host, double t, ObjectType hostType);
   void validate() const;
 
   // Add the getPositionCGAL method declaration to the public section of your

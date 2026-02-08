@@ -27,6 +27,7 @@ class Angle : public GeometricObject {
   void setCGALPosition(const Point_2 &newPos) override { (void)newPos; }
   void setPosition(const sf::Vector2f &newPos) override { (void)newPos; }
   void setColor(const sf::Color &color) override;
+  sf::Color getFillColor() const { return m_fillColor; }
   void translate(const Vector_2 &offset) override { (void)offset; }
 
   void setReflex(bool reflex);
@@ -39,6 +40,16 @@ class Angle : public GeometricObject {
   // Label overrides
   void drawLabel(sf::RenderWindow &window, const sf::View &view) const override;
   sf::Vector2f getLabelAnchor(const sf::View &view) const override;
+  
+  void relinkTransformation(std::shared_ptr<GeometricObject> p1, std::shared_ptr<GeometricObject> p2, std::shared_ptr<GeometricObject> p3 = nullptr) override {
+    m_vertex = std::dynamic_pointer_cast<Point>(p1);
+    m_pointA = std::dynamic_pointer_cast<Point>(p2);
+    m_pointB = std::dynamic_pointer_cast<Point>(p3);
+    if (auto v = m_vertex.lock()) v->addDependent(m_selfHandle);
+    if (auto a = m_pointA.lock()) a->addDependent(m_selfHandle);
+    if (auto b = m_pointB.lock()) b->addDependent(m_selfHandle);
+    updateSFMLShape();
+  }
   
   // Label offset support (already in base)
   

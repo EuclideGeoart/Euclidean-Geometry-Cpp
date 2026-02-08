@@ -1200,7 +1200,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     editor.selectionBoxShape.setSize(sf::Vector2f(width, height));
     return;
   } else if (sf::Mouse::isButtonPressed(sf::Mouse::Left) && !editor.isDragging &&  // Not dragging an existing object
-             (editor.m_currentToolType == ObjectType::None || editor.m_currentToolType == ObjectType::ReflectAboutLine ||
+             (editor.m_currentToolType == ObjectType::None || editor.m_currentToolType == ObjectType::Hide ||
+              editor.m_currentToolType == ObjectType::ReflectAboutLine ||
               editor.m_currentToolType == ObjectType::ReflectAboutPoint || editor.m_currentToolType == ObjectType::ReflectAboutCircle ||
               editor.m_currentToolType == ObjectType::RotateAroundPoint || editor.m_currentToolType == ObjectType::TranslateByVector ||
               editor.m_currentToolType == ObjectType::DilateFromPoint) &&  // Allow transform tools
@@ -2601,7 +2602,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
       // Points: Check if point position is inside selection box
       // (Don't use getGlobalBounds() - it has fixed world-unit size that's huge at high zoom)
       for (auto& pointPtr : editor.points) {
-        if (pointPtr && pointPtr->isValid() && pointPtr->isVisible()) {
+        if (pointPtr && pointPtr->isValid() && (pointPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide)) {
           sf::Vector2f pos = pointPtr->getSFMLPosition();
           if (selectionBox.contains(pos)) {
             newlySelectedObjects.push_back(pointPtr.get());
@@ -2611,7 +2612,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // ObjectPoints: Same position-based check
       for (auto& objPointPtr : editor.ObjectPoints) {
-        if (objPointPtr && objPointPtr->isValid() && objPointPtr->isVisible()) {
+        if (objPointPtr && objPointPtr->isValid() && (objPointPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide)) {
           sf::Vector2f pos = objPointPtr->getSFMLPosition();
           if (selectionBox.contains(pos)) {
             newlySelectedObjects.push_back(objPointPtr.get());
@@ -2621,7 +2622,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Lines: Use precise Line-Rect intersection
       for (auto& linePtr : editor.lines) {
-        if (linePtr && linePtr->isValid() && linePtr->isVisible() && !linePtr->isLocked()) {
+        if (linePtr && linePtr->isValid() && (linePtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !linePtr->isLocked()) {
           // Get standard points (start/end)
           // ...
           // Logic: Existing getGlobalBounds returns bounds for the *segment* representation in standard Line impl.
@@ -2641,7 +2642,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Circles: Use precise Circle-Rect intersection
       for (auto& circlePtr : editor.circles) {
-        if (circlePtr && circlePtr->isValid() && circlePtr->isVisible() && !circlePtr->isLocked()) {
+        if (circlePtr && circlePtr->isValid() && (circlePtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !circlePtr->isLocked()) {
           Point_2 c = circlePtr->getCenterPoint();
           sf::Vector2f center(static_cast<float>(CGAL::to_double(c.x())), static_cast<float>(CGAL::to_double(c.y())));
           float radius = static_cast<float>(circlePtr->getRadius());
@@ -2654,33 +2655,33 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Add Rectangle selection
       for (auto& rectPtr : editor.rectangles) {
-        if (rectPtr && rectPtr->isValid() && rectPtr->isVisible() && !rectPtr->isLocked() && selectionBox.intersects(rectPtr->getGlobalBounds())) {
+        if (rectPtr && rectPtr->isValid() && (rectPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !rectPtr->isLocked() && selectionBox.intersects(rectPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(rectPtr.get());
         }
       }
       // Add Polygon selection
       for (auto& polyPtr : editor.polygons) {
-        if (polyPtr && polyPtr->isValid() && polyPtr->isVisible() && !polyPtr->isLocked() && selectionBox.intersects(polyPtr->getGlobalBounds())) {
+        if (polyPtr && polyPtr->isValid() && (polyPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !polyPtr->isLocked() && selectionBox.intersects(polyPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(polyPtr.get());
         }
       }
       // Add RegularPolygon selection
       for (auto& regPolyPtr : editor.regularPolygons) {
-        if (regPolyPtr && regPolyPtr->isValid() && regPolyPtr->isVisible() && !regPolyPtr->isLocked() &&
+        if (regPolyPtr && regPolyPtr->isValid() && (regPolyPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !regPolyPtr->isLocked() &&
             selectionBox.intersects(regPolyPtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(regPolyPtr.get());
         }
       }
       // Add Triangle selection
       for (auto& triPtr : editor.triangles) {
-        if (triPtr && triPtr->isValid() && triPtr->isVisible() && !triPtr->isLocked()) {
+        if (triPtr && triPtr->isValid() && (triPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !triPtr->isLocked()) {
           if (selectionBox.intersects(triPtr->getGlobalBounds())) {
             newlySelectedObjects.push_back(triPtr.get());
           }
         }
       }
       for (auto& anglePtr : editor.angles) {
-        if (anglePtr && anglePtr->isValid() && anglePtr->isVisible() && !anglePtr->isLocked() &&
+        if (anglePtr && anglePtr->isValid() && (anglePtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !anglePtr->isLocked() &&
             selectionBox.intersects(anglePtr->getGlobalBounds())) {
           newlySelectedObjects.push_back(anglePtr.get());
         }
@@ -2688,7 +2689,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
 
       // Add TextLabel selection
       for (auto& labelPtr : editor.textLabels) {
-        if (labelPtr && labelPtr->isValid() && labelPtr->isVisible() && !labelPtr->isLocked()) {
+        if (labelPtr && labelPtr->isValid() && (labelPtr->isVisible() || editor.m_currentToolType == ObjectType::Hide) && !labelPtr->isLocked()) {
           if (selectionBox.intersects(labelPtr->getGlobalBounds())) {
             newlySelectedObjects.push_back(labelPtr.get());
           }
@@ -2712,6 +2713,31 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
       }
       // If multiple objects are selected, editor.selectedObject remains
       // nullptr (as set by deselectAllAndClearInteractionState)
+
+      if (editor.m_currentToolType == ObjectType::Hide && !isCtrlHeld) {
+        auto applyHideToggle = [&](GeometricObject* obj) {
+          if (!obj) return;
+          if (auto hitLine = dynamic_cast<Line*>(obj)) {
+            if (hitLine->isAxis()) {
+              return;
+            }
+          }
+          bool newVisible = !obj->isVisible();
+          if (newVisible) {
+            obj->clearVisibilityUserOverride();
+          } else {
+            obj->setVisibilityUserOverride(true);
+          }
+          obj->setVisible(newVisible);
+          obj->setSelected(false);
+          obj->setHovered(false);
+        };
+
+        for (auto* obj : newlySelectedObjects) {
+          applyHideToggle(obj);
+        }
+        editor.clearSelection();
+      }
 
     } catch (const std::exception& e) {
       std::cerr << "Error processing selection box: " << e.what() << std::endl;

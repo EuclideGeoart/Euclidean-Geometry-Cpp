@@ -84,10 +84,16 @@ class GeometricObject {
   // Visibility
   virtual void setVisible(bool visible) { m_visible = visible; }
   virtual bool isVisible() const { return m_visible; }
+  virtual void setVisibilityUserOverride(bool override) { m_visibilityUserOverride = override; }
+  virtual bool hasVisibilityUserOverride() const { return m_visibilityUserOverride; }
+  virtual void clearVisibilityUserOverride() { m_visibilityUserOverride = false; }
 
   // Label controls
   virtual void setShowLabel(bool show) { m_showLabel = show; }
   virtual bool getShowLabel() const { return m_showLabel; }
+  virtual void setHasUserOverride(bool override) { m_hasUserOverride = override; }
+  virtual bool hasUserOverride() const { return m_hasUserOverride; }
+  virtual void clearUserOverride() { m_hasUserOverride = false; }
   virtual sf::FloatRect getLabelBounds(const sf::View &view) const {
     (void)view;
     return sf::FloatRect();
@@ -137,13 +143,25 @@ class GeometricObject {
   unsigned int getAuxObjectID() const { return m_auxObjectID; }
   void setAuxObject(std::shared_ptr<GeometricObject> aux);
 
+  virtual void relinkTransformation(std::shared_ptr<GeometricObject> parent,
+                                    std::shared_ptr<GeometricObject> aux = nullptr,
+                                    std::shared_ptr<GeometricObject> aux2 = nullptr) {
+    restoreTransformation(parent, aux, m_transformType);
+    // Note: aux2 handling is extended in derived classes like Angle
+  }
+
   virtual void restoreTransformation(std::shared_ptr<GeometricObject> parent,
                                     std::shared_ptr<GeometricObject> aux,
                                     TransformationType type) {
     m_parentSource = parent;
     setAuxObject(aux);
     m_transformType = type;
-    (void)parent; (void)aux; (void)type; 
+    
+    // CRITICAL: Re-establish observer pattern so parent updates trigger child updates
+    if (parent && m_selfHandle) {
+      parent->addDependent(m_selfHandle);
+    }
+    
     // Default implementation stores metadata. Derived classes (like ReflectPoint) override this.
   }
 
@@ -186,9 +204,11 @@ class GeometricObject {
 
   // --- New Metadata (Moved to end for layout stability) ---
   bool m_visible = true;
+  bool m_visibilityUserOverride = false;  // Tracks if user manually toggled visibility
   bool m_locked = false;
   bool m_isDependent = false;
   bool m_showLabel = true;
+  bool m_hasUserOverride = false;  // Tracks if user manually toggled label via context menu
   sf::Vector2f m_labelOffset = {0.f, 0.f};
   std::string m_label = "";
   LabelMode m_labelMode = LabelMode::Name;

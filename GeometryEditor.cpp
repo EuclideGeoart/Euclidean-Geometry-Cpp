@@ -73,6 +73,10 @@
 #include "ObjectPoint.h"
 #include "Point.h"
 #include "PointUtils.h"
+#include "Polygon.h"
+#include "Rectangle.h"
+#include "RegularPolygon.h"
+#include "Triangle.h"
 #include "Types.h"         // For Point_2, Line_2 etc.
 #include "VariantUtils.h"  // For safe_get_point
 
@@ -178,6 +182,7 @@ GeometryEditor::GeometryEditor()
   xAxis = std::make_shared<Line>(xAxisStart, xAxisEnd, false, Constants::GRID_AXIS_COLOR, objectIdCounter++);
   xAxis->setLocked(true);
   xAxis->setVisible(true);
+  xAxis->setAxis(true);
   xAxis->setThickness(1.0f);
   lines.push_back(xAxis);
 
@@ -186,6 +191,7 @@ GeometryEditor::GeometryEditor()
   yAxis = std::make_shared<Line>(yAxisStart, yAxisEnd, false, Constants::GRID_AXIS_COLOR, objectIdCounter++);
   yAxis->setLocked(true);
   yAxis->setVisible(true);
+  yAxis->setAxis(true);
   yAxis->setThickness(1.0f);
   lines.push_back(yAxis);
 
@@ -219,18 +225,31 @@ void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
   // Detect object type and add to appropriate container
   switch (obj->getType()) {
     case ObjectType::Point:
+    case ObjectType::Midpoint:
       points.push_back(std::dynamic_pointer_cast<Point>(obj));
       break;
     case ObjectType::ObjectPoint:
+    case ObjectType::IntersectionPoint:
       ObjectPoints.push_back(std::dynamic_pointer_cast<ObjectPoint>(obj));
       break;
     case ObjectType::Line:
+    case ObjectType::LineSegment:
+    case ObjectType::Ray:
+    case ObjectType::Vector:
+    case ObjectType::PerpendicularBisector:
+    case ObjectType::AngleBisector:
+    case ObjectType::TangentLine:
+    case ObjectType::ParallelLine:
+    case ObjectType::PerpendicularLine:
       lines.push_back(std::dynamic_pointer_cast<Line>(obj));
       break;
     case ObjectType::Circle:
+    case ObjectType::Semicircle:
+    case ObjectType::Circle3P:
       circles.push_back(std::dynamic_pointer_cast<Circle>(obj));
       break;
     case ObjectType::Rectangle:
+    case ObjectType::RectangleRotatable:
       rectangles.push_back(std::dynamic_pointer_cast<Rectangle>(obj));
       break;
     case ObjectType::Polygon:
@@ -243,6 +262,7 @@ void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
       triangles.push_back(std::dynamic_pointer_cast<Triangle>(obj));
       break;
     case ObjectType::Angle:
+    case ObjectType::AngleGiven:
       angles.push_back(std::dynamic_pointer_cast<Angle>(obj));
       break;
     case ObjectType::TextLabel:
@@ -252,7 +272,69 @@ void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
       // Unknown or unsupported type
       break;
   }
+  
+  // Apply label policy to new objects (unless they have a user override)
+  applyLabelPolicy(obj.get());
 }
+
+// Apply label policy to a specific object based on current global policy
+void GeometryEditor::applyLabelPolicy(GeometricObject* target) {
+  if (!target) return;
+  
+  // If user manually toggled this object's label, respect their choice
+  if (target->hasUserOverride()) return;
+  
+  ObjectType t = target->getType();
+  bool isPoint = (t == ObjectType::Point || t == ObjectType::ObjectPoint ||
+                  t == ObjectType::IntersectionPoint || t == ObjectType::Midpoint);
+  
+  switch (m_labelVisibility) {
+    case LabelVisibilityMode::None:
+      target->setShowLabel(false);
+      break;
+      
+    case LabelVisibilityMode::PointsOnly:
+      target->setShowLabel(isPoint);
+      break;
+      
+    case LabelVisibilityMode::All:
+      target->setShowLabel(true);
+      break;
+  }
+}
+
+// Centralized setter for label policy - acts as GATEKEEPER
+void GeometryEditor::setLabelVisibilityMode(LabelVisibilityMode mode, bool clearUserOverrides) {
+  m_labelVisibility = mode;
+  enforceLabelPolicyOnAll(clearUserOverrides);
+}
+
+// Enforce label policy on ALL existing objects (startup, load, mode change)
+void GeometryEditor::enforceLabelPolicyOnAll(bool clearUserOverrides) {
+  auto applyToContainer = [&](auto& container) {
+    for (auto& obj : container) {
+      if (obj) {
+        if (clearUserOverrides) {
+          obj->clearUserOverride();
+        }
+        applyLabelPolicy(obj.get());
+      }
+    }
+  };
+  
+  // Apply to all object containers
+  applyToContainer(points);
+  applyToContainer(ObjectPoints);
+  applyToContainer(lines);
+  applyToContainer(circles);
+  applyToContainer(angles);
+  applyToContainer(rectangles);
+  applyToContainer(triangles);
+  applyToContainer(polygons);
+  applyToContainer(regularPolygons);
+  applyToContainer(textLabels);
+}
+
 GeometryEditor::~GeometryEditor() {
   try {
     std::ofstream out("window.ini");
@@ -617,17 +699,11 @@ void GeometryEditor::render() {
     // Calculate scale factor for invariant rendering (world units per screen pixel)
     float scale = viewHeightAbs / static_cast<float>(window.getSize().y);
 
-    // Sync axis visibility to the actual axis state (UI reflects this elsewhere)
-    const bool axesVisible = areAxesVisible();
-    if (xAxis) xAxis->setVisible(axesVisible);
-    if (yAxis) yAxis->setVisible(axesVisible);
+    // Note: Axis visibility is managed by toggleAxes() - don't override it here
 
-    // Helper lambda for ghost rendering
+    // Helper lambda for rendering objects
     auto drawObject = [&](auto& obj) {
       if (!obj || !obj->isValid()) return;
-
-      // Check if we are in Ghost Mode (Hide Tool active)
-      bool ghostMode = (m_currentToolType == ObjectType::Hide);
 
       float objectScale = scale;
       if (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment) {
@@ -637,9 +713,9 @@ void GeometryEditor::render() {
         }
       }
 
-      // Pass forceVisible=true if in ghost mode
-      // The object's draw method handles the alpha/transparency logic if valid but hidden
-      obj->draw(window, objectScale, ghostMode);
+      // Pass forceVisible = true if the Hide tool is active, so hidden objects show as ghosts
+      bool forceVisible = (m_currentToolType == ObjectType::Hide);
+      obj->draw(window, objectScale, forceVisible);
     };
 
     // points
@@ -717,32 +793,61 @@ void GeometryEditor::render() {
 
     auto drawLabel = [&](const auto& obj) {
       if (!obj) return;
-
-      // Global Visibility Check
-      if (m_labelVisibility == LabelVisibilityMode::None) return;
-
-      // Points Only Check
+      
+      ObjectType t = obj->getType();
+      
+      // Special case: Shape vertices in PointsOnly mode - check BEFORE showLabel
+      // Vertices are points and should show labels even when parent shape label is hidden
       if (m_labelVisibility == LabelVisibilityMode::PointsOnly) {
-        ObjectType t = obj->getType();
-        bool isPoint = (t == ObjectType::Point || t == ObjectType::ObjectPoint || 
-                        t == ObjectType::IntersectionPoint || t == ObjectType::Midpoint);
+        if (t == ObjectType::Rectangle || t == ObjectType::RectangleRotatable) {
+          if (auto* rect = dynamic_cast<Rectangle*>(obj.get())) {
+            // Draw rectangle vertex labels
+            if (rect->getCorner1Point()) rect->getCorner1Point()->drawLabelExplicit(window, drawingView);
+            if (rect->getCornerBPoint()) rect->getCornerBPoint()->drawLabelExplicit(window, drawingView);
+            if (rect->getCorner2Point()) rect->getCorner2Point()->drawLabelExplicit(window, drawingView);
+            if (rect->getCornerDPoint()) rect->getCornerDPoint()->drawLabelExplicit(window, drawingView);
+          }
+          return; // Don't draw rectangle's own label
+        }
         
-        if (!isPoint) {
-            // SPECIAL CASE: Rectangles show vertex labels even in PointsOnly mode, 
-            // mirroring the behavior of Triangles/Polygons where vertex points are standalone.
-            if (t == ObjectType::Rectangle || t == ObjectType::RectangleRotatable) {
-                if (auto* rect = dynamic_cast<Rectangle*>(obj.get())) {
-                    if (rect->getCorner1Point()) rect->getCorner1Point()->drawLabelExplicit(window, drawingView);
-                    if (rect->getCornerBPoint()) rect->getCornerBPoint()->drawLabelExplicit(window, drawingView);
-                    if (rect->getCorner2Point()) rect->getCorner2Point()->drawLabelExplicit(window, drawingView);
-                    if (rect->getCornerDPoint()) rect->getCornerDPoint()->drawLabelExplicit(window, drawingView);
-                }
+        if (t == ObjectType::Triangle) {
+          if (auto* tri = dynamic_cast<Triangle*>(obj.get())) {
+            // Draw triangle vertex labels
+            for (size_t i = 0; i < 3; ++i) {
+              if (auto vp = tri->getVertexPoint(i)) {
+                vp->drawLabelExplicit(window, drawingView);
+              }
             }
-            return;
+          }
+          return; // Don't draw triangle's own label
+        }
+        
+        if (t == ObjectType::Polygon) {
+          if (auto* poly = dynamic_cast<Polygon*>(obj.get())) {
+            // Draw polygon vertex labels
+            for (size_t i = 0; i < poly->getVertexCount(); ++i) {
+              if (auto vp = poly->getVertexPoint(i)) {
+                vp->drawLabelExplicit(window, drawingView);
+              }
+            }
+          }
+          return; // Don't draw polygon's own label
+        }
+        
+        if (t == ObjectType::RegularPolygon) {
+          if (auto* rpoly = dynamic_cast<RegularPolygon*>(obj.get())) {
+            // Draw regular polygon center and first vertex labels
+            if (rpoly->getCenterPoint()) rpoly->getCenterPoint()->drawLabelExplicit(window, drawingView);
+            if (rpoly->getFirstVertexPoint()) rpoly->getFirstVertexPoint()->drawLabelExplicit(window, drawingView);
+          }
+          return; // Don't draw regular polygon's own label
         }
       }
-
+      
+      // Policy is now enforced via applyLabelPolicy() and user overrides
+      // Just check the showLabel flag which is managed by the state machine
       if (!obj->getShowLabel()) return;
+      
       obj->drawLabel(window, drawingView);  // Pass original World View for mapping
     };
 

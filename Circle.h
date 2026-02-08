@@ -54,6 +54,7 @@ class Circle : public GeometricObject, public std::enable_shared_from_this<Circl
     m_fillColor = sf::Color(color.r, color.g, color.b, color.a);
     updateSFMLShape();
   }
+  sf::Color getFillColor() const { return m_sfmlShape.getFillColor(); }
   void setSelected(bool sel) override;
   void setHovered(bool hov) override;
    // Helper

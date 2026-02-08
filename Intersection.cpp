@@ -366,7 +366,9 @@ std::vector<std::shared_ptr<Point>> createGenericIntersection(
     newPoint->setDependent(true);
     newPoint->setSelected(false);
     newPoint->lock();
-    newPoint->setVisible(true);
+    if (!newPoint->hasVisibilityUserOverride()) {
+        newPoint->setVisible(true);
+    }
     
     // Assign label to intersection point
     std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());
@@ -506,7 +508,9 @@ void updateAllIntersections(GeometryEditor &editor) {
 
           if (reusePoint) {
             // REUSE existing point - this preserves connected lines!
-            reusePoint->setVisible(true);
+            if (!reusePoint->hasVisibilityUserOverride()) {
+                reusePoint->setVisible(true);
+            }
             reusePoint->setIsValid(true);
             reusePoint->setIntersectionPoint(true);
             reusePoint->lock();
@@ -524,7 +528,9 @@ void updateAllIntersections(GeometryEditor &editor) {
             newPoint->setDependent(true);
             newPoint->setSelected(false);
             newPoint->lock();
-            newPoint->setVisible(true);
+            if (!newPoint->hasVisibilityUserOverride()) {
+                newPoint->setVisible(true);
+            }
             
             // Assign label to intersection point
             std::string label = LabelManager::instance().getNextLabel(editor.getAllPoints());

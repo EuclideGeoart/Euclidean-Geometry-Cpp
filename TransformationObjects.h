@@ -11,10 +11,11 @@
 
 class ReflectLine : public Point {
  public:
-  ReflectLine(std::shared_ptr<Point> source,
-              std::shared_ptr<Line> line,
-              const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
-      : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
+  ReflectLine(std::shared_ptr<Point> source = nullptr,
+              std::shared_ptr<Line> line = nullptr,
+              const sf::Color& color = Constants::POINT_DEFAULT_COLOR,
+              unsigned int id = 0)
+      : Point(Point_2(0, 0), 1.0f, color, id), sourcePoint(std::move(source)),
         reflectLine(std::move(line)) {
     setDependent(true);
     update();
@@ -76,10 +77,11 @@ class ReflectLine : public Point {
 
 class ReflectPoint : public Point {
  public:
-  ReflectPoint(std::shared_ptr<Point> source,
-               std::shared_ptr<Point> center,
-               const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
-      : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
+  ReflectPoint(std::shared_ptr<Point> source = nullptr,
+               std::shared_ptr<Point> center = nullptr,
+               const sf::Color& color = Constants::POINT_DEFAULT_COLOR,
+               unsigned int id = 0)
+      : Point(Point_2(0, 0), 1.0f, color, id), sourcePoint(std::move(source)),
         centerPoint(std::move(center)) {
     setDependent(true);
     update();
@@ -129,10 +131,11 @@ class ReflectPoint : public Point {
 
 class ReflectCircle : public Point {
  public:
-  ReflectCircle(std::shared_ptr<Point> source,
-                std::shared_ptr<Circle> circle,
-                const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
-      : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
+  ReflectCircle(std::shared_ptr<Point> source = nullptr,
+                std::shared_ptr<Circle> circle = nullptr,
+                const sf::Color& color = Constants::POINT_DEFAULT_COLOR,
+                unsigned int id = 0)
+      : Point(Point_2(0, 0), 1.0f, color, id), sourcePoint(std::move(source)),
         reflectCircle(std::move(circle)) {
     setDependent(true);
     update();
@@ -192,11 +195,12 @@ class ReflectCircle : public Point {
 
 class RotatePoint : public Point {
  public:
-  RotatePoint(std::shared_ptr<Point> source,
-              std::shared_ptr<Point> center,
-              double angleDegrees,
-              const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
-      : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
+  RotatePoint(std::shared_ptr<Point> source = nullptr,
+              std::shared_ptr<Point> center = nullptr,
+              double angleDegrees = 0.0,
+              const sf::Color& color = Constants::POINT_DEFAULT_COLOR,
+              unsigned int id = 0)
+      : Point(Point_2(0, 0), 1.0f, color, id), sourcePoint(std::move(source)),
         centerPoint(std::move(center)) {
     setTransformValue(angleDegrees);
     setDependent(true);
@@ -259,11 +263,12 @@ class RotatePoint : public Point {
 
 class TranslateVector : public Point {
  public:
-  TranslateVector(std::shared_ptr<Point> source,
-                  std::shared_ptr<Point> vecStart,
-                  std::shared_ptr<Point> vecEnd,
-                  const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
-      : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
+  TranslateVector(std::shared_ptr<Point> source = nullptr,
+                  std::shared_ptr<Point> vecStart = nullptr,
+                  std::shared_ptr<Point> vecEnd = nullptr,
+                  const sf::Color& color = Constants::POINT_DEFAULT_COLOR,
+                  unsigned int id = 0)
+      : Point(Point_2(0, 0), 1.0f, color, id), sourcePoint(std::move(source)),
         vectorStart(std::move(vecStart)), vectorEnd(std::move(vecEnd)) {
     setDependent(true);
     update();
@@ -320,11 +325,12 @@ class TranslateVector : public Point {
 
 class DilatePoint : public Point {
  public:
-  DilatePoint(std::shared_ptr<Point> source,
-              std::shared_ptr<Point> center,
-              double factor,
-              const sf::Color& color = Constants::POINT_DEFAULT_COLOR)
-      : Point(Point_2(0, 0), 1.0f, color), sourcePoint(std::move(source)),
+  DilatePoint(std::shared_ptr<Point> source = nullptr,
+              std::shared_ptr<Point> center = nullptr,
+              double factor = 1.0,
+              const sf::Color& color = Constants::POINT_DEFAULT_COLOR,
+              unsigned int id = 0)
+      : Point(Point_2(0, 0), 1.0f, color, id), sourcePoint(std::move(source)),
         centerPoint(std::move(center)) {
     setTransformValue(factor);
     setDependent(true);

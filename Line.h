@@ -157,6 +157,8 @@ public:
   bool isVisible() const override;
   void setHidden(bool hidden);
   bool isHidden() const;
+  void setAxis(bool axis) { m_isAxis = axis; }
+  bool isAxis() const { return m_isAxis; }
 
   // --- Snapping Methods ---
   void setSnapToGrid(bool snap);
@@ -396,6 +398,7 @@ private:
 
   // Additional properties from Line.cpp methods
   bool m_isConstructionLine = false;
+  bool m_isAxis = false;
   bool m_snapToGrid = true;
   float m_gridSnapInterval = 10.0f;
   bool m_endpointSnapEnabled = true;

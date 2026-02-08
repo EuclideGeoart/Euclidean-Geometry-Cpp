@@ -328,7 +328,9 @@ void Triangle::updateDependentShape() {
         if (v) v->forceConstraintUpdate();
     }
 
-    setVisible(true);
+    if (!hasVisibilityUserOverride()) {
+        setVisible(true);
+    }
     updateSFMLShape();
     updateHostedPoints();
 }

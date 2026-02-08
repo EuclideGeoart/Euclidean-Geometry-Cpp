@@ -583,7 +583,7 @@ static std::shared_ptr<Line> getOrCreateHelperLineForEdge(GeometryEditor& editor
     newLine->setLocked(true);
     newLine->setDependent(true);  // Prevent accidental cleanup
     newLine->setThickness(1.0f);
-    editor.lines.push_back(newLine);
+    editor.addObject(newLine);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
     return newLine;
   }
@@ -606,7 +606,7 @@ static std::shared_ptr<Line> getOrCreateHelperLineForEdge(GeometryEditor& editor
   newLine->setLocked(true);
   newLine->setDependent(true);  // Prevent accidental cleanup
   newLine->setThickness(1.0f);
-  editor.lines.push_back(newLine);
+  editor.addObject(newLine);
   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
   return newLine;
 }
@@ -781,7 +781,7 @@ bool handleCompassCreation(GeometryEditor& editor,
   if (newCircle) {
     newCircle->setThickness(editor.currentThickness);
     newCircle->update();
-    editor.circles.push_back(newCircle);
+    editor.addObject(newCircle);
     newCircle->setSelected(true);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
     editor.setGUIMessage("Compass Circle constructed.");
@@ -1012,7 +1012,7 @@ static std::shared_ptr<Line> ensureHoverVector(GeometryEditor& editor, const std
   vecLine->setLineType(Line::LineType::Vector);
   vecLine->setVisible(true);
   vecLine->setThickness(editor.currentThickness);
-  editor.lines.push_back(vecLine);
+  editor.addObject(vecLine);
   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(vecLine)));
   return vecLine;
 }
@@ -1075,7 +1075,7 @@ static bool tryTransformShapeEdge(GeometryEditor& editor,
   auto newLine = std::make_shared<Line>(p1t, p2t, true, editor.getCurrentColor());
   newLine->setThickness(editor.currentThickness);
   newLine->setDependent(true);
-  editor.lines.push_back(newLine);
+  editor.addObject(newLine);
   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
   editor.setGUIMessage("Transformed edge created.");
   clearTransformSelection(tempSelectedObjects);
@@ -1146,7 +1146,7 @@ static bool handleTranslationTool(GeometryEditor& editor,
             newLine->setThickness(line->getThickness());
             newLine->setDependent(true);
             attachTransformMetadata(sourceShared, newLine, tool, vectorAux, v1, v2);
-            editor.lines.push_back(newLine);
+            editor.addObject(newLine);
             editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newLine));
             individualSuccess = true;
           }
@@ -1165,7 +1165,7 @@ static bool handleTranslationTool(GeometryEditor& editor,
             newCircle->setThickness(circle->getThickness());
             newCircle->setDependent(true);
             attachTransformMetadata(sourceShared, newCircle, tool, vectorAux, v1, v2);
-            editor.circles.push_back(newCircle);
+            editor.addObject(newCircle);
             editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newCircle));
             individualSuccess = true;
           }
@@ -1195,7 +1195,7 @@ static bool handleTranslationTool(GeometryEditor& editor,
           newRect->setDependent(true);
           attachTransformMetadata(sourceShared, newRect, tool, vectorAux, v1, v2);
           applyRectangleVertexLabels(editor, newRect, {V0t, V1t, V2t, V3t});
-          editor.rectangles.push_back(newRect);
+          editor.addObject(newRect);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newRect));
           individualSuccess = true;
         }
@@ -1216,7 +1216,7 @@ static bool handleTranslationTool(GeometryEditor& editor,
               newTri->setThickness(tri->getThickness());
               newTri->setDependent(true);
               attachTransformMetadata(sourceShared, newTri, tool, vectorAux, v1, v2);
-              editor.triangles.push_back(newTri);
+              editor.addObject(newTri);
               editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newTri));
               individualSuccess = true;
           }
@@ -1233,7 +1233,7 @@ static bool handleTranslationTool(GeometryEditor& editor,
               newRPoly->setThickness(rpoly->getThickness());
               newRPoly->setDependent(true);
               attachTransformMetadata(sourceShared, newRPoly, tool, vectorAux, v1, v2);
-              editor.regularPolygons.push_back(newRPoly);
+              editor.addObject(newRPoly);
               editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newRPoly));
               individualSuccess = true;
           }
@@ -1256,7 +1256,7 @@ static bool handleTranslationTool(GeometryEditor& editor,
                   newPoly->setThickness(poly->getThickness());
                   newPoly->setDependent(true);
                   attachTransformMetadata(sourceShared, newPoly, tool, vectorAux, v1, v2);
-                  editor.polygons.push_back(newPoly);
+                  editor.addObject(newPoly);
                   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newPoly));
                   individualSuccess = true;
               }
@@ -1543,7 +1543,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
           auto newLine = std::make_shared<Line>(p1t, p2t, line->isSegment(), line->getColor());
           newLine->setThickness(line->getThickness());
           newLine->setDependent(true);
-          editor.lines.push_back(newLine);
+          editor.addObject(newLine);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newLine));
           individualSuccess = true;
         }
@@ -1574,7 +1574,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
             else if (tool == ObjectType::ReflectAboutCircle) genericAux = circleObj;
             attachTransformMetadata(sourceShared, newCircle, tool, genericAux, nullptr, nullptr);
             newCircle->updateDependentShape();
-            editor.circles.push_back(newCircle);
+            editor.addObject(newCircle);
             editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newCircle));
             individualSuccess = true;
           }
@@ -1618,7 +1618,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
 
         attachTransformMetadata(sourceShared, newRect, tool, auxObj, nullptr, nullptr);
         applyRectangleVertexLabels(editor, newRect, {V0t, V1t, V2t, V3t});
-        editor.rectangles.push_back(newRect);
+        editor.addObject(newRect);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newRect));
         individualSuccess = true;
       }
@@ -1645,7 +1645,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         else auxObj = pivotPoint;
 
         attachTransformMetadata(sourceShared, newTri, tool, auxObj, nullptr, nullptr);
-        editor.triangles.push_back(newTri);
+        editor.addObject(newTri);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newTri));
         individualSuccess = true;
       }
@@ -1668,7 +1668,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
         else auxObj = pivotPoint;
 
         attachTransformMetadata(sourceShared, newRPoly, tool, auxObj, nullptr, nullptr);
-        editor.regularPolygons.push_back(newRPoly);
+        editor.addObject(newRPoly);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newRPoly));
         individualSuccess = true;
       }
@@ -1697,7 +1697,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
           else auxObj = pivotPoint;
 
           attachTransformMetadata(sourceShared, newPoly, tool, auxObj, nullptr, nullptr);
-          editor.polygons.push_back(newPoly);
+          editor.addObject(newPoly);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newPoly));
           individualSuccess = true;
         }
@@ -1720,11 +1720,12 @@ bool handleTransformationCreation(GeometryEditor& editor,
 // --- Helper: Midpoint & Compass State ---
 
 static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* clickedObj) {
+  // First check if it's a line or line segment
   if (clickedObj && (clickedObj->getType() == ObjectType::Line || clickedObj->getType() == ObjectType::LineSegment)) {
     auto lineShared = std::dynamic_pointer_cast<Line>(editor.findSharedPtr(clickedObj));
     if (lineShared && lineShared->isValid()) {
       auto midpoint = std::make_shared<Midpoint>(lineShared, Constants::POINT_DEFAULT_COLOR);
-      editor.points.push_back(midpoint);
+      editor.addObject(midpoint);
       midpoint->setSelected(true);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpoint)));
 
@@ -1734,6 +1735,37 @@ static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* cli
     return;
   }
 
+  // Check for shape edges (rectangles, triangles, polygons, etc.)
+  if (clickedObj && (clickedObj->getType() == ObjectType::Rectangle || 
+                     clickedObj->getType() == ObjectType::Triangle ||
+                     clickedObj->getType() == ObjectType::Polygon ||
+                     clickedObj->getType() == ObjectType::RegularPolygon)) {
+    // Get the mouse position from the last event
+    sf::Vector2i pixelPos = sf::Mouse::getPosition(editor.window);
+    sf::Vector2f worldPos_sfml = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
+    float tolerance = getDynamicSelectionTolerance(editor);
+    
+    // Find the nearest edge
+    auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+    if (edgeHit.has_value() && edgeHit->host == clickedObj) {
+      // Create a midpoint at the center of the edge
+      Point_2 edgeStart = edgeHit->edge.source();
+      Point_2 edgeEnd = edgeHit->edge.target();
+      Point_2 midPos = CGAL::midpoint(edgeStart, edgeEnd);
+      
+      // Create a free point at the midpoint (static, not dynamic)
+      auto freePoint = std::make_shared<Point>(midPos, 1.0f, Constants::POINT_DEFAULT_COLOR);
+      editor.addObject(freePoint);
+      freePoint->setSelected(true);
+      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(freePoint)));
+      
+      std::cout << "Created Point at edge midpoint" << std::endl;
+      editor.setGUIMessage("Point created at edge midpoint.");
+      return;
+    }
+  }
+
+  // Handle point selection for midpoint between two points
   if (clickedObj && (clickedObj->getType() == ObjectType::Point || clickedObj->getType() == ObjectType::ObjectPoint ||
                      clickedObj->getType() == ObjectType::IntersectionPoint)) {
     bool alreadySelected = false;
@@ -1751,7 +1783,7 @@ static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* cli
 
       if (p1 && p2) {
         auto midpoint = std::make_shared<Midpoint>(p1, p2, Constants::POINT_DEFAULT_COLOR);
-        editor.points.push_back(midpoint);
+        editor.addObject(midpoint);
         midpoint->setSelected(true);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpoint)));
 
@@ -2398,7 +2430,7 @@ void handleLineCreation(GeometryEditor& editor, const sf::Event::MouseButtonEven
         } else {
           newLine->registerWithEndpoints();
           newLine->setThickness(editor.currentThickness);
-          editor.lines.push_back(newLine);
+          editor.addObject(newLine);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
           std::cout << "Line-like object created successfully." << std::endl;
         }
@@ -2461,16 +2493,51 @@ void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseBu
     if (!editor.m_isPlacingParallel) {
       editor.resetParallelLineToolState();
 
-      // STEP 1: SELECT REFERENCE LINE - Strict Filter (only lines, no points)
-      GeometricObject* refObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
+      // STEP 1: SELECT REFERENCE LINE OR EDGE
+      // First try to find a shape edge
+      std::shared_ptr<GeometricObject> refObjSP;
+      int edgeIndex = -1;
+      Vector_2 refDirection;
+      bool validReferenceFound = false;
 
-      if (refObj) {
-        std::shared_ptr<GeometricObject> refObjSP;
-        int edgeIndex = -1;
-        Vector_2 refDirection;
-        bool validReferenceFound = false;
+      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+      if (edgeHit.has_value()) {
+        // Found a shape edge
+        GeometricObject* refObj = edgeHit->host;
+        edgeIndex = static_cast<int>(edgeHit->edgeIndex);
+        refDirection = edgeHit->edge.to_vector();
 
-        if (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment || refObj->getType() == ObjectType::Ray) {
+        // Convert to shared_ptr
+        if (refObj->getType() == ObjectType::Rectangle) {
+          for (auto& r : editor.rectangles)
+            if (r.get() == refObj) refObjSP = r;
+        } else if (refObj->getType() == ObjectType::Triangle) {
+          for (auto& t : editor.triangles)
+            if (t.get() == refObj) refObjSP = t;
+        } else if (refObj->getType() == ObjectType::Polygon) {
+          for (auto& p : editor.polygons)
+            if (p.get() == refObj) refObjSP = p;
+        } else if (refObj->getType() == ObjectType::RegularPolygon) {
+          for (auto& rp : editor.regularPolygons)
+            if (rp.get() == refObj) refObjSP = rp;
+        } else if (refObj->getType() == ObjectType::Line || 
+                   refObj->getType() == ObjectType::LineSegment || 
+                   refObj->getType() == ObjectType::Ray) {
+          // findNearestEdge also returns lines
+          Line* rawLinePtr = static_cast<Line*>(refObj);
+          refObjSP = editor.getLineSharedPtr(rawLinePtr);
+        }
+
+        if (refObjSP) {
+          validReferenceFound = true;
+        }
+      }
+
+      // If no edge found, try direct line selection
+      if (!validReferenceFound) {
+        GeometricObject* refObj = editor.lookForObjectAt(worldPos_sfml, tolerance, 
+                                                          {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
+        if (refObj) {
           Line* rawLinePtr = static_cast<Line*>(refObj);
           refObjSP = editor.getLineSharedPtr(rawLinePtr);
           if (refObjSP) {
@@ -2480,63 +2547,30 @@ void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseBu
                 Point_2 p2 = linePtr->getEndPoint();
                 if (p1 != p2) {
                   refDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
+                  edgeIndex = -1; // Line objects don't have edge indices
                   validReferenceFound = true;
                 }
               }
             }
           }
-        } else {
-          std::vector<Segment_2> edges = refObj->getEdges();
-          double minDistance = std::numeric_limits<double>::max();
-          int bestEdgeIndex = -1;
-
-          for (size_t i = 0; i < edges.size(); ++i) {
-            double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(edges[i], cgalWorldPos)));
-            if (dist < minDistance) {
-              minDistance = dist;
-              bestEdgeIndex = static_cast<int>(i);
-            }
-          }
-
-          if (bestEdgeIndex != -1) {
-            if (refObj->getType() == ObjectType::Rectangle) {
-              for (auto& r : editor.rectangles)
-                if (r.get() == refObj) refObjSP = r;
-            } else if (refObj->getType() == ObjectType::Triangle) {
-              for (auto& t : editor.triangles)
-                if (t.get() == refObj) refObjSP = t;
-            } else if (refObj->getType() == ObjectType::Polygon) {
-              for (auto& p : editor.polygons)
-                if (p.get() == refObj) refObjSP = p;
-            } else if (refObj->getType() == ObjectType::RegularPolygon) {
-              for (auto& rp : editor.regularPolygons)
-                if (rp.get() == refObj) refObjSP = rp;
-            }
-
-            if (refObjSP) {
-              refDirection = edges[bestEdgeIndex].to_vector();
-              edgeIndex = bestEdgeIndex;
-              validReferenceFound = true;
-            }
-          }
         }
+      }
 
-        if (validReferenceFound) {
-          if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
-            editor.setGUIMessage("Parallel: Edge too short.");
-            editor.resetParallelLineToolState();
-            clearTemporarySelection(tempSelectedObjects);
-            return;
-          }
-
-          editor.m_parallelReference.object = refObjSP;
-          editor.m_parallelReference.edgeIndex = edgeIndex;
-          editor.m_parallelReferenceDirection = refDirection;
-
-          editor.m_isPlacingParallel = true;
-          editor.setGUIMessage("Parallel: Ref selected. Click to place line.");
+      if (validReferenceFound) {
+        if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
+          editor.setGUIMessage("Parallel: Edge too short.");
+          editor.resetParallelLineToolState();
+          clearTemporarySelection(tempSelectedObjects);
           return;
         }
+
+        editor.m_parallelReference.object = refObjSP;
+        editor.m_parallelReference.edgeIndex = edgeIndex;
+        editor.m_parallelReferenceDirection = refDirection;
+
+        editor.m_isPlacingParallel = true;
+        editor.setGUIMessage("Parallel: Ref selected. Click to place line.");
+        return;
       }
 
       bool isHorizontalAxis = false;
@@ -2611,7 +2645,7 @@ void handleParallelLineCreation(GeometryEditor& editor, const sf::Event::MouseBu
         if (newLine && newLine->isValid()) {
           newLine->registerWithEndpoints();
           newLine->setThickness(editor.currentThickness);
-          editor.lines.push_back(newLine);
+          editor.addObject(newLine);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
 
           if (auto refObj = editor.m_parallelReference.lock()) {
@@ -2660,16 +2694,51 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
     if (!editor.m_isPlacingPerpendicular) {
       editor.resetPerpendicularLineToolState();
 
-      // STEP 1: SELECT REFERENCE LINE - Strict Filter (only lines, no points)
-      GeometricObject* refObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
+      // STEP 1: SELECT REFERENCE LINE OR EDGE
+      // First try to find a shape edge
+      std::shared_ptr<GeometricObject> refObjSP;
+      int edgeIndex = -1;
+      Vector_2 refDirection;
+      bool validReferenceFound = false;
 
-      if (refObj) {
-        std::shared_ptr<GeometricObject> refObjSP;
-        int edgeIndex = -1;
-        Vector_2 refDirection;
-        bool validReferenceFound = false;
+      auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+      if (edgeHit.has_value()) {
+        // Found a shape edge
+        GeometricObject* refObj = edgeHit->host;
+        edgeIndex = static_cast<int>(edgeHit->edgeIndex);
+        refDirection = edgeHit->edge.to_vector();
 
-        if (refObj->getType() == ObjectType::Line || refObj->getType() == ObjectType::LineSegment || refObj->getType() == ObjectType::Ray) {
+        // Convert to shared_ptr
+        if (refObj->getType() == ObjectType::Rectangle) {
+          for (auto& r : editor.rectangles)
+            if (r.get() == refObj) refObjSP = r;
+        } else if (refObj->getType() == ObjectType::Triangle) {
+          for (auto& t : editor.triangles)
+            if (t.get() == refObj) refObjSP = t;
+        } else if (refObj->getType() == ObjectType::Polygon) {
+          for (auto& p : editor.polygons)
+            if (p.get() == refObj) refObjSP = p;
+        } else if (refObj->getType() == ObjectType::RegularPolygon) {
+          for (auto& rp : editor.regularPolygons)
+            if (rp.get() == refObj) refObjSP = rp;
+        } else if (refObj->getType() == ObjectType::Line || 
+                   refObj->getType() == ObjectType::LineSegment || 
+                   refObj->getType() == ObjectType::Ray) {
+          // findNearestEdge also returns lines
+          Line* rawLinePtr = static_cast<Line*>(refObj);
+          refObjSP = editor.getLineSharedPtr(rawLinePtr);
+        }
+
+        if (refObjSP) {
+          validReferenceFound = true;
+        }
+      }
+
+      // If no edge found, try direct line selection
+      if (!validReferenceFound) {
+        GeometricObject* refObj = editor.lookForObjectAt(worldPos_sfml, tolerance, 
+                                                          {ObjectType::Line, ObjectType::LineSegment, ObjectType::Ray});
+        if (refObj) {
           Line* rawLinePtr = static_cast<Line*>(refObj);
           refObjSP = editor.getLineSharedPtr(rawLinePtr);
           if (refObjSP) {
@@ -2679,63 +2748,30 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
                 Point_2 p2 = linePtr->getEndPoint();
                 if (p1 != p2) {
                   refDirection = Vector_2(p2.x() - p1.x(), p2.y() - p1.y());
+                  edgeIndex = -1; // Line objects don't have edge indices
                   validReferenceFound = true;
                 }
               }
             }
           }
-        } else {
-          std::vector<Segment_2> edges = refObj->getEdges();
-          double minDistance = std::numeric_limits<double>::max();
-          int bestEdgeIndex = -1;
-
-          for (size_t i = 0; i < edges.size(); ++i) {
-            double dist = std::sqrt(CGAL::to_double(CGAL::squared_distance(edges[i], cgalWorldPos)));
-            if (dist < minDistance) {
-              minDistance = dist;
-              bestEdgeIndex = static_cast<int>(i);
-            }
-          }
-
-          if (bestEdgeIndex != -1) {
-            if (refObj->getType() == ObjectType::Rectangle) {
-              for (auto& r : editor.rectangles)
-                if (r.get() == refObj) refObjSP = r;
-            } else if (refObj->getType() == ObjectType::Triangle) {
-              for (auto& t : editor.triangles)
-                if (t.get() == refObj) refObjSP = t;
-            } else if (refObj->getType() == ObjectType::Polygon) {
-              for (auto& p : editor.polygons)
-                if (p.get() == refObj) refObjSP = p;
-            } else if (refObj->getType() == ObjectType::RegularPolygon) {
-              for (auto& rp : editor.regularPolygons)
-                if (rp.get() == refObj) refObjSP = rp;
-            }
-
-            if (refObjSP) {
-              refDirection = edges[bestEdgeIndex].to_vector();
-              edgeIndex = bestEdgeIndex;
-              validReferenceFound = true;
-            }
-          }
         }
+      }
 
-        if (validReferenceFound) {
-          if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
-            editor.setGUIMessage("Perp: Edge too short.");
-            editor.resetPerpendicularLineToolState();
-            clearTemporarySelection(tempSelectedObjects);
-            return;
-          }
-
-          editor.m_perpendicularReference.object = refObjSP;
-          editor.m_perpendicularReference.edgeIndex = edgeIndex;
-          editor.m_perpendicularReferenceDirection = refDirection;
-
-          editor.m_isPlacingPerpendicular = true;
-          editor.setGUIMessage("Perp: Ref selected. Click to place line.");
+      if (validReferenceFound) {
+        if (refDirection.squared_length() < Kernel::FT(Constants::CGAL_EPSILON_SQUARED)) {
+          editor.setGUIMessage("Perp: Edge too short.");
+          editor.resetPerpendicularLineToolState();
+          clearTemporarySelection(tempSelectedObjects);
           return;
         }
+
+        editor.m_perpendicularReference.object = refObjSP;
+        editor.m_perpendicularReference.edgeIndex = edgeIndex;
+        editor.m_perpendicularReferenceDirection = refDirection;
+
+        editor.m_isPlacingPerpendicular = true;
+        editor.setGUIMessage("Perp: Ref selected. Click to place line.");
+        return;
       }
 
       bool isHorizontalAxis = false;
@@ -2811,7 +2847,7 @@ void handlePerpendicularLineCreation(GeometryEditor& editor, const sf::Event::Mo
         if (newLine && newLine->isValid()) {
           newLine->registerWithEndpoints();
           newLine->setThickness(editor.currentThickness);
-          editor.lines.push_back(newLine);
+          editor.addObject(newLine);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newLine)));
 
           if (auto refObj = editor.m_perpendicularReference.lock()) {
@@ -2865,7 +2901,7 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
     auto bisector = std::make_shared<PerpendicularBisector>(a, b, editor.objectIdCounter++);
     if (bisector && bisector->isValid()) {
       bisector->setThickness(editor.currentThickness);
-      editor.lines.push_back(bisector);
+      editor.addObject(bisector);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
       editor.setGUIMessage("Perpendicular bisector created.");
     } else {
@@ -2888,7 +2924,22 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
         return;
     }
 
-    // 2. SECONDARY CHECK: Is there a LINE? (Clicked "Empty" part of line)
+    // 2. CHECK FOR SHAPE EDGES
+    auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+    if (edgeHit.has_value()) {
+        // Found an edge - create bisector from edge endpoints
+        Point_2 edgeStart = edgeHit->edge.source();
+        Point_2 edgeEnd = edgeHit->edge.target();
+        
+        // Create points at edge endpoints
+        auto p1 = std::make_shared<Point>(edgeStart, 1.0f, Constants::POINT_DEFAULT_COLOR);
+        auto p2 = std::make_shared<Point>(edgeEnd, 1.0f, Constants::POINT_DEFAULT_COLOR);
+        
+        createBisectorFromPoints(p1, p2);
+        return;
+    }
+
+    // 3. SECONDARY CHECK: Is there a LINE? (Clicked "Empty" part of line)
     GeometricObject* hitLine = editor.lookForObjectAt(worldPos_sfml, tolerance, 
         {ObjectType::Line, ObjectType::LineSegment});
     
@@ -2899,7 +2950,7 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
         return;
     }
 
-    // 3. FALLBACK: Create/Snap Smart Point (Edges, Intersections, Free)
+    // 4. FALLBACK: Create/Snap Smart Point (Edges, Intersections, Free)
     // Use the unified function we fixed earlier
     auto smartPt = createSmartPointFromClick(editor, worldPos_sfml, tolerance);
     if (smartPt && smartPt->isValid()) {
@@ -2942,22 +2993,53 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
   GeometricObject* hitPt = editor.lookForObjectAt(worldPos_sfml, tolerance, 
       {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
 
-  // 2. SECONDARY CHECK: Lines (Only if NO point found)
-  GeometricObject* obj = nullptr;
+  // 2. CHECK FOR EDGES (if no point found)
+  std::shared_ptr<Line> edgeLine = nullptr;
   if (!hitPt) {
+    auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
+    if (edgeHit.has_value()) {
+      // Create a temporary line segment from the edge
+      Point_2 edgeStart = edgeHit->edge.source();
+      Point_2 edgeEnd = edgeHit->edge.target();
+      
+      auto p1 = std::make_shared<Point>(edgeStart, 1.0f, Constants::POINT_DEFAULT_COLOR);
+      auto p2 = std::make_shared<Point>(edgeEnd, 1.0f, Constants::POINT_DEFAULT_COLOR);
+      
+      edgeLine = std::make_shared<Line>(p1, p2, true, Constants::LINE_DEFAULT_COLOR, editor.objectIdCounter++);
+      // Line is valid after construction if both points are valid
+    }
+  }
+
+  // 3. SECONDARY CHECK: Lines (Only if NO point and NO edge found)
+  GeometricObject* obj = nullptr;
+  if (!hitPt && !edgeLine) {
       obj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment});
   }
 
-  if (!editor.isCreatingAngleBisector && obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
-    editor.angleBisectorLine1 = editor.getLineSharedPtr(static_cast<Line*>(obj));
-    editor.isCreatingAngleBisector = true;
-    editor.setGUIMessage("AngleBis: Select second line.");
-    return;
+  // First line selection
+  if (!editor.isCreatingAngleBisector && (obj || edgeLine)) {
+    if (edgeLine) {
+      editor.angleBisectorLine1 = edgeLine;
+    } else if (obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
+      editor.angleBisectorLine1 = editor.getLineSharedPtr(static_cast<Line*>(obj));
+    }
+    
+    if (editor.angleBisectorLine1) {
+      editor.isCreatingAngleBisector = true;
+      editor.setGUIMessage("AngleBis: Select second line or edge.");
+      return;
+    }
   }
 
-  if (editor.angleBisectorLine1 && obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
-    editor.angleBisectorLine2 = editor.getLineSharedPtr(static_cast<Line*>(obj));
-    if (!editor.angleBisectorLine2 || editor.angleBisectorLine1.get() == obj) {
+  // Second line selection
+  if (editor.angleBisectorLine1 && (obj || edgeLine)) {
+    if (edgeLine) {
+      editor.angleBisectorLine2 = edgeLine;
+    } else if (obj && (obj->getType() == ObjectType::Line || obj->getType() == ObjectType::LineSegment)) {
+      editor.angleBisectorLine2 = editor.getLineSharedPtr(static_cast<Line*>(obj));
+    }
+    
+    if (!editor.angleBisectorLine2 || editor.angleBisectorLine1 == editor.angleBisectorLine2) {
       editor.setGUIMessage("AngleBis: Invalid second line.");
       resetState();
       return;
@@ -3001,7 +3083,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
       editor.angleBisectorLine1->addDependent(bisector);
       editor.angleBisectorLine2->addDependent(bisector);
 
-      editor.lines.push_back(bisector);
+      editor.addObject(bisector);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
       // DYNAMIC EXTERNAL BISECTOR
       auto extBisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++, true);
@@ -3014,7 +3096,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
           editor.angleBisectorLine1->addDependent(extBisector);
           editor.angleBisectorLine2->addDependent(extBisector);
 
-          editor.lines.push_back(extBisector);
+          editor.addObject(extBisector);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(extBisector)));
       }
 
@@ -3070,7 +3152,7 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
     editor.angleBisectorPoints[1]->addDependent(bisector);
     editor.angleBisectorPoints[2]->addDependent(bisector);
 
-    editor.lines.push_back(bisector);
+    editor.addObject(bisector);
     editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
     editor.setGUIMessage("Angle bisector created.");
   } else {
@@ -3093,7 +3175,7 @@ void handleTangentCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
     auto tangent = std::make_shared<TangentLine>(editor.tangentAnchorPoint, editor.tangentCircle, solutionIndex, editor.objectIdCounter++);
     if (tangent && tangent->isValid()) {
       tangent->setThickness(editor.currentThickness);
-      editor.lines.push_back(tangent);
+      editor.addObject(tangent);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(tangent)));
       editor.setGUIMessage(msg);
     } else {
@@ -3447,7 +3529,7 @@ void handleRectangleCreation(GeometryEditor& editor, const sf::Event::MouseButto
           newRectangle->setLabelMode(LabelMode::Name);
         }
 
-        editor.rectangles.push_back(newRectangle);
+        editor.addObject(newRectangle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
         editor.setGUIMessage("Rectangle created");
       }
@@ -3592,7 +3674,7 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
         newRectangle->setHeight(static_cast<float>(signedHeight));
         applyRectangleVertexLabels(editor, newRectangle);
         newRectangle->setThickness(editor.currentThickness);
-        editor.rectangles.push_back(newRectangle);
+        editor.addObject(newRectangle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRectangle)));
         editor.setGUIMessage("Rotatable rectangle created");
       }
@@ -3651,7 +3733,7 @@ void handlePolygonCreation(GeometryEditor& editor, const sf::Event::MouseButtonE
         }
 
         newPolygon->setThickness(editor.currentThickness);
-        editor.polygons.push_back(newPolygon);
+        editor.addObject(newPolygon);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPolygon)));
         editor.isCreatingPolygon = false;
         editor.polygonVertices.clear();
@@ -3709,7 +3791,7 @@ void handleRegularPolygonCreation(GeometryEditor& editor, const sf::Event::Mouse
         }
 
         newRegPoly->setThickness(editor.currentThickness);
-        editor.regularPolygons.push_back(newRegPoly);
+        editor.addObject(newRegPoly);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newRegPoly)));
         editor.setGUIMessage("Regular polygon created");
         editor.regularPolygonPhase = 0;
@@ -3762,7 +3844,7 @@ void handleTriangleCreation(GeometryEditor& editor, const sf::Event::MouseButton
         }
 
         newTriangle->setThickness(editor.currentThickness);
-        editor.triangles.push_back(newTriangle);
+        editor.addObject(newTriangle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newTriangle)));
         editor.setGUIMessage("Triangle created");
       } else {
@@ -3848,7 +3930,7 @@ static void handleCircleCreation(GeometryEditor& editor, const sf::Event::MouseB
             finalCircle->setLabelMode(LabelMode::Name);
           }
 
-          editor.circles.push_back(finalCircle);
+          editor.addObject(finalCircle);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(finalCircle)));
           std::cout << "Circle Created with radius: " << radius << std::endl;
         } else {
@@ -3928,7 +4010,7 @@ static void handleAngleCreation(GeometryEditor& editor, const sf::Vector2f& worl
 
       angle->setVisible(true);
       angle->update();
-      editor.angles.push_back(angle);
+      editor.addObject(angle);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
       std::cout << "Angle created via 3 points." << std::endl;
       editor.setGUIMessage("Angle created.");
@@ -4064,7 +4146,7 @@ static void handleAngleCreation(GeometryEditor& editor, const sf::Vector2f& worl
 
               angle->setVisible(true);
               angle->update();
-              editor.angles.push_back(angle);
+              editor.addObject(angle);
               editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
               std::cout << "Angle created via 2 lines." << std::endl;
               editor.setGUIMessage("Angle created.");
@@ -4130,7 +4212,7 @@ static void handleSemicircleCreation(GeometryEditor& editor, const sf::Event::Mo
 
           newSemi->setVisible(true);
           newSemi->setThickness(editor.currentThickness);
-          editor.circles.push_back(newSemi);
+          editor.addObject(newSemi);
           editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newSemi)));
 
           isCreatingSemi = false;
@@ -4202,7 +4284,7 @@ static void handleSemicircleCreation(GeometryEditor& editor, const sf::Event::Mo
         newCircle->setVisible(true);
         newCircle->setThickness(editor.currentThickness);
         
-        editor.circles.push_back(newCircle);
+        editor.addObject(newCircle);
         editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newCircle)));
 
         editor.setGUIMessage("Circle through 3 points created.");
@@ -4448,8 +4530,9 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
   }
 
   // Label dragging check - runs early to allow dragging labels
-  // Note: Visibility is checked inside hitLabel via m_labelVisibility
+  // Note: Visibility is checked inside hitLabel via showLabel/m_labelVisibility
   // Skip label dragging if we're actively creating objects (to avoid blocking point selection)
+  // Also skip for Hide tool to allow toggling visibility
   bool isInCreationMode = (
     editor.m_currentToolType == ObjectType::Line ||
     editor.m_currentToolType == ObjectType::LineSegment ||
@@ -4469,7 +4552,8 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     editor.m_currentToolType == ObjectType::PerpendicularBisector ||
     editor.m_currentToolType == ObjectType::AngleBisector ||
     editor.m_currentToolType == ObjectType::TangentLine ||
-    editor.m_currentToolType == ObjectType::Compass
+    editor.m_currentToolType == ObjectType::Compass ||
+    editor.m_currentToolType == ObjectType::Hide
   );
   
   if (mouseEvent.button == sf::Mouse::Left && !isInCreationMode) {
@@ -4503,17 +4587,8 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
     auto hitLabel = [&](GeometricObject* obj, sf::Vector2f& outLabelPos) -> bool {
       if (!obj) return false;
       
-      // Global Visibility Check (mirrors render logic)
-        if (editor.m_labelVisibility == GeometryEditor::LabelVisibilityMode::None) return false;
-        if (editor.m_labelVisibility == GeometryEditor::LabelVisibilityMode::PointsOnly) {
-          ObjectType t = obj->getType();
-          bool isPointOrVertex = (t == ObjectType::Point || t == ObjectType::ObjectPoint || 
-                     t == ObjectType::IntersectionPoint || t == ObjectType::Midpoint ||
-                     t == ObjectType::Rectangle || t == ObjectType::Triangle ||
-                     t == ObjectType::Polygon || t == ObjectType::RegularPolygon);
-          if (!isPointOrVertex) return false;
-        }
-
+      // Policy is now enforced via applyLabelPolicy() and user overrides
+      // Just check the showLabel flag which is managed by the state machine
       if (!obj->getShowLabel()) return false;
       if (obj->getLabelMode() == LabelMode::Hidden) return false;
       if (!obj->isVisible()) return false;
@@ -5079,16 +5154,61 @@ void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent&
 
   switch (editor.m_currentToolType) {
     case ObjectType::Hide: {
+      editor.potentialSelectionBoxStart_sfml = worldPos_sfml;
       if (mouseEvent.button == sf::Mouse::Left) {
-        float tolerance = getDynamicSelectionTolerance(editor);
-        GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
-        if (hitObj) {
-          hitObj->setVisible(!hitObj->isVisible());
-          hitObj->setSelected(false);
-          hitObj->setHovered(false);
-          if (editor.selectedObject == hitObj) {
+        auto applyHideToggle = [&](GeometricObject* obj) {
+          if (!obj) return;
+          if (auto hitLine = dynamic_cast<Line*>(obj)) {
+            if (hitLine->isAxis()) {
+              return;
+            }
+          }
+          bool newVisible = !obj->isVisible();
+          if (newVisible) {
+            obj->clearVisibilityUserOverride();
+          } else {
+            obj->setVisibilityUserOverride(true);
+          }
+          obj->setVisible(newVisible);
+          obj->setSelected(false);
+          obj->setHovered(false);
+          if (editor.selectedObject == obj) {
             editor.selectedObject = nullptr;
           }
+        };
+
+        float tolerance = getDynamicSelectionTolerance(editor);
+        GeometricObject* hitObj = editor.lookForObjectAt(worldPos_sfml, tolerance);
+        bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) ||
+                          sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+        if (isCtrlHeld) {
+          if (hitObj) {
+            auto it = std::find(editor.selectedObjects.begin(), editor.selectedObjects.end(), hitObj);
+            if (it != editor.selectedObjects.end()) {
+              hitObj->setSelected(false);
+              editor.selectedObjects.erase(it);
+              if (editor.selectedObject == hitObj) {
+                editor.selectedObject = (editor.selectedObjects.empty() ? nullptr : editor.selectedObjects.back());
+              }
+            } else {
+              hitObj->setSelected(true);
+              editor.selectedObjects.push_back(hitObj);
+              editor.selectedObject = hitObj;
+            }
+          }
+          return;
+        }
+
+        if (!editor.selectedObjects.empty()) {
+          for (auto* obj : editor.selectedObjects) {
+            applyHideToggle(obj);
+          }
+          editor.clearSelection();
+          return;
+        }
+
+        if (hitObj) {
+          applyHideToggle(hitObj);
         }
         return;
       }

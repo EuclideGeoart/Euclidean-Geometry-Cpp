@@ -347,7 +347,15 @@ sf::Texture* LatexRenderer::RenderLatex(const std::string& latex, float size, fl
     tex::TeXRenderBuilder builder;
     
     // Construct ARGB color manually to avoid tex::argb namespace issues
-    unsigned int argb = (255u << 24) | ((unsigned int)color.r << 16) | ((unsigned int)color.g << 8) | (unsigned int)color.b;
+    // CONTRAST CHECK: If color is too dark (Black/DarkGrey), force it to White for visibility
+    sf::Color renderColor = color;
+    int brightness = (int)color.r + (int)color.g + (int)color.b;
+    if (brightness < 100) {
+      std::cerr << "[LatexRenderer] Low-contrast color detected (brightness=" << brightness << "). Forcing White." << std::endl;
+      renderColor = sf::Color::White;
+    }
+    
+    unsigned int argb = (255u << 24) | ((unsigned int)renderColor.r << 16) | ((unsigned int)renderColor.g << 8) | (unsigned int)renderColor.b;
     
     builder.setStyle(tex::TexStyle::display).setTextSize(finalSize);
     builder.setForeground(argb);
@@ -365,8 +373,31 @@ sf::Texture* LatexRenderer::RenderLatex(const std::string& latex, float size, fl
     }
 
     // Get exact dimensions (width + height + descender depth)
-    int w = std::max(1, static_cast<int>(std::ceil(render->getWidth())));
-    int h = std::max(1, static_cast<int>(std::ceil(render->getHeight() + render->getDepth())));
+    int rawW = static_cast<int>(std::ceil(render->getWidth()));
+    int rawH = static_cast<int>(std::ceil(render->getHeight() + render->getDepth()));
+    
+    // ERROR HANDLING: If render dimensions are zero/invalid, return MAGENTA error placeholder
+    if (rawW <= 0 || rawH <= 0) {
+      std::cerr << "[LatexRenderer] NULL/INVISIBLE render for '" << latex << "' (size: " << rawW << "x" << rawH << "). Returning MAGENTA error placeholder." << std::endl;
+      
+      // Create 100x50 magenta error texture with "!" indicator
+      sf::RenderTexture errorRT;
+      if (!errorRT.create(100, 50)) return new sf::Texture(errorTex);
+      errorRT.clear(sf::Color::Magenta);
+      
+      sf::RectangleShape errorBorder(sf::Vector2f(98.f, 48.f));
+      errorBorder.setPosition(1.f, 1.f);
+      errorBorder.setFillColor(sf::Color::Transparent);
+      errorBorder.setOutlineColor(sf::Color::Black);
+      errorBorder.setOutlineThickness(2.f);
+      errorRT.draw(errorBorder);
+      
+      errorRT.display();
+      return new sf::Texture(errorRT.getTexture());
+    }
+    
+    int w = std::max(1, rawW);
+    int h = std::max(1, rawH);
     
     // DEBUG: Log render dimensions (ENABLED)
     static int logLimit = 0;
@@ -384,8 +415,6 @@ sf::Texture* LatexRenderer::RenderLatex(const std::string& latex, float size, fl
     sf::RectangleShape debugBg(sf::Vector2f((float)w, (float)h));
     debugBg.setFillColor(sf::Color(0, 255, 0, 128)); // Green, semi-transparent
     rt.draw(debugBg);
-
-    if (w < 1 || h < 1) return nullptr;
     // Draw formula (MicroTeX uses baseline-origin, so offset by height)
     SfmlGraphics graphics(rt);
     render->draw(graphics, 0, static_cast<float>(render->getHeight()));

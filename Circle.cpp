@@ -421,7 +421,7 @@ void Circle::update() {
     
     // APPLY STATE (Persistence)
     if (parentsAreValid) {
-      if (!this->isVisible()) {
+      if (!this->isVisible() && !hasVisibilityUserOverride()) {
         this->setVisible(true); // RESURRECTION
       }
     } else {
@@ -465,7 +465,7 @@ void Circle::update() {
     bool semicircleParentsValid = m_diameterP1->isValid() && m_diameterP2->isValid();
     
     if (semicircleParentsValid) {
-      if (!this->isVisible()) {
+      if (!this->isVisible() && !hasVisibilityUserOverride()) {
         this->setVisible(true); // RESURRECTION
       }
       
@@ -501,7 +501,7 @@ void Circle::update() {
         Point_2 b = m_p2->getCGALPosition();
         Point_2 c = m_p3->getCGALPosition();
         if (!CGAL::collinear(a, b, c)) {
-            if (!this->isVisible()) this->setVisible(true);
+          if (!this->isVisible() && !hasVisibilityUserOverride()) this->setVisible(true);
 
             Point_2 center = CGAL::circumcenter(a, b, c);
             if (m_centerPoint) {
@@ -791,5 +791,7 @@ void Circle::updateDependentShape() {
   }
 
   updateSFMLShape();
-  setVisible(sourceCircle->isVisible());
+  if (!hasVisibilityUserOverride()) {
+    setVisible(sourceCircle->isVisible());
+  }
 }

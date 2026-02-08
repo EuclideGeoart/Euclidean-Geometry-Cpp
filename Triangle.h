@@ -46,6 +46,7 @@ public:
     virtual void update() override;
     virtual void updateDependentShape() override;
     virtual void setColor(const sf::Color& color) override;
+    sf::Color getFillColor() const { return m_sfmlShape.getFillColor(); }
     virtual bool contains(const sf::Vector2f& screenPos, float tolerance) const override;
     virtual std::string getTypeString() const { return "Triangle"; }
     virtual void translate(const Vector_2& translation) override;

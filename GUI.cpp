@@ -503,27 +503,57 @@ GUI::GUI() : messageActive(false), m_isInitialized(false), m_fontLoaded(false) {
   // New Labeling Options (GeoGebra Style)
   m_contextMenu.addItem("Label: Hidden", [](GeometryEditor& ed) {
     auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
-    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Hidden); }
+    for (auto* obj : objects) {
+      if (obj) {
+        obj->setShowLabel(false);
+        obj->setLabelMode(LabelMode::Hidden);
+        obj->setHasUserOverride(true);  // Mark as manual override
+      }
+    }
   });
   
   m_contextMenu.addItem("Label: Name", [](GeometryEditor& ed) {
     auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
-    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Name); }
+    for (auto* obj : objects) {
+      if (obj) {
+        obj->setShowLabel(true);
+        obj->setLabelMode(LabelMode::Name);
+        obj->setHasUserOverride(true);  // Mark as manual override
+      }
+    }
   });
   
   m_contextMenu.addItem("Label: Name & Value", [](GeometryEditor& ed) {
     auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
-    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::NameAndValue); }
+    for (auto* obj : objects) {
+      if (obj) {
+        obj->setShowLabel(true);
+        obj->setLabelMode(LabelMode::NameAndValue);
+        obj->setHasUserOverride(true);  // Mark as manual override
+      }
+    }
   });
   
   m_contextMenu.addItem("Label: Value", [](GeometryEditor& ed) {
     auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
-    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Value); }
+    for (auto* obj : objects) {
+      if (obj) {
+        obj->setShowLabel(true);
+        obj->setLabelMode(LabelMode::Value);
+        obj->setHasUserOverride(true);  // Mark as manual override
+      }
+    }
   });
   
   m_contextMenu.addItem("Label: Caption", [](GeometryEditor& ed) {
     auto objects = !ed.selectedObjects.empty() ? ed.selectedObjects : std::vector<GeometricObject*>{ed.selectedObject};
-    for (auto* obj : objects) { if (obj) obj->setLabelMode(LabelMode::Caption); }
+    for (auto* obj : objects) {
+      if (obj) {
+        obj->setShowLabel(true);
+        obj->setLabelMode(LabelMode::Caption);
+        obj->setHasUserOverride(true);  // Mark as manual override
+      }
+    }
   });
   
   // Item 2: Rotate 90° CW
@@ -927,15 +957,17 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
 
       // Unified Label Visibility Control (Premium Segmented Control)
       ImGui::Text("Global Label Policy:");
-      auto& labelMode = editor.m_labelVisibility;
-      
+      auto labelMode = editor.getLabelVisibilityMode(); // Get current mode via encapsulation
+
+      // Button helper: renders mode button and triggers setter if clicked
       auto modeButton = [&](const char* label, GeometryEditor::LabelVisibilityMode target, float width) {
-          bool active = (labelMode == target);
-          if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
-          if (ImGui::Button(label, ImVec2(width, 0))) {
-              labelMode = target;
-          }
-          if (active) ImGui::PopStyleColor();
+        bool active = (labelMode == target);
+        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
+        if (ImGui::Button(label, ImVec2(width, 0))) {
+          // Use centralized setter - acts as GATEKEEPER (clears overrides, enforces policy on all)
+          editor.setLabelVisibilityMode(target, true); // true = clear user overrides
+        }
+        if (active) ImGui::PopStyleColor();
       };
 
       float availWidth = ImGui::GetContentRegionAvail().x;
@@ -969,7 +1001,9 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
     }
 
     // --- ANGLE PROPERTIES (ONLY IF ANGLE SELECTED) ---
-    if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
+    if (editor.selectedObject && 
+    (editor.selectedObject->getType() == ObjectType::Angle || 
+     editor.selectedObject->getType() == ObjectType::AngleGiven)) {
       if (ImGui::CollapsingHeader("Angle Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto angle = std::dynamic_pointer_cast<Angle>(editor.findSharedPtr(editor.selectedObject));
         if (angle) {
@@ -1442,7 +1476,7 @@ bool GUI::handleEvent(sf::RenderWindow& window, const sf::Event& event, Geometry
 
   // Handle Angle Reflex Toggle (Overlay)
   if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
-    if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Angle) {
+    if (editor.selectedObject && (editor.selectedObject->getType() == ObjectType::Angle || editor.selectedObject->getType() == ObjectType::AngleGiven)) {
       auto* angle = dynamic_cast<Angle*>(editor.selectedObject);
       if (angle) {
         sf::Vector2f basePos(10.f, 60.f);

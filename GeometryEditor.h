@@ -139,6 +139,16 @@ class GeometryEditor {
     None
   };
   LabelVisibilityMode m_labelVisibility = LabelVisibilityMode::PointsOnly;
+  
+  // Getter/Setter for Label Policy (encapsulation)
+  LabelVisibilityMode getLabelVisibilityMode() const { return m_labelVisibility; }
+  void setLabelVisibilityMode(LabelVisibilityMode mode, bool clearUserOverrides = true);
+  
+  // Apply label policy to a specific object (respects user overrides)
+  void applyLabelPolicy(GeometricObject* obj);
+  
+  // Enforce label policy on ALL existing objects (for startup/load/mode change)
+  void enforceLabelPolicyOnAll(bool clearUserOverrides = false);
 
   // For Line interactions (primarily used by event handling logic)
   EndpointSelection m_selectedEndpoint =

@@ -544,7 +544,9 @@ void Rectangle::updateDependentShape() {
   double h = (det >= 0) ? dist : -dist;
 
   setHeight(h);
-  setVisible(sourceRect->isVisible());
+  if (!hasVisibilityUserOverride()) {
+    setVisible(sourceRect->isVisible());
+  }
   if (m_corner1) m_corner1->forceConstraintUpdate();
   if (m_corner2) m_corner2->forceConstraintUpdate();
   if (m_cornerB) m_cornerB->forceConstraintUpdate();
