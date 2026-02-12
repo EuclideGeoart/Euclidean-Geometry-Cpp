@@ -89,6 +89,7 @@ class RegularPolygon : public GeometricObject {
   sf::ConvexShape m_sfmlShape;      // SFML shape for rendering
   int m_hoveredVertex = -1;
   int m_activeVertex = -1;
+  bool m_isUpdating = false;        // Recursion guard
 
   // Helper methods
   void generateVertices();

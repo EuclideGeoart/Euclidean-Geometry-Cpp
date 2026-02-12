@@ -961,6 +961,39 @@ void GeometryEditor::render() {
       }
     }
 
+    // --- TOOLTIP OVERLAY ---
+    if (!currentTooltip.empty()) {
+        // Map world mouse pos to GUI space
+        sf::Vector2f worldPos = lastMousePos_sfml;
+        sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
+        sf::Vector2f uiPos = window.mapPixelToCoords(screenPos, guiView);
+
+        sf::Text tooltipText;
+        if (Button::getFontLoaded()) {
+            tooltipText.setFont(Button::getFont());
+        }
+        tooltipText.setString(currentTooltip);
+        tooltipText.setCharacterSize(14); 
+        tooltipText.setFillColor(sf::Color::White); 
+        
+        sf::Vector2f offset(15.f, 15.f);
+        sf::Vector2f textPos = uiPos + offset;
+        
+        // Ensure tooltip stays within window bounds? (Optional improvement for later)
+        
+        tooltipText.setPosition(textPos);
+
+        sf::FloatRect bounds = tooltipText.getGlobalBounds();
+        sf::RectangleShape bg(sf::Vector2f(bounds.width + 10.f, bounds.height + 6.f));
+        bg.setPosition(bounds.left - 5.f, bounds.top - 3.f);
+        bg.setFillColor(sf::Color(0, 0, 0, 200)); 
+        bg.setOutlineColor(sf::Color(200, 200, 200));
+        bg.setOutlineThickness(1.0f);
+
+        window.draw(bg);
+        window.draw(tooltipText);
+    }
+
     window.display();
 
   } catch (const std::exception& e) {
@@ -2695,7 +2728,7 @@ void GeometryEditor::saveProject(const std::string& filepath) {
 }
 
 void GeometryEditor::loadProject(const std::string& filepath) {
-  if (Deserializer::loadProject(*this, filepath)) {
+  if (ProjectSerializer::loadProject(*this, filepath)) {
     setGUIMessage("Project loaded: " + filepath);
   } else {
     setGUIMessage("Error loading project!");

@@ -330,6 +330,7 @@ class GeometryEditor {
   sf::Text hoverMessageText;
   bool showHoverMessage = false;
   std::string hoverMessage;
+  std::string currentTooltip; // For transformation info on hover
   sf::Text hoverText;
   sf::Font defaultFont;
   sf::Vector2f currentMousePos_sfml;

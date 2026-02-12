@@ -316,6 +316,8 @@ class TranslateVector : public Point {
   std::shared_ptr<Point> getSourcePoint() const { return sourcePoint; }
   std::shared_ptr<Point> getVectorStart() const { return vectorStart; }
   std::shared_ptr<Point> getVectorEnd() const { return vectorEnd; }
+  void setVectorStart(const std::shared_ptr<Point>& start) { vectorStart = start; }
+  void setVectorEnd(const std::shared_ptr<Point>& end) { vectorEnd = end; }
 
  private:
   std::shared_ptr<Point> sourcePoint;

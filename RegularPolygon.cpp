@@ -53,27 +53,33 @@ RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
 }
 
 void RegularPolygon::generateVertices() {
-  m_vertices.clear();
-
-  Point_2 centerPos = getCenter();
-  if (m_centerPoint && m_firstVertexPoint) {
-    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
-    double dx = CGAL::to_double(firstPos.x()) - CGAL::to_double(centerPos.x());
-    double dy = CGAL::to_double(firstPos.y()) - CGAL::to_double(centerPos.y());
-    m_radius = std::sqrt(dx * dx + dy * dy);
-    m_rotationAngle = std::atan2(dy, dx);
-  }
-
-  double centerX = CGAL::to_double(centerPos.x());
-  double centerY = CGAL::to_double(centerPos.y());
-  double angleStep = 2.0 * 3.14159265359 / m_numSides;
-
-  for (int i = 0; i < m_numSides; ++i) {
-    double angle = m_rotationAngle + i * angleStep;
-    double x = centerX + m_radius * std::cos(angle);
-    double y = centerY + m_radius * std::sin(angle);
-    m_vertices.push_back(Point_2(FT(x), FT(y)));
-  }
+    m_vertices.clear();
+    
+    // 1. If we are Dependent/Transformed, we rely on the specific construction logic
+    // However, RegularPolygon usually just stores Center+Vertex.
+    // If you want it to behave like Polygon, you should have stored ALL vertices 
+    // in the serializer step (Pass 2d).
+    
+    // CHECK: Did you implement the RegularPolygon loader to load "vertexIds" list?
+    // If not, it relies on Center+Vertex.
+    
+    if (m_centerPoint && m_firstVertexPoint) {
+        Point_2 center = m_centerPoint->getCGALPosition();
+        Point_2 start = m_firstVertexPoint->getCGALPosition();
+        
+        // Recalculate based on current live positions of Center and Vertex
+        double dx = CGAL::to_double(start.x() - center.x());
+        double dy = CGAL::to_double(start.y() - center.y());
+        double radius = std::sqrt(dx*dx + dy*dy);
+        double startAngle = std::atan2(dy, dx);
+        
+        for (int i = 0; i < m_numSides; ++i) {
+            double theta = startAngle + 2.0 * Constants::PI * i / m_numSides;
+            double px = CGAL::to_double(center.x()) + radius * std::cos(theta);
+            double py = CGAL::to_double(center.y()) + radius * std::sin(theta);
+            m_vertices.push_back(Point_2(px, py));
+        }
+    }
 }
 
 void RegularPolygon::updateSFMLShape() {
@@ -87,7 +93,7 @@ void RegularPolygon::updateSFMLShapeInternal() {
   for (size_t i = 0; i < m_vertices.size(); ++i) {
     double x = CGAL::to_double(m_vertices[i].x());
     double y = CGAL::to_double(m_vertices[i].y());
-    m_sfmlShape.setPoint(i, sf::Vector2f(x, y));
+    m_sfmlShape.setPoint(i, sf::Vector2f(static_cast<float>(x), static_cast<float>(y)));
   }
 
   m_sfmlShape.setFillColor(m_color);
@@ -218,12 +224,18 @@ void RegularPolygon::drawLabel(sf::RenderWindow &window, const sf::View &worldVi
 }
 
 void RegularPolygon::update() {
+  // Recursion guard: prevent infinite loops when points notify us
+  if (m_isUpdating) return;
+  m_isUpdating = true;
+
   if (isDependent()) {
     updateDependentShape();
   } else {
     updateSFMLShape();
     updateHostedPoints();
   }
+
+  m_isUpdating = false;
 }
 
 void RegularPolygon::updateDependentShape() {

@@ -13,8 +13,10 @@
  * CRITICAL: Uses std::map<unsigned int, std::shared_ptr<GeometricObject>> objectMap
  *           to guarantee pointer uniqueness - NO duplicates.
  */
-
+#if 0
 #include "Deserializer.h"
+
+#include "ProjectSerializer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -92,100 +94,8 @@ sf::Color colorFromJson(const json& j, const sf::Color& fallback) {
 void applyCommonPointFields(const json& jPoint,
                             const std::shared_ptr<Point>& point) {
   if (jPoint.contains("label")) point->setLabel(jPoint.value("label", ""));
-  if (jPoint.contains("showLabel"))
-    point->setShowLabel(jPoint.value("showLabel", true));
-  if (jPoint.contains("labelOffset") && jPoint["labelOffset"].is_array() &&
-      jPoint["labelOffset"].size() >= 2) {
-    point->setLabelOffset(
-        sf::Vector2f(jPoint["labelOffset"][0], jPoint["labelOffset"][1]));
-  }
-  if (jPoint.contains("fixed")) point->setLocked(jPoint.value("fixed", false));
-  if (jPoint.contains("locked")) point->setLocked(jPoint.value("locked", false));
-  if (jPoint.contains("visible"))
-    point->setVisible(jPoint.value("visible", true));
-}
-
-/**
- * Apply transformation metadata to an object
- */
-void applyTransformMetadata(const json& jObj,
-                            const std::shared_ptr<GeometricObject>& obj) {
-  if (!obj) return;
-
-  if (jObj.contains("isDependent")) {
-      obj->setDependent(jObj["isDependent"].get<bool>());
-  }
-
-  if (jObj.contains("transformType")) {
-    obj->setTransformType(
-        static_cast<TransformationType>(jObj["transformType"].get<int>()));
-    obj->setParentSourceID(jObj.value("parentSourceID", 0u));
-    obj->setAuxObjectID(jObj.value("auxObjectID", 0u));
-  }
-  if (jObj.contains("transformValue")) {
-    obj->setTransformValue(jObj["transformValue"].get<double>());
-  }
-  
-  if (jObj.contains("translationVectorX") && jObj.contains("translationVectorY")) {
-      Vector_2 v(jObj["translationVectorX"].get<double>(), jObj["translationVectorY"].get<double>());
-      obj->setTranslationVector(v);
-  }
-}
-
-}  // namespace
-
-// ============================================================================
-// MAIN LOAD FUNCTION
-// ============================================================================
-bool Deserializer::loadProject(GeometryEditor& editor,
-                               const std::string& filepath) {
-  std::ifstream file(filepath);
-  if (!file.is_open()) {
-    std::cerr << "Deserializer::loadProject: Failed to open file: " << filepath
-              << std::endl;
-    return false;
-  }
-
-  try {
-    json j;
-    file >> j;
-    file.close();
-
-    // Clear existing scene completely
-    editor.clearScene();
-    DynamicIntersection::clearAllIntersectionConstraints(editor);
-
-    // Detect JSON structure (nested "objects" or flat)
-    const json& data = j.contains("objects") ? j["objects"] : j;
-
-    // Load settings
-    bool axesVisible = true;
-    if (j.contains("settings") && j["settings"].contains("axesVisible")) {
-      axesVisible = j["settings"]["axesVisible"].get<bool>();
-    }
-
-    // ========================================================================
-    // CRITICAL: The Object Map - Guarantees Pointer Uniqueness
-    // ========================================================================
-    std::map<unsigned int, std::shared_ptr<GeometricObject>> objectMap;
-    unsigned int maxId = 0;
-
-    // Helper to register objects and track max ID
-    auto registerObject = [&](unsigned int id,
-                              const std::shared_ptr<GeometricObject>& obj) {
-      if (!obj || id == 0) return;
-      objectMap[id] = obj;
-      if (id > maxId) maxId = id;
-    };
-
-    // Helper to get Point from objectMap
-    auto getPoint = [&](int id) -> std::shared_ptr<Point> {
-      if (id <= 0) return nullptr;
-      auto it = objectMap.find(static_cast<unsigned int>(id));
-      if (it != objectMap.end()) {
-        return std::dynamic_pointer_cast<Point>(it->second);
-      }
-      return nullptr;
+                              // Legacy entry point now delegates to ProjectSerializer
+                              return ProjectSerializer::loadProject(editor, filepath);
     };
 
     // Helper to get any GeometricObject from objectMap
@@ -209,6 +119,29 @@ bool Deserializer::loadProject(GeometryEditor& editor,
       }
       return nullptr;
     };
+
+    // ========================================================================
+    // PRE-PASS: Register Axes in objectMap (for transformation references)
+    // Transformations may reference axes by their original IDs (e.g., Y-axis for ReflectLine)
+    // ========================================================================
+    if (editor.getXAxisShared()) {
+      registerObject(editor.getXAxisShared()->getID(), editor.getXAxisShared());
+      if (editor.getXAxisShared()->getStartPointObjectShared())
+        registerObject(editor.getXAxisShared()->getStartPointObjectShared()->getID(), 
+                       editor.getXAxisShared()->getStartPointObjectShared());
+      if (editor.getXAxisShared()->getEndPointObjectShared())
+        registerObject(editor.getXAxisShared()->getEndPointObjectShared()->getID(), 
+                       editor.getXAxisShared()->getEndPointObjectShared());
+    }
+    if (editor.getYAxisShared()) {
+      registerObject(editor.getYAxisShared()->getID(), editor.getYAxisShared());
+      if (editor.getYAxisShared()->getStartPointObjectShared())
+        registerObject(editor.getYAxisShared()->getStartPointObjectShared()->getID(), 
+                       editor.getYAxisShared()->getStartPointObjectShared());
+      if (editor.getYAxisShared()->getEndPointObjectShared())
+        registerObject(editor.getYAxisShared()->getEndPointObjectShared()->getID(), 
+                       editor.getYAxisShared()->getEndPointObjectShared());
+    }
 
     // ========================================================================
     // PASS 1: LOAD ALL POINTS
@@ -453,7 +386,9 @@ bool Deserializer::loadProject(GeometryEditor& editor,
           auto corner2 = getPoint(c2Id);
           
           if (corner1 && corner2) {
-            // Use pointer-based constructor to reuse existing Points
+            auto cornerB = getPoint(rectJson.value("cornerBID", -1));
+            auto cornerD = getPoint(rectJson.value("cornerDID", -1));
+
             if (isRotatable && height > 0) {
               rect = std::make_shared<Rectangle>(
                   corner1, corner2, height, color,
@@ -464,15 +399,9 @@ bool Deserializer::loadProject(GeometryEditor& editor,
                   static_cast<unsigned int>(std::max(id, 0)));
             }
             
-            // Set dependent corners if they exist
-            if (rectJson.contains("cornerBID") && rectJson.contains("cornerDID")) {
-              int cbId = rectJson["cornerBID"].get<int>();
-              int cdId = rectJson["cornerDID"].get<int>();
-              auto cornerB = getPoint(cbId);
-              auto cornerD = getPoint(cdId);
-              if (cornerB && cornerD) {
-                rect->setDependentCornerPoints(cornerB, cornerD);
-              }
+            // Set dependent corners B and D if available
+            if (cornerB && cornerD) {
+              rect->setDependentCornerPoints(cornerB, cornerD);
             }
           }
         }
@@ -609,6 +538,9 @@ bool Deserializer::loadProject(GeometryEditor& editor,
               triangle = std::make_shared<Triangle>(
                   v1, v2, v3, color,
                   static_cast<unsigned int>(std::max(id, 0)));
+              v1->addDependent(triangle);
+              v2->addDependent(triangle);
+              v3->addDependent(triangle);
             }
           }
         }
@@ -670,6 +602,8 @@ bool Deserializer::loadProject(GeometryEditor& editor,
             rpoly = std::make_shared<RegularPolygon>(
                 centerPt, firstVertPt, sides, color,
                 static_cast<unsigned int>(std::max(id, 0)));
+            centerPt->addDependent(rpoly);
+            firstVertPt->addDependent(rpoly);
           }
         }
         
@@ -1240,7 +1174,21 @@ bool Deserializer::loadProject(GeometryEditor& editor,
 
       obj->restoreTransformation(parent, aux,
                  static_cast<TransformationType>(typeInt));
-      obj->setDependent(true);
+      
+      // Only mark as dependent if there's a valid parent to transform from.
+      // Shapes with transformed VERTICES (parentSourceID=0) shouldn't be marked dependent
+      // because the vertices themselves handle the transformation chain.
+      ObjectType type = obj->getType();
+      bool isShapeType = (type == ObjectType::Rectangle || type == ObjectType::Polygon || 
+                         type == ObjectType::Triangle || type == ObjectType::RegularPolygon ||
+                         type == ObjectType::RectangleRotatable);
+      
+      if (isShapeType && parentId == 0) {
+        // Don't mark shape as dependent - uses vertex-based transformation
+        obj->setDependent(false);
+      } else {
+        obj->setDependent(true);
+      }
       obj->setLocked(true);
     };
 
@@ -1310,3 +1258,4 @@ bool Deserializer::loadProject(GeometryEditor& editor,
     return false;
   }
 }
+#endif

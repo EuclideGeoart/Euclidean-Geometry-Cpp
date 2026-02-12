@@ -1,0 +1,1103 @@
+{
+  "objects": {
+    "angles": [],
+    "circles": [],
+    "intersections": [],
+    "lines": [
+      {
+        "color": "#000000",
+        "decoration": 0,
+        "endPointID": 27,
+        "id": 28,
+        "isDependent": false,
+        "isParallel": false,
+        "isPerpendicular": false,
+        "isSegment": true,
+        "lineType": 3,
+        "startPointID": 26,
+        "thickness": 1.0,
+        "transformType": 0
+      }
+    ],
+    "objectPoints": [],
+    "points": [
+      {
+        "color": "#000000",
+        "id": 6,
+        "isIntersectionPoint": false,
+        "label": "A",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "visible": true,
+        "x": -4.249999284744263,
+        "y": 3.96875
+      },
+      {
+        "color": "#000000",
+        "id": 7,
+        "isIntersectionPoint": false,
+        "label": "C",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "visible": true,
+        "x": -2.854166030883789,
+        "y": 1.0937495231628418
+      },
+      {
+        "color": "#000000",
+        "id": 9,
+        "isIntersectionPoint": false,
+        "label": "B",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "visible": true,
+        "x": -2.854166030883789,
+        "y": 3.96875
+      },
+      {
+        "color": "#000000",
+        "id": 10,
+        "isIntersectionPoint": false,
+        "label": "D",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "visible": true,
+        "x": -4.249999284744263,
+        "y": 1.0937495231628418
+      },
+      {
+        "color": "#ff00ff",
+        "id": 11,
+        "isIntersectionPoint": false,
+        "label": "A'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 5,
+          "isDependent": true,
+          "parentSourceID": 6,
+          "transformType": 3,
+          "transformValue": 0.0,
+          "type": "ReflectLine"
+        },
+        "visible": true,
+        "x": 2.854166030883789,
+        "y": 1.0937495529651642
+      },
+      {
+        "color": "#ff00ff",
+        "id": 12,
+        "isIntersectionPoint": false,
+        "label": "C'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 5,
+          "isDependent": true,
+          "parentSourceID": 7,
+          "transformType": 3,
+          "transformValue": 0.0,
+          "type": "ReflectLine"
+        },
+        "visible": true,
+        "x": 4.249999284744263,
+        "y": 3.968750014901161
+      },
+      {
+        "color": "#ff00ff",
+        "id": 13,
+        "isIntersectionPoint": false,
+        "label": "B'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 5,
+          "isDependent": true,
+          "parentSourceID": 9,
+          "transformType": 3,
+          "transformValue": 0.0,
+          "type": "ReflectLine"
+        },
+        "visible": true,
+        "x": 2.854166030883789,
+        "y": 3.968750014901161
+      },
+      {
+        "color": "#ff00ff",
+        "id": 14,
+        "isIntersectionPoint": false,
+        "label": "D'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 5,
+          "isDependent": true,
+          "parentSourceID": 10,
+          "transformType": 3,
+          "transformValue": 0.0,
+          "type": "ReflectLine"
+        },
+        "visible": true,
+        "x": 4.249999284744263,
+        "y": 1.0937495529651642
+      },
+      {
+        "color": "#ff00ff",
+        "id": 16,
+        "isIntersectionPoint": false,
+        "label": "A'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 12,
+          "isDependent": true,
+          "parentSourceID": 6,
+          "transformType": 4,
+          "transformValue": 0.0,
+          "type": "ReflectPoint"
+        },
+        "visible": true,
+        "x": 11.354164600372314,
+        "y": 3.9687500298023224
+      },
+      {
+        "color": "#ff00ff",
+        "id": 17,
+        "isIntersectionPoint": false,
+        "label": "C'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 12,
+          "isDependent": true,
+          "parentSourceID": 7,
+          "transformType": 4,
+          "transformValue": 0.0,
+          "type": "ReflectPoint"
+        },
+        "visible": true,
+        "x": 12.749997854232788,
+        "y": 6.843750506639481
+      },
+      {
+        "color": "#ff00ff",
+        "id": 18,
+        "isIntersectionPoint": false,
+        "label": "B'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 12,
+          "isDependent": true,
+          "parentSourceID": 9,
+          "transformType": 4,
+          "transformValue": 0.0,
+          "type": "ReflectPoint"
+        },
+        "visible": true,
+        "x": 12.749997854232788,
+        "y": 3.9687500298023224
+      },
+      {
+        "color": "#ff00ff",
+        "id": 19,
+        "isIntersectionPoint": false,
+        "label": "D'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 12,
+          "isDependent": true,
+          "parentSourceID": 10,
+          "transformType": 4,
+          "transformValue": 0.0,
+          "type": "ReflectPoint"
+        },
+        "visible": true,
+        "x": 11.354164600372314,
+        "y": 6.843750506639481
+      },
+      {
+        "color": "#ff00ff",
+        "id": 21,
+        "isIntersectionPoint": false,
+        "label": "A'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 11,
+          "isDependent": true,
+          "parentSourceID": 6,
+          "transformType": 2,
+          "transformValue": 45.0,
+          "type": "RotatePoint"
+        },
+        "visible": true,
+        "x": -3.21516659126934,
+        "y": -0.9097184451625884
+      },
+      {
+        "color": "#ff00ff",
+        "id": 22,
+        "isIntersectionPoint": false,
+        "label": "C'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 11,
+          "isDependent": true,
+          "parentSourceID": 7,
+          "transformType": 2,
+          "transformValue": 45.0,
+          "type": "RotatePoint"
+        },
+        "visible": true,
+        "x": -2.169237417393653,
+        "y": -3.9296539374591255
+      },
+      {
+        "color": "#ff00ff",
+        "id": 23,
+        "isIntersectionPoint": false,
+        "label": "B'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 11,
+          "isDependent": true,
+          "parentSourceID": 9,
+          "transformType": 2,
+          "transformValue": 45.0,
+          "type": "RotatePoint"
+        },
+        "visible": true,
+        "x": -1.182234258183228,
+        "y": -2.9426507782487006
+      },
+      {
+        "color": "#ff00ff",
+        "id": 24,
+        "isIntersectionPoint": false,
+        "label": "D'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 11,
+          "isDependent": true,
+          "parentSourceID": 10,
+          "transformType": 2,
+          "transformValue": 45.0,
+          "type": "RotatePoint"
+        },
+        "visible": true,
+        "x": -4.202169750479765,
+        "y": -1.8967216043730133
+      },
+      {
+        "color": "#000000",
+        "id": 26,
+        "isIntersectionPoint": false,
+        "label": "E",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": true,
+        "visible": true,
+        "x": -4.541666507720947,
+        "y": 6.281249523162842
+      },
+      {
+        "color": "#000000",
+        "id": 27,
+        "isIntersectionPoint": false,
+        "label": "F",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": true,
+        "visible": true,
+        "x": -2.749999523162842,
+        "y": 5.8020830154418945
+      },
+      {
+        "color": "#ff00ff",
+        "id": 29,
+        "isIntersectionPoint": false,
+        "label": "A'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 27,
+          "isDependent": true,
+          "parentSourceID": 6,
+          "transformType": 1,
+          "transformValue": 0.0,
+          "translationVectorX": 0.0,
+          "translationVectorY": 0.0,
+          "type": "TranslateVector"
+        },
+        "visible": true,
+        "x": -1.0624990463256836,
+        "y": 3.4895834922790527
+      },
+      {
+        "color": "#ff00ff",
+        "id": 30,
+        "isIntersectionPoint": false,
+        "label": "C'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 27,
+          "isDependent": true,
+          "parentSourceID": 7,
+          "transformType": 1,
+          "transformValue": 0.0,
+          "translationVectorX": 0.0,
+          "translationVectorY": 0.0,
+          "type": "TranslateVector"
+        },
+        "visible": true,
+        "x": -2.4583323001861572,
+        "y": 0.6145830154418945
+      },
+      {
+        "color": "#ff00ff",
+        "id": 31,
+        "isIntersectionPoint": false,
+        "label": "B'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 27,
+          "isDependent": true,
+          "parentSourceID": 9,
+          "transformType": 1,
+          "transformValue": 0.0,
+          "translationVectorX": 0.0,
+          "translationVectorY": 0.0,
+          "type": "TranslateVector"
+        },
+        "visible": true,
+        "x": -1.0624990463256836,
+        "y": 0.6145830154418945
+      },
+      {
+        "color": "#ff00ff",
+        "id": 32,
+        "isIntersectionPoint": false,
+        "label": "D'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 27,
+          "isDependent": true,
+          "parentSourceID": 10,
+          "transformType": 1,
+          "transformValue": 0.0,
+          "translationVectorX": 0.0,
+          "translationVectorY": 0.0,
+          "type": "TranslateVector"
+        },
+        "visible": true,
+        "x": -2.4583323001861572,
+        "y": 3.4895834922790527
+      },
+      {
+        "color": "#ff00ff",
+        "id": 34,
+        "isIntersectionPoint": false,
+        "label": "D''",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 9,
+          "isDependent": true,
+          "parentSourceID": 32,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": 0.7291679382324219,
+        "y": 3.0104169845581055
+      },
+      {
+        "color": "#ff00ff",
+        "id": 35,
+        "isIntersectionPoint": false,
+        "label": "B''",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 9,
+          "isDependent": true,
+          "parentSourceID": 31,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": -2.0624985694885254,
+        "y": -2.739583969116211
+      },
+      {
+        "color": "#ff00ff",
+        "id": 36,
+        "isIntersectionPoint": false,
+        "label": "A''",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 9,
+          "isDependent": true,
+          "parentSourceID": 29,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": 0.7291679382324219,
+        "y": -2.739583969116211
+      },
+      {
+        "color": "#ff00ff",
+        "id": 37,
+        "isIntersectionPoint": false,
+        "label": "C''",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 9,
+          "isDependent": true,
+          "parentSourceID": 30,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": -2.0624985694885254,
+        "y": 3.0104169845581055
+      },
+      {
+        "color": "#ff00ff",
+        "id": 39,
+        "isIntersectionPoint": false,
+        "label": "A'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 29,
+          "isDependent": true,
+          "parentSourceID": 6,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": -4.6458330154418945,
+        "y": 4.447916507720947
+      },
+      {
+        "color": "#ff00ff",
+        "id": 40,
+        "isIntersectionPoint": false,
+        "label": "C'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 29,
+          "isDependent": true,
+          "parentSourceID": 7,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": -7.437499523162842,
+        "y": -1.3020844459533691
+      },
+      {
+        "color": "#ff00ff",
+        "id": 41,
+        "isIntersectionPoint": false,
+        "label": "B'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 29,
+          "isDependent": true,
+          "parentSourceID": 9,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": -4.6458330154418945,
+        "y": -1.3020844459533691
+      },
+      {
+        "color": "#ff00ff",
+        "id": 42,
+        "isIntersectionPoint": false,
+        "label": "D'",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "locked": false,
+        "showLabel": false,
+        "transform": {
+          "auxObjectID": 29,
+          "isDependent": true,
+          "parentSourceID": 10,
+          "transformType": 6,
+          "transformValue": 2.0,
+          "type": "DilatePoint"
+        },
+        "visible": true,
+        "x": -7.437499523162842,
+        "y": 4.447916507720947
+      }
+    ],
+    "polygons": [],
+    "rectangles": [
+      {
+        "color": "#000000",
+        "corner1ID": 6,
+        "corner2ID": 7,
+        "cornerBID": 9,
+        "cornerDID": 10,
+        "height": 2.875000476837158,
+        "id": 8,
+        "isDependent": false,
+        "isRotatable": false,
+        "label": "poly1",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 0,
+        "vertexIds": [
+          6,
+          7,
+          9,
+          10
+        ],
+        "vertices": [
+          [
+            -4.249999284744263,
+            3.96875
+          ],
+          [
+            -2.854166030883789,
+            3.96875
+          ],
+          [
+            -2.854166030883789,
+            1.0937495231628418
+          ],
+          [
+            -4.249999284744263,
+            1.0937495231628418
+          ]
+        ],
+        "width": 1.3958332538604736
+      },
+      {
+        "auxObjectID": 0,
+        "color": "#000000",
+        "corner1ID": 12,
+        "corner2ID": 11,
+        "cornerBID": 13,
+        "cornerDID": 14,
+        "height": 2.875000461935997,
+        "id": 15,
+        "isDependent": true,
+        "isRotatable": false,
+        "label": "",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "parentSourceID": 0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 3,
+        "transformValue": 0.0,
+        "vertexIds": [
+          12,
+          11,
+          13,
+          14
+        ],
+        "vertices": [
+          [
+            4.249999284744263,
+            3.968750014901161
+          ],
+          [
+            2.854166030883789,
+            3.968750014901161
+          ],
+          [
+            2.854166030883789,
+            1.0937495529651642
+          ],
+          [
+            4.249999284744263,
+            1.0937495529651642
+          ]
+        ],
+        "width": 1.3958332538604736
+      },
+      {
+        "auxObjectID": 0,
+        "color": "#000000",
+        "corner1ID": 18,
+        "corner2ID": 19,
+        "cornerBID": 16,
+        "cornerDID": 17,
+        "height": 3.195931509653579,
+        "id": 20,
+        "isDependent": true,
+        "isRotatable": false,
+        "label": "",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "parentSourceID": 0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 4,
+        "transformValue": 0.0,
+        "vertexIds": [
+          18,
+          19,
+          16,
+          17
+        ],
+        "vertices": [
+          [
+            12.749997854232788,
+            3.9687500298023224
+          ],
+          [
+            11.354164600372314,
+            3.9687500298023224
+          ],
+          [
+            11.354164600372314,
+            6.843750506639481
+          ],
+          [
+            12.749997854232788,
+            6.843750506639481
+          ]
+        ],
+        "width": 1.3958332538604736
+      },
+      {
+        "auxObjectID": 0,
+        "color": "#000000",
+        "corner1ID": 24,
+        "corner2ID": 23,
+        "cornerBID": 21,
+        "cornerDID": 22,
+        "height": 2.875000476837158,
+        "id": 25,
+        "isDependent": true,
+        "isRotatable": false,
+        "label": "",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "parentSourceID": 0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 2,
+        "transformValue": 45.0,
+        "vertexIds": [
+          24,
+          23,
+          21,
+          22
+        ],
+        "vertices": [
+          [
+            -4.202169750479765,
+            -1.8967216043730133
+          ],
+          [
+            -1.182234258183228,
+            -1.8967216043730133
+          ],
+          [
+            -1.182234258183228,
+            -2.9426507782487006
+          ],
+          [
+            -4.202169750479765,
+            -2.9426507782487006
+          ]
+        ],
+        "width": 3.195931509653579
+      },
+      {
+        "auxObjectID": 0,
+        "color": "#000000",
+        "corner1ID": 32,
+        "corner2ID": 31,
+        "cornerBID": 29,
+        "cornerDID": 30,
+        "height": 2.875000476837158,
+        "id": 33,
+        "isDependent": true,
+        "isRotatable": false,
+        "label": "",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "parentSourceID": 0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 1,
+        "transformValue": 0.0,
+        "translationVectorX": 1.7916669845581055,
+        "translationVectorY": -0.47916650772094727,
+        "vertexIds": [
+          32,
+          31,
+          29,
+          30
+        ],
+        "vertices": [
+          [
+            -2.4583323001861572,
+            3.4895834922790527
+          ],
+          [
+            -1.0624990463256836,
+            3.4895834922790527
+          ],
+          [
+            -1.0624990463256836,
+            0.6145830154418945
+          ],
+          [
+            -2.4583323001861572,
+            0.6145830154418945
+          ]
+        ],
+        "width": 3.195931509653579
+      },
+      {
+        "auxObjectID": 0,
+        "color": "#000000",
+        "corner1ID": 37,
+        "corner2ID": 36,
+        "cornerBID": 34,
+        "cornerDID": 35,
+        "height": 5.750000953674316,
+        "id": 38,
+        "isDependent": true,
+        "isRotatable": false,
+        "label": "",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "parentSourceID": 0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 6,
+        "transformValue": 2.0,
+        "vertexIds": [
+          37,
+          36,
+          34,
+          35
+        ],
+        "vertices": [
+          [
+            -2.0624985694885254,
+            3.0104169845581055
+          ],
+          [
+            0.7291679382324219,
+            3.0104169845581055
+          ],
+          [
+            0.7291679382324219,
+            -2.739583969116211
+          ],
+          [
+            -2.0624985694885254,
+            -2.739583969116211
+          ]
+        ],
+        "width": 6.391863019307158
+      },
+      {
+        "auxObjectID": 0,
+        "color": "#000000",
+        "corner1ID": 42,
+        "corner2ID": 41,
+        "cornerBID": 39,
+        "cornerDID": 40,
+        "height": 5.750000953674316,
+        "id": 43,
+        "isDependent": true,
+        "isRotatable": false,
+        "label": "",
+        "labelOffsetX": 0.0,
+        "labelOffsetY": 0.0,
+        "parentSourceID": 0,
+        "showLabel": false,
+        "thickness": 1.0,
+        "transformType": 6,
+        "transformValue": 2.0,
+        "vertexIds": [
+          42,
+          41,
+          39,
+          40
+        ],
+        "vertices": [
+          [
+            -7.437499523162842,
+            4.447916507720947
+          ],
+          [
+            -4.6458330154418945,
+            4.447916507720947
+          ],
+          [
+            -4.6458330154418945,
+            -1.3020844459533691
+          ],
+          [
+            -7.437499523162842,
+            -1.3020844459533691
+          ]
+        ],
+        "width": 6.391863019307158
+      }
+    ],
+    "regularPolygons": [],
+    "shapes": [
+      {
+        "color": "#000000",
+        "id": 8,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            -4.249999284744263,
+            3.96875
+          ],
+          [
+            -2.854166030883789,
+            3.96875
+          ],
+          [
+            -2.854166030883789,
+            1.0937495231628418
+          ],
+          [
+            -4.249999284744263,
+            1.0937495231628418
+          ]
+        ]
+      },
+      {
+        "color": "#000000",
+        "id": 15,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            4.249999284744263,
+            3.968750014901161
+          ],
+          [
+            2.854166030883789,
+            3.968750014901161
+          ],
+          [
+            2.854166030883789,
+            1.0937495529651642
+          ],
+          [
+            4.249999284744263,
+            1.0937495529651642
+          ]
+        ]
+      },
+      {
+        "color": "#000000",
+        "id": 20,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            12.749997854232788,
+            3.9687500298023224
+          ],
+          [
+            11.354164600372314,
+            3.9687500298023224
+          ],
+          [
+            11.354164600372314,
+            6.843750506639481
+          ],
+          [
+            12.749997854232788,
+            6.843750506639481
+          ]
+        ]
+      },
+      {
+        "color": "#000000",
+        "id": 25,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            -4.202169750479765,
+            -1.8967216043730133
+          ],
+          [
+            -1.182234258183228,
+            -1.8967216043730133
+          ],
+          [
+            -1.182234258183228,
+            -2.9426507782487006
+          ],
+          [
+            -4.202169750479765,
+            -2.9426507782487006
+          ]
+        ]
+      },
+      {
+        "color": "#000000",
+        "id": 33,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            -2.4583323001861572,
+            3.4895834922790527
+          ],
+          [
+            -1.0624990463256836,
+            3.4895834922790527
+          ],
+          [
+            -1.0624990463256836,
+            0.6145830154418945
+          ],
+          [
+            -2.4583323001861572,
+            0.6145830154418945
+          ]
+        ]
+      },
+      {
+        "color": "#000000",
+        "id": 38,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            -2.0624985694885254,
+            3.0104169845581055
+          ],
+          [
+            0.7291679382324219,
+            3.0104169845581055
+          ],
+          [
+            0.7291679382324219,
+            -2.739583969116211
+          ],
+          [
+            -2.0624985694885254,
+            -2.739583969116211
+          ]
+        ]
+      },
+      {
+        "color": "#000000",
+        "id": 43,
+        "shapeType": "rectangle",
+        "vertices": [
+          [
+            -7.437499523162842,
+            4.447916507720947
+          ],
+          [
+            -4.6458330154418945,
+            4.447916507720947
+          ],
+          [
+            -4.6458330154418945,
+            -1.3020844459533691
+          ],
+          [
+            -7.437499523162842,
+            -1.3020844459533691
+          ]
+        ]
+      }
+    ],
+    "tangentLines": [],
+    "triangles": []
+  },
+  "settings": {
+    "axesVisible": true
+  },
+  "version": "1.0"
+}

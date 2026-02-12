@@ -1,5 +1,6 @@
 #include "Rectangle.h"
 
+#include <SFML/Graphics/Color.hpp>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -11,6 +12,7 @@
 #include "Point.h"
 #include "PointUtils.h"
 #include "Types.h"
+
 
 Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRotatable, const sf::Color& color, unsigned int id)
     : GeometricObject(ObjectType::Rectangle, color, id),
@@ -29,6 +31,7 @@ Rectangle::Rectangle(const Point_2& corner1, const Point_2& corner2, bool isRota
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
   updateDimensionsFromCorners();
+  update();
   updateSFMLShape();
   setShowLabel(true);
 }
@@ -52,7 +55,12 @@ Rectangle::Rectangle(const std::shared_ptr<Point>& corner1,
   m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
+  // Register as dependent of corner points so we update when they move
+  if (m_corner1) m_corner1->addDependent(m_selfHandle);
+  if (m_corner2) m_corner2->addDependent(m_selfHandle);
+
   updateDimensionsFromCorners();
+  update();
   updateSFMLShape();
   setShowLabel(true);
 }
@@ -73,6 +81,7 @@ Rectangle::Rectangle(const Point_2& corner, const Point_2& adjacentPoint, double
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
   syncRotatableFromAnchors();
+  update();
   updateSFMLShape();
   setShowLabel(true);
 }
@@ -96,7 +105,104 @@ Rectangle::Rectangle(const std::shared_ptr<Point>& corner,
   m_cornerB = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
   m_cornerD = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
 
+  // Register as dependent of corner points so we update when they move
+  if (m_corner1) m_corner1->addDependent(m_selfHandle);
+  if (m_corner2) m_corner2->addDependent(m_selfHandle);
+
   syncRotatableFromAnchors();
+  updateSFMLShape();
+  setShowLabel(true);
+}
+// new constructor that takes 4 points for full connectivity (used by deserializer)
+Rectangle::Rectangle(std::shared_ptr<Point> p1,
+                     std::shared_ptr<Point> p2,
+                     std::shared_ptr<Point> pb,
+                     std::shared_ptr<Point> pd,
+                     bool isRotatable,
+                     const sf::Color& color,
+                     unsigned int id)
+    : GeometricObject(ObjectType::Rectangle, color, id),
+      m_corner1(p1),
+      m_corner2(p2),
+      m_cornerB(pb),
+      m_cornerD(pd),
+      m_isRotatable(isRotatable),
+      m_width(0),
+      m_height(0),
+      m_rotationAngle(0),
+      m_center(FT(0), FT(0)) {
+  m_color.a = 0;  // Transparent fill
+  m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
+  m_useExplicitVertices = true;
+  // 1. Force Dependencies (Like Polygon)
+  // This ensures that if any of these 4 points move, the Rectangle updates.
+  if (m_corner1) m_corner1->addDependent(m_selfHandle);
+  if (m_corner2) m_corner2->addDependent(m_selfHandle);
+  if (m_cornerB) m_cornerB->addDependent(m_selfHandle);
+  if (m_cornerD) m_cornerD->addDependent(m_selfHandle);
+
+  // 2. Initial Geometry Calculation
+  // We trust the points are already in the correct place.
+  syncRotatableFromAnchors();
+  update();
+  updateSFMLShape();
+  setShowLabel(true);
+}
+// 1. THE POLYGON-STYLE CONSTRUCTOR
+Rectangle::Rectangle(const std::vector<std::shared_ptr<Point>>& vertices, bool isRotatable, const sf::Color& color, unsigned int id)
+    : GeometricObject(ObjectType::Rectangle, color, id) {
+  m_color.a = 0;  // Transparent fill
+  m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
+  m_useExplicitVertices = true;
+
+  if (vertices.size() == 4) {
+    // 1. Assign Pointers
+    m_corner1 = vertices[0];  // Bottom-Left (A)
+    m_cornerB = vertices[1];  // Bottom-Right (B)
+    m_corner2 = vertices[2];  // Top-Right (C)
+    m_cornerD = vertices[3];  // Top-Left (D)
+
+    // 2. Reverse-Engineer Math from Points
+    Point_2 p1 = m_corner1->getCGALPosition();
+    Point_2 pb = m_cornerB->getCGALPosition();
+    Point_2 p2 = m_corner2->getCGALPosition();
+
+    // Width = Distance(A -> B)
+    double dx_w = CGAL::to_double(pb.x() - p1.x());
+    double dy_w = CGAL::to_double(pb.y() - p1.y());
+    m_width = std::sqrt(dx_w * dx_w + dy_w * dy_w);
+
+    // Height = Distance(B -> C)
+    double dx_h = CGAL::to_double(p2.x() - pb.x());
+    double dy_h = CGAL::to_double(p2.y() - pb.y());
+    m_height = std::sqrt(dx_h * dx_h + dy_h * dy_h);
+
+    // Rotation = Angle of Bottom Edge (A -> B)
+    m_rotationAngle = std::atan2(dy_w, dx_w);
+
+    // Center = Midpoint of Diagonal (A -> C)
+    m_center = Point_2((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
+
+    m_isRotatable = isRotatable;
+
+    // VISIBILITY LOGIC:
+    // If Rotatable, we need all corners visible for dragging/shearing.
+    // If Standard, we usually hide B and D and manage them via A and C.
+    if (m_isRotatable) {
+      if (m_cornerB) m_cornerB->setVisible(true);
+      if (m_cornerD) m_cornerD->setVisible(true);
+    } else {
+      if (m_cornerB) m_cornerB->setVisible(false);
+      if (m_cornerD) m_cornerD->setVisible(false);
+    }
+
+    // 3. Link Dependencies
+    for (auto& v : vertices) {
+      if (v) v->addDependent(m_selfHandle);
+    }
+  }
+  syncRotatableFromAnchors();
+  update();
   updateSFMLShape();
   setShowLabel(true);
 }
@@ -185,7 +291,7 @@ void Rectangle::updateDimensionsFromCorners() {
 
     const double minExtent = 1e-3;
     double heightSign = (m_height >= 0.0) ? 1.0 : -1.0;
-    double heightAbs = std::abs(m_height);
+    double heightAbs = std::fabs(m_height);
     if (heightAbs < minExtent) {
       heightAbs = minExtent;
     }
@@ -206,81 +312,298 @@ void Rectangle::updateDimensionsFromCorners() {
     return;
   }
 
-  m_width = std::abs(x2 - x1);
-  m_height = std::abs(y2 - y1);
+  m_width = std::fabs(x2 - x1);
+  m_height = std::fabs(y2 - y1);
   m_rotationAngle = 0;  // Axis-aligned rectangles have no rotation
   m_center = Point_2(FT((x1 + x2) * 0.5), FT((y1 + y2) * 0.5));
 }
-
+// ---------------------------------------------------------
+// VISUAL RENDERER (Correct Winding Order)
+// ---------------------------------------------------------
 void Rectangle::updateSFMLShape() {
-  if (m_isRotatable) {
-    syncRotatableFromAnchors();
-  } else {
-    updateDimensionsFromCorners();
-  }
-
-  if (m_isRotatable) {
-    double heightAbs = std::abs(m_height);
-    m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(heightAbs)));
-
-    // --- FIX FOR ROTATED RECTANGLE DRAG FLIP ---
-    // If height is negative, we flip the shape along the Y axis.
-    // This ensures that Vertex 2 (Bottom Right in local coords) physically moves to the
-    // "negative" side relative to the base line, matching the logical coordinates.
-    if (m_height < 0) {
-      m_sfmlShape.setScale(1.0f, -1.0f);
+  if (!m_useExplicitVertices) {
+    if (m_isRotatable) {
+      syncRotatableFromAnchors();
     } else {
-      m_sfmlShape.setScale(1.0f, 1.0f);
+      updateDimensionsFromCorners();
     }
-    // -------------------------------------------
-  } else {
-    m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(m_height)));
-    m_sfmlShape.setScale(1.0f, 1.0f);  // Reset scale for non-rotatable
+    syncDependentCorners();
   }
 
+  m_sfmlShape.setPointCount(4);
   m_sfmlShape.setFillColor(m_color);
   m_sfmlShape.setOutlineThickness(m_thickness);
   m_sfmlShape.setOutlineColor(sf::Color::Black);
 
-  if (m_isRotatable) {
-    double cx = CGAL::to_double(m_center.x());
-    double cy = CGAL::to_double(m_center.y());
-    double heightAbs = std::abs(m_height);
+  auto setPt = [&](int idx, std::shared_ptr<Point> p) {
+    if (p) {
+      Point_2 pos = p->getCGALPosition();
+      m_sfmlShape.setPoint(idx, sf::Vector2f((float)CGAL::to_double(pos.x()), (float)CGAL::to_double(pos.y())));
+    }
+  };
 
-    // Origin is at the center of the rectangle
-    m_sfmlShape.setOrigin(static_cast<float>(m_width * 0.5), static_cast<float>(heightAbs * 0.5));
-    m_sfmlShape.setPosition(static_cast<float>(cx), static_cast<float>(cy));
-    m_sfmlShape.setRotation(static_cast<float>(m_rotationAngle * 180.0 / 3.14159265359));
-  } else {
-    Point_2 c1 = getCorner1Position();
-    Point_2 c2 = getCorner2Position();
-    double x1 = CGAL::to_double(c1.x());
-    double y1 = CGAL::to_double(c1.y());
-    double x2 = CGAL::to_double(c2.x());
-    double y2 = CGAL::to_double(c2.y());
+  // STRICT PERIMETER ORDER: A -> B -> C -> D
+  // Vertex assignment differs based on rectangle type:
+  // - Axis-aligned: corner1=A(diag), corner2=C(diag), cornerB=B(computed), cornerD=D(computed)
+  // - Rotatable: corner1=A(base start), corner2=B(base end), cornerB=C(computed), cornerD=D(computed)
+  if (m_corner1 && m_cornerB && m_corner2 && m_cornerD) {
+    if (m_isRotatable) {
+      // Rotatable: A(corner1) → B(corner2) → C(cornerB) → D(cornerD)
+      setPt(0, m_corner1);  // A (base start)
+      setPt(1, m_corner2);  // B (base end)
+      setPt(2, m_cornerB);  // C (perpendicular from B)
+      setPt(3, m_cornerD);  // D (perpendicular from A)
+    } else {
+      // Axis-aligned: A(corner1) → B(cornerB) → C(corner2) → D(cornerD)
+      setPt(0, m_corner1);  // A (bottom-left)
+      setPt(1, m_cornerB);  // B (bottom-right)
+      setPt(2, m_corner2);  // C (top-right)
+      setPt(3, m_cornerD);  // D (top-left)
+    }
+  }
+}
 
-    double minX = std::min(x1, x2);
-    double minY = std::min(y1, y2);
-    double width = std::abs(x2 - x1);
-    double height = std::abs(y2 - y1);
+// ---------------------------------------------------------
+// SAFE UPDATE METHOD (Breaks Infinite Recursion)
+// ---------------------------------------------------------
+void Rectangle::update() {
+  // 1. RECURSION GUARD: Stop if we are already updating
+  if (m_isUpdating) return;
+  m_isUpdating = true;  // Lock
 
-    m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(width), static_cast<float>(height)));
-    m_sfmlShape.setOrigin(0.0f, 0.0f);
-    m_sfmlShape.setPosition(sf::Vector2f(static_cast<float>(minX), static_cast<float>(minY)));
-    m_sfmlShape.setRotation(0.0f);
+  try {
+    // 2. CONSTRAINT LOGIC: Enforce 90-degree corners
+    // Only run if we have the defining points (A, B, C)
+    if (m_corner1 && m_cornerB && m_corner2) {
+      Point_2 p1 = m_corner1->getCGALPosition();
+      Point_2 pb = m_cornerB->getCGALPosition();
+      Point_2 p2 = m_corner2->getCGALPosition();
+
+      // CREATION GUARD: Check if geometry is complete before enforcing constraints
+      // During interactive creation, edges may be degenerate (zero-length or tiny)
+      // Skip enforcement if base edge (p1→pb) or height edge (pb→p2) is incomplete
+      double baseEdgeSqDist = CGAL::to_double(CGAL::squared_distance(p1, pb));
+      double heightEdgeSqDist = CGAL::to_double(CGAL::squared_distance(pb, p2));
+      double minThresholdSq = Constants::MIN_CIRCLE_RADIUS * Constants::MIN_CIRCLE_RADIUS;
+
+      if (baseEdgeSqDist < minThresholdSq || heightEdgeSqDist < minThresholdSq) {
+        // Rectangle is incomplete (being created or loaded with degenerate edges)
+        // Skip constraint enforcement to avoid snapping D prematurely
+        GeometricObject::update();
+        updateSFMLShape();
+        m_isUpdating = false;
+        return;
+      }
+
+      // Recalculate dimensions based on current points
+      double dx_w = CGAL::to_double(pb.x() - p1.x());
+      double dy_w = CGAL::to_double(pb.y() - p1.y());
+      m_width = std::sqrt(dx_w * dx_w + dy_w * dy_w);
+
+      double dx_h = CGAL::to_double(p2.x() - pb.x());
+      double dy_h = CGAL::to_double(p2.y() - pb.y());
+      m_height = std::sqrt(dx_h * dx_h + dy_h * dy_h);
+
+      m_rotationAngle = std::atan2(dy_w, dx_w);
+      m_center = Point_2((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
+
+      // 3. CONSTRAINT ENFORCEMENT (Base Edge Dominance)
+      // For Rotatable Rectangles, we enforce that ABCD forms a rectangle
+      // where AB is the "Base" and Height depends on C/D's projection.
+      if (m_isRotatable) {
+          // CORNER MAPPING FOR ROTATABLE RECTANGLES:
+          // m_corner1 = A (Base Start)
+          // m_corner2 = B (Base End)  <-- THIS WAS THE CONFUSION (Used to be Diagonal)
+          // m_cornerB = C (Top Right)
+          // m_cornerD = D (Top Left)
+
+          // 1. Get current positions
+          Point_2 pA = m_corner1->getCGALPosition();
+          Point_2 pB = m_corner2->getCGALPosition(); // Base End
+          Point_2 pC = m_cornerB->getCGALPosition(); // Top Right
+          Point_2 pD = m_cornerD->getCGALPosition(); // Top Left
+
+          // 2. Base Vector U = B - A
+          double ux = CGAL::to_double(pB.x() - pA.x());
+          double uy = CGAL::to_double(pB.y() - pA.y());
+          double baseLenSq = ux*ux + uy*uy;
+          
+          if (baseLenSq > 1e-9) {
+              double baseLen = std::sqrt(baseLenSq);
+              ux /= baseLen;
+              uy /= baseLen;
+
+              // 3. Normal Vector V (Rotated 90 deg CCW: -y, x)
+              double vx = -uy;
+              double vy = ux;
+
+              // 4. Project C and D onto Normal to find Height
+              // Height = Dot(C-B, V)
+              // Note: C is connected to B. D is connected to A.
+              double h1 = (CGAL::to_double(pC.x() - pB.x()) * vx + CGAL::to_double(pC.y() - pB.y()) * vy);
+              double h2 = (CGAL::to_double(pD.x() - pA.x()) * vx + CGAL::to_double(pD.y() - pA.y()) * vy);
+              
+              // Average height for stability
+              double newHeight = (h1 + h2) / 2.0;
+              
+              m_height = newHeight; 
+              m_width = baseLen;
+
+              // 5. Reconstruct Perfect C and D
+              // C = B + V * h
+              // D = A + V * h
+              double cx = CGAL::to_double(pB.x()) + vx * newHeight;
+              double cy = CGAL::to_double(pB.y()) + vy * newHeight;
+              Point_2 idealC = Point_2(cx, cy);
+
+              double dx = CGAL::to_double(pA.x()) + vx * newHeight;
+              double dy = CGAL::to_double(pA.y()) + vy * newHeight;
+              Point_2 idealD = Point_2(dx, dy);
+
+              // Update C (cornerB) if needed
+              if (CGAL::squared_distance(pC, idealC) > 1e-6) {
+                   m_cornerB->setCGALPosition(idealC);
+              }
+              // Update D (cornerD) if needed
+              if (CGAL::squared_distance(pD, idealD) > 1e-6) {
+                   m_cornerD->setCGALPosition(idealD);
+              }
+          }
+      } else {
+        // Axis Aligned (A=BL, B=BR, C=TR, D=TL)
+        // ... (Existing Axis Aligned Logic if needed, but usually simpler)
+        // For now, only Rotatable was broken. 
+        // Snap D based on A, B, C logic for Axis Aligned?
+        // Axis aligned is usually driven by A and C (diagonal).
+        // Let's leave strict update for Rotatable mainly.
+        // But we DO need to update cornerD for AA rects too!
+        if (m_cornerD) {
+             Point_2 idealD(p1.x(), p2.y()); // TL = (x1, y2)
+             Point_2 idealB(p2.x(), p1.y()); // BR = (x2, y1)
+             
+             if (CGAL::to_double(CGAL::squared_distance(m_cornerD->getCGALPosition(), idealD)) > 1e-6) {
+                m_cornerD->setCGALPosition(idealD);
+             }
+             if (CGAL::to_double(CGAL::squared_distance(m_cornerB->getCGALPosition(), idealB)) > 1e-6) {
+                m_cornerB->setCGALPosition(idealB);
+             }
+        }
+      }
+
+    }
+
+    // 4. Update Base & Visuals
+    GeometricObject::update();
+    updateSFMLShape();
+
+  } catch (...) {
+    m_isUpdating = false;  // Ensure unlock on error
+    throw;
   }
 
-  syncDependentCorners();
+  m_isUpdating = false;  // Unlock
 }
+// this stays commented out, do not delete now
+// void Rectangle::updateSFMLShape() {
+//   if (m_isRotatable) {
+//     syncRotatableFromAnchors();
+//   } else {
+//     updateDimensionsFromCorners();
+//   }
+
+//   if (m_isRotatable) {
+//     double heightAbs = std::abs(m_height);
+//     m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(heightAbs)));
+
+//     // --- FIX FOR ROTATED RECTANGLE DRAG FLIP ---
+//     // If height is negative, we flip the shape along the Y axis.
+//     // This ensures that Vertex 2 (Bottom Right in local coords) physically moves to the
+//     // "negative" side relative to the base line, matching the logical coordinates.
+//     if (m_height < 0) {
+//       m_sfmlShape.setScale(1.0f, -1.0f);
+//     } else {
+//       m_sfmlShape.setScale(1.0f, 1.0f);
+//     }
+//     // -------------------------------------------
+//   } else {
+//     m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(m_width), static_cast<float>(m_height)));
+//     m_sfmlShape.setScale(1.0f, 1.0f);  // Reset scale for non-rotatable
+//   }
+
+//   m_sfmlShape.setFillColor(m_color);
+//   m_sfmlShape.setOutlineThickness(m_thickness);
+//   m_sfmlShape.setOutlineColor(sf::Color::Black);
+
+//   if (m_isRotatable) {
+//     double cx = CGAL::to_double(m_center.x());
+//     double cy = CGAL::to_double(m_center.y());
+//     double heightAbs = std::abs(m_height);
+
+//     // Origin is at the center of the rectangle
+//     m_sfmlShape.setOrigin(static_cast<float>(m_width * 0.5), static_cast<float>(heightAbs * 0.5));
+//     m_sfmlShape.setPosition(static_cast<float>(cx), static_cast<float>(cy));
+//     m_sfmlShape.setRotation(static_cast<float>(m_rotationAngle * 180.0 / 3.14159265359));
+//   } else {
+//     Point_2 c1 = getCorner1Position();
+//     Point_2 c2 = getCorner2Position();
+//     double x1 = CGAL::to_double(c1.x());
+//     double y1 = CGAL::to_double(c1.y());
+//     double x2 = CGAL::to_double(c2.x());
+//     double y2 = CGAL::to_double(c2.y());
+
+//     double minX = std::min(x1, x2);
+//     double minY = std::min(y1, y2);
+//     double width = std::abs(x2 - x1);
+//     double height = std::abs(y2 - y1);
+
+//     m_sfmlShape.setSize(sf::Vector2f(static_cast<float>(width), static_cast<float>(height)));
+//     m_sfmlShape.setOrigin(0.0f, 0.0f);
+//     m_sfmlShape.setPosition(sf::Vector2f(static_cast<float>(minX), static_cast<float>(minY)));
+//     m_sfmlShape.setRotation(0.0f);
+//   }
+
+//   syncDependentCorners();
+// }
 
 void Rectangle::setDependentCornerPoints(const std::shared_ptr<Point>& b, const std::shared_ptr<Point>& d) {
   m_cornerB = b;
   m_cornerD = d;
+
+  // Register Rectangle as dependent on B and D corners so we get notified when they change
+  // The recursion guard in update() prevents infinite loops
+  if (m_cornerB && m_selfHandle) m_cornerB->addDependent(m_selfHandle);
+  if (m_cornerD && m_selfHandle) m_cornerD->addDependent(m_selfHandle);
+
+  bool deferB = false;
+  bool deferD = false;
+  if (m_cornerB) {
+    deferB = m_cornerB->isDeferringConstraintUpdates();
+    m_cornerB->setDeferConstraintUpdates(true);
+  }
+  if (m_cornerD) {
+    deferD = m_cornerD->isDeferringConstraintUpdates();
+    m_cornerD->setDeferConstraintUpdates(true);
+  }
+
   syncDependentCorners();
+
+  if (m_cornerB) m_cornerB->setDeferConstraintUpdates(deferB);
+  if (m_cornerD) m_cornerD->setDeferConstraintUpdates(deferD);
 }
 
 void Rectangle::syncDependentCorners() {
   if (!m_cornerB && !m_cornerD) return;
+
+  bool deferB = false;
+  bool deferD = false;
+  if (m_cornerB) {
+    deferB = m_cornerB->isDeferringConstraintUpdates();
+    m_cornerB->setDeferConstraintUpdates(true);
+  }
+  if (m_cornerD) {
+    deferD = m_cornerD->isDeferringConstraintUpdates();
+    m_cornerD->setDeferConstraintUpdates(true);
+  }
 
   if (!m_isRotatable) {
     Point_2 c1 = getCorner1Position();
@@ -296,6 +619,9 @@ void Rectangle::syncDependentCorners() {
     if (m_cornerD) {
       m_cornerD->setCGALPosition(Point_2(FT(x1), FT(y2)));
     }
+
+    if (m_cornerB) m_cornerB->setDeferConstraintUpdates(deferB);
+    if (m_cornerD) m_cornerD->setDeferConstraintUpdates(deferD);
     return;
   }
 
@@ -317,13 +643,16 @@ void Rectangle::syncDependentCorners() {
 
   if (m_cornerB) m_cornerB->setCGALPosition(c);
   if (m_cornerD) m_cornerD->setCGALPosition(d);
+
+  if (m_cornerB) m_cornerB->setDeferConstraintUpdates(deferB);
+  if (m_cornerD) m_cornerD->setDeferConstraintUpdates(deferD);
 }
 
 void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) const {
   if (!m_visible && !forceVisible) return;
 
   // Scale the main shape's outline
-  sf::RectangleShape scaledShape = m_sfmlShape;
+  sf::ConvexShape scaledShape = m_sfmlShape;
   scaledShape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
 
   // GHOST MODE: Apply transparency if hidden but forced visible
@@ -341,7 +670,7 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
 
   // Draw selection highlight if selected
   if (isSelected()) {
-    sf::RectangleShape highlight = m_sfmlShape;
+    sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
     highlight.setOutlineThickness(3.0f * scale);
     highlight.setOutlineColor(Constants::SELECTION_COLOR);
@@ -351,7 +680,7 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
     // User requested "highlighted separately from whole shape".
     // We'll draw the whole shape with thinner/alpha cyan, and the edge with thick distinct color.
 
-    sf::RectangleShape highlight = m_sfmlShape;
+    sf::ConvexShape highlight = m_sfmlShape;
     highlight.setFillColor(sf::Color::Transparent);
     highlight.setOutlineThickness(1.0f * scale);
     highlight.setOutlineColor(sf::Color(0, 255, 255, 100));  // Dim Cyan
@@ -505,6 +834,33 @@ void Rectangle::updateDependentShape() {
     return;
   }
 
+  if (m_useExplicitVertices) {
+    std::array<std::optional<Point_2>, 4> t;
+    for (size_t i = 0; i < 4; ++i) {
+      t[i] = transformPoint(verts[i]);
+      if (!t[i]) {
+        setVisible(false);
+        return;
+      }
+    }
+
+    if (m_corner1) m_corner1->setCGALPosition(flattenPoint(*t[0]));
+    if (m_cornerB) m_cornerB->setCGALPosition(flattenPoint(*t[1]));
+    if (m_corner2) m_corner2->setCGALPosition(flattenPoint(*t[2]));
+    if (m_cornerD) m_cornerD->setCGALPosition(flattenPoint(*t[3]));
+
+    updateSFMLShape();
+    updateHostedPoints();
+    if (!hasVisibilityUserOverride()) {
+      setVisible(sourceRect->isVisible());
+    }
+    if (m_corner1) m_corner1->forceConstraintUpdate();
+    if (m_corner2) m_corner2->forceConstraintUpdate();
+    if (m_cornerB) m_cornerB->forceConstraintUpdate();
+    if (m_cornerD) m_cornerD->forceConstraintUpdate();
+    return;
+  }
+
   if (!isRotatable()) {
     auto p0 = transformPoint(verts[0]);
     auto p2 = transformPoint(verts[2]);
@@ -553,24 +909,6 @@ void Rectangle::updateDependentShape() {
   if (m_cornerD) m_cornerD->forceConstraintUpdate();
 }
 
-void Rectangle::update() {
-  if (isDependent()) {
-    updateDependentShape();
-  } else {
-    updateSFMLShape();
-    updateHostedPoints();
-  }
-
-  // Suppress point labels favoring the Rectangle's own screen-space labels
-  // This prevents duplication where both GeometryEditor and Rectangle draw labels
-  // CHANGED: We now want points to manage their own labels for Global Consistency and SVG export.
-  // NO OP.
-  // if (m_corner1) m_corner1->setShowLabel(false);
-  // if (m_corner2) m_corner2->setShowLabel(false);
-  // if (m_cornerB) m_cornerB->setShowLabel(false);
-  // if (m_cornerD) m_cornerD->setShowLabel(false);
-}
-
 void Rectangle::setColor(const sf::Color& color) {
   m_color = color;
   m_sfmlShape.setFillColor(color);
@@ -597,6 +935,48 @@ bool Rectangle::isWithinDistance(const sf::Vector2f& screenPos, float tolerance)
 }
 
 void Rectangle::translate(const Vector_2& translation) {
+  if (m_useExplicitVertices) {
+        // Defer constraint updates on all corners
+        bool defer1 = m_corner1 ? m_corner1->isDeferringConstraintUpdates() : false;
+        bool deferB = m_cornerB ? m_cornerB->isDeferringConstraintUpdates() : false;
+        bool defer2 = m_corner2 ? m_corner2->isDeferringConstraintUpdates() : false;
+        bool deferD = m_cornerD ? m_cornerD->isDeferringConstraintUpdates() : false;
+        if (m_corner1) m_corner1->setDeferConstraintUpdates(true);
+        if (m_cornerB) m_cornerB->setDeferConstraintUpdates(true);
+        if (m_corner2) m_corner2->setDeferConstraintUpdates(true);
+        if (m_cornerD) m_cornerD->setDeferConstraintUpdates(true);
+
+        // Move all corners
+        if (m_corner1) {
+            Point_2 p = m_corner1->getCGALPosition();
+            m_corner1->setCGALPosition(flattenPoint(Point_2(p.x() + translation.x(), p.y() + translation.y())));
+        }
+        if (m_cornerB) {
+            Point_2 p = m_cornerB->getCGALPosition();
+            m_cornerB->setCGALPosition(flattenPoint(Point_2(p.x() + translation.x(), p.y() + translation.y())));
+        }
+        if (m_corner2) {
+            Point_2 p = m_corner2->getCGALPosition();
+            m_corner2->setCGALPosition(flattenPoint(Point_2(p.x() + translation.x(), p.y() + translation.y())));
+        }
+        if (m_cornerD) {
+            Point_2 p = m_cornerD->getCGALPosition();
+            m_cornerD->setCGALPosition(flattenPoint(Point_2(p.x() + translation.x(), p.y() + translation.y())));
+        }
+        m_center = flattenPoint(Point_2(m_center.x() + translation.x(), m_center.y() + translation.y()));
+
+        // Restore constraint update flags
+        if (m_corner1) m_corner1->setDeferConstraintUpdates(defer1);
+        if (m_cornerB) m_cornerB->setDeferConstraintUpdates(deferB);
+        if (m_corner2) m_corner2->setDeferConstraintUpdates(defer2);
+        if (m_cornerD) m_cornerD->setDeferConstraintUpdates(deferD);
+
+        // Now update once
+        updateSFMLShape();
+        updateHostedPoints();
+        return;
+    }
+
   Point_2 c1 = getCorner1Position();
   Point_2 c2 = getCorner2Position();
   setCorner1Position(flattenPoint(Point_2(c1.x() + translation.x(), c1.y() + translation.y())), false);
@@ -644,6 +1024,24 @@ std::vector<Point_2> Rectangle::getVertices() const {
   std::vector<Point_2> verts;
   verts.reserve(4);
 
+  if (m_useExplicitVertices && m_corner1 && m_cornerB && m_corner2 && m_cornerD) {
+    // Match updateSFMLShape() ordering
+    if (m_isRotatable) {
+      // Rotatable: A(corner1) → B(corner2) → C(cornerB) → D(cornerD)
+      verts.push_back(m_corner1->getCGALPosition());
+      verts.push_back(m_corner2->getCGALPosition());
+      verts.push_back(m_cornerB->getCGALPosition());
+      verts.push_back(m_cornerD->getCGALPosition());
+    } else {
+      // Axis-aligned: A(corner1) → B(cornerB) → C(corner2) → D(cornerD)
+      verts.push_back(m_corner1->getCGALPosition());
+      verts.push_back(m_cornerB->getCGALPosition());
+      verts.push_back(m_corner2->getCGALPosition());
+      verts.push_back(m_cornerD->getCGALPosition());
+    }
+    return verts;
+  }
+
   if (!m_isRotatable) {
     Point_2 c1 = getCorner1Position();
     Point_2 c2 = getCorner2Position();
@@ -659,12 +1057,9 @@ std::vector<Point_2> Rectangle::getVertices() const {
     return verts;
   }
 
-  // Use SFML transform to capture rotation as well
-  sf::Transform tf = m_sfmlShape.getTransform();
-  sf::Vector2f size = m_sfmlShape.getSize();
-  sf::Vector2f points[4] = {{0.f, 0.f}, {size.x, 0.f}, {size.x, size.y}, {0.f, size.y}};
-  for (int i = 0; i < 4; ++i) {
-    sf::Vector2f p = tf.transformPoint(points[i]);
+  // Use SFML points directly
+  for (unsigned int i = 0; i < m_sfmlShape.getPointCount(); ++i) {
+    sf::Vector2f p = m_sfmlShape.getPoint(i);
     verts.emplace_back(FT(p.x), FT(p.y));
   }
   return verts;
@@ -682,6 +1077,46 @@ std::vector<sf::Vector2f> Rectangle::getVerticesSFML() const {
 
 void Rectangle::setVertexPosition(size_t index, const Point_2& value) {
   if (index >= 4) return;
+
+  if (m_useExplicitVertices) {
+    // Match getVertices() and updateSFMLShape() ordering
+    if (m_isRotatable) {
+      // Rotatable: 0=corner1(A), 1=corner2(B), 2=cornerB(C), 3=cornerD(D)
+      switch (index) {
+        case 0:
+          if (m_corner1) m_corner1->setCGALPosition(flattenPoint(value));
+          break;
+        case 1:
+          if (m_corner2) m_corner2->setCGALPosition(flattenPoint(value));
+          break;
+        case 2:
+          if (m_cornerB) m_cornerB->setCGALPosition(flattenPoint(value));
+          break;
+        case 3:
+          if (m_cornerD) m_cornerD->setCGALPosition(flattenPoint(value));
+          break;
+      }
+    } else {
+      // Axis-aligned: 0=corner1(A), 1=cornerB(B), 2=corner2(C), 3=cornerD(D)
+      switch (index) {
+        case 0:
+          if (m_corner1) m_corner1->setCGALPosition(flattenPoint(value));
+          break;
+        case 1:
+          if (m_cornerB) m_cornerB->setCGALPosition(flattenPoint(value));
+          break;
+        case 2:
+          if (m_corner2) m_corner2->setCGALPosition(flattenPoint(value));
+          break;
+        case 3:
+          if (m_cornerD) m_cornerD->setCGALPosition(flattenPoint(value));
+          break;
+      }
+    }
+    updateSFMLShape();
+    updateHostedPoints();
+    return;
+  }
 
   if (m_isRotatable) {
     Point_2 a = getCorner1Position();
@@ -781,15 +1216,60 @@ void Rectangle::setRotation(double angleRadians) {
 
 void Rectangle::setHeight(double height) {
   if (m_isRotatable) {
-    if (!std::isfinite(height)) return;
+    // if (!std::isfinite(height)) return;
+    if (!(height > -1e100 && height < 1e100)) return;  // Robust NaN/Inf check
     const double minExtent = 1e-3;
     if (std::abs(height) < minExtent) {
       height = (height >= 0.0 ? 1.0 : -1.0) * minExtent;
     }
     m_height = height;
+
+    // Force update of C and D positions for explicit vertices
+    if (m_corner1 && m_corner2 && m_cornerB && m_cornerD) {
+      Point_2 pA = m_corner1->getCGALPosition();
+      Point_2 pB = m_corner2->getCGALPosition(); // Base End (B)
+      // Note: m_cornerB is C, m_cornerD is D
+      
+      double dx = CGAL::to_double(pB.x() - pA.x());
+      double dy = CGAL::to_double(pB.y() - pA.y());
+      double len = std::sqrt(dx*dx + dy*dy);
+      
+      if (len > 1e-9) {
+         double invLen = 1.0/len;
+         // Normal vector (Rotated 90 deg CCW: -y, x)
+         // ux = dx/len, uy = dy/len
+         // vx = -uy, vy = ux
+         double nx = -dy * invLen;
+         double ny = dx * invLen;
+         
+         // C = B + Normal * height
+         double cx = CGAL::to_double(pB.x()) + nx * height;
+         double cy = CGAL::to_double(pB.y()) + ny * height;
+         Point_2 newC = Point_2(cx, cy);
+         
+         // D = A + Normal * height
+         double dx = CGAL::to_double(pA.x()) + nx * height;
+         double dy = CGAL::to_double(pA.y()) + ny * height;
+         Point_2 newD = Point_2(dx, dy);
+         
+         m_cornerB->setCGALPosition(newC); // C
+         m_cornerD->setCGALPosition(newD); // D
+      }
+    }
+
   } else {
-    if (!std::isfinite(height)) return;
+    // if (!std::isfinite(height)) return;
+    if (!(height > -1e100 && height < 1e100)) return;  // Robust NaN/Inf check
     m_height = std::abs(height);
+    
+    // Update D and B for Axis Aligned
+    if (m_cornerD && m_corner1) {
+        // D is (x1, y1 + height)? No, (x1, y2).
+        // A is (x1, y1). D is (x1, y1 + h)?
+        // m_cornerB is (x1+w, y1).
+        // Let's assume BL is A.
+        Point_2 p1 = m_corner1->getCGALPosition();
+    }
   }
   updateSFMLShape();
   updateHostedPoints();
@@ -857,31 +1337,36 @@ void Rectangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) c
   // 2. Draw the rectangle's own label (e.g., name or area) at center
   std::string labelStr = "";
   switch (getLabelMode()) {
-    case LabelMode::Name: labelStr = getLabel(); break;
+    case LabelMode::Name:
+      labelStr = getLabel();
+      break;
     case LabelMode::Value: {
-       double area = m_width * std::abs(m_height);
-       labelStr = std::to_string(static_cast<int>(std::round(area)));
-       break;
+      double area = m_width * std::abs(m_height);
+      labelStr = std::to_string(static_cast<int>(std::round(area)));
+      break;
     }
     case LabelMode::NameAndValue: {
-       labelStr = getLabel();
-       double area = m_width * std::abs(m_height);
-       labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
-       break;
+      labelStr = getLabel();
+      double area = m_width * std::abs(m_height);
+      labelStr += (labelStr.empty() ? "" : " = ") + std::to_string(static_cast<int>(std::round(area)));
+      break;
     }
-    case LabelMode::Caption: labelStr = getCaption(); break;
-    default: break;
+    case LabelMode::Caption:
+      labelStr = getCaption();
+      break;
+    default:
+      break;
   }
 
   if (labelStr.empty()) return;
 
   sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(m_center), worldView);
-  
+
   sf::Text text;
   text.setFont(*Point::commonFont);
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize());
-  
+
   sf::Color textColor = m_color;
   if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
   text.setFillColor(textColor);

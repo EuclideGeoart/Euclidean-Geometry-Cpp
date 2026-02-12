@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <set>
+#include <unordered_set>
 #include <sstream>
 
 #include "Angle.h"
@@ -270,82 +271,125 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
     project["settings"] = json::object();
     project["settings"]["axesVisible"] = editor.areAxesVisible();
 
-    // Save Points
-    json pointsArray = json::array();
-    for (const auto& pt : editor.points) {
-      if (pt && pt->isValid()) {
-        json ptJson;
-        ptJson["id"] = pt->getID();
-        Point_2 pos = pt->getCGALPosition();
-        ptJson["x"] = CGAL::to_double(pos.x());
-        ptJson["y"] = CGAL::to_double(pos.y());
-        ptJson["color"] = colorToHex(pt->getColor());
-        ptJson["label"] = pt->getLabel();
-        ptJson["showLabel"] = pt->getShowLabel();
-        ptJson["hasUserOverride"] = pt->hasUserOverride();  // NEW: Persist manual toggle state
-        sf::Vector2f offset = pt->getLabelOffset();
-        ptJson["labelOffset"] = {offset.x, offset.y};
-        ptJson["visible"] = pt->isVisible();
-        ptJson["locked"] = pt->isLocked();
-        ptJson["fixed"] = pt->isLocked();
-        ptJson["isIntersectionPoint"] = pt->isIntersectionPoint();
+    // ------------------------------------------------------------
+    // PASS 1: POINTS (Deep Harvesting & Merge Strategy)
+    // ------------------------------------------------------------
+    json pointsJson = json::array();
+    
+    // 1. COLLECT ALL UNIQUE POINTS
+    // We use a Set to track IDs to avoid duplicates, and a Vector to preserve order.
+    std::vector<std::shared_ptr<Point>> pointsToSave;
+    std::set<unsigned int> savedPointIDs;
 
-        // Use new helper for consistency (Points handled differently in legacy, but good to have base data)
-        // Note: Points rely on "transform" object block for specific reconstruction,
-        // but adding base metadata doesn't hurt.
-        addTransformMetadata(ptJson, pt);
-
-        // IntersectionPoint dependency (line-line)
-        if (auto ip = std::dynamic_pointer_cast<IntersectionPoint>(pt)) {
-          if (auto l1 = ip->getLine1()) ptJson["line1Id"] = l1->getID();
-          if (auto l2 = ip->getLine2()) ptJson["line2Id"] = l2->getID();
+    auto markForSave = [&](std::shared_ptr<Point> p) {
+        if (p && savedPointIDs.find(p->getID()) == savedPointIDs.end()) {
+            savedPointIDs.insert(p->getID());
+            pointsToSave.push_back(p);
         }
+    };
 
-        // Transformation-derived points (Legacy Explicit Structure)
-        if (auto refL = std::dynamic_pointer_cast<ReflectLine>(pt)) {
-          json t;
-          t["type"] = "ReflectLine";
-          if (auto src = refL->getSourcePoint()) t["sourceId"] = src->getID();
-          if (auto ln = refL->getReflectLine()) t["lineId"] = ln->getID();
-          ptJson["transform"] = t;
-        } else if (auto refP = std::dynamic_pointer_cast<ReflectPoint>(pt)) {
-          json t;
-          t["type"] = "ReflectPoint";
-          if (auto src = refP->getSourcePoint()) t["sourceId"] = src->getID();
-          if (auto c = refP->getCenterPoint()) t["centerId"] = c->getID();
-          ptJson["transform"] = t;
-        } else if (auto refC = std::dynamic_pointer_cast<ReflectCircle>(pt)) {
-          json t;
-          t["type"] = "ReflectCircle";
-          if (auto src = refC->getSourcePoint()) t["sourceId"] = src->getID();
-          if (auto c = refC->getCircle()) t["circleId"] = c->getID();
-          ptJson["transform"] = t;
-        } else if (auto rot = std::dynamic_pointer_cast<RotatePoint>(pt)) {
-          json t;
-          t["type"] = "RotatePoint";
-          if (auto src = rot->getSourcePoint()) t["sourceId"] = src->getID();
-          if (auto c = rot->getCenterPoint()) t["centerId"] = c->getID();
-          t["angleDeg"] = rot->getAngleDegrees();
-          ptJson["transform"] = t;
-        } else if (auto tr = std::dynamic_pointer_cast<TranslateVector>(pt)) {
-          json t;
-          t["type"] = "TranslateVector";
-          if (auto src = tr->getSourcePoint()) t["sourceId"] = src->getID();
-          if (auto v1 = tr->getVectorStart()) t["vecStartId"] = v1->getID();
-          if (auto v2 = tr->getVectorEnd()) t["vecEndId"] = v2->getID();
-          ptJson["transform"] = t;
-        } else if (auto dil = std::dynamic_pointer_cast<DilatePoint>(pt)) {
-          json t;
-          t["type"] = "DilatePoint";
-          if (auto src = dil->getSourcePoint()) t["sourceId"] = src->getID();
-          if (auto c = dil->getCenterPoint()) t["centerId"] = c->getID();
-          t["factor"] = dil->getScaleFactor();
-          ptJson["transform"] = t;
-        }
-        pointsArray.push_back(ptJson);
-      }
+    // A. Harvest from Main Editor List
+    for (const auto& pt : editor.points) markForSave(pt);
+
+    // B. Harvest from Rectangles (Crucial for "Ghost" Fix)
+    for (const auto& r : editor.rectangles) {
+        if (!r) continue;
+        markForSave(r->getCorner1Point());
+        markForSave(r->getCornerBPoint());
+        markForSave(r->getCorner2Point());
+        markForSave(r->getCornerDPoint());
     }
-    project["objects"]["points"] = pointsArray;
+
+    // C. Harvest from Polygons
+    for (const auto& poly : editor.polygons) {
+        if (!poly) continue;
+        for (size_t i = 0; i < poly->getVertexCount(); ++i) {
+            markForSave(poly->getVertexPoint(i));
+        }
+    }
+
+    // D. Harvest from Triangles
+    for (const auto& tri : editor.triangles) {
+        if (!tri) continue;
+        for (size_t i = 0; i < 3; ++i) {
+            markForSave(tri->getVertexPoint(i));
+        }
+    }
+
+    // E. Harvest ObjectPoints (CRITICAL FIX: Include constrained points!)
+    for (const auto& op : editor.ObjectPoints) {
+        markForSave(op);
+    }
+
+    // 2. SERIALIZE THE UNIFIED LIST
+    for (const auto& pt : pointsToSave) {
+        if (!pt) continue;
+        json jPt;
+        jPt["id"] = pt->getID();
+        Point_2 pos = pt->getCGALPosition();
+        jPt["x"] = CGAL::to_double(pos.x());
+        jPt["y"] = CGAL::to_double(pos.y());
+        jPt["color"] = colorToHex(pt->getColor());
+        jPt["visible"] = pt->isVisible();
+        jPt["label"] = pt->getLabel();
+        jPt["showLabel"] = pt->getShowLabel();
+        sf::Vector2f offset = pt->getLabelOffset();
+        jPt["labelOffsetX"] = offset.x; // Explicit separate fields per request
+        jPt["labelOffsetY"] = offset.y;
+        jPt["locked"] = pt->isLocked();
+        jPt["isIntersectionPoint"] = pt->isIntersectionPoint();
+
+        // Save Transformation Metadata (Essential for Transformed Shapes)
+        if (pt->getTransformType() != TransformationType::None) {
+            json t;
+            t["transformType"] = static_cast<int>(pt->getTransformType());
+            
+            if (auto p = pt->getParentSource()) t["parentSourceID"] = p->getID();
+            if (auto aux = pt->getAuxObject()) t["auxObjectID"] = aux->getID();
+            
+            // TRANSLATION VECTOR FIX
+            if (pt->getTransformType() == TransformationType::Translate) {
+                Vector_2 v = pt->getTranslationVector();
+                t["translationVectorX"] = CGAL::to_double(v.x());
+                t["translationVectorY"] = CGAL::to_double(v.y());
+            }
+
+            t["transformValue"] = pt->getTransformValue();
+            t["isDependent"] = pt->isDependent();
+            
+            // Legacy Type Identification (For 3-Pass Loader compatibility)
+            if (std::dynamic_pointer_cast<ReflectLine>(pt)) t["type"] = "ReflectLine";
+            else if (std::dynamic_pointer_cast<ReflectPoint>(pt)) t["type"] = "ReflectPoint";
+            else if (std::dynamic_pointer_cast<TranslateVector>(pt)) t["type"] = "TranslateVector";
+            else if (std::dynamic_pointer_cast<RotatePoint>(pt)) t["type"] = "RotatePoint";
+            else if (std::dynamic_pointer_cast<DilatePoint>(pt)) t["type"] = "DilatePoint";
+
+            jPt["transform"] = t;
+        }
+
+        // CRITICAL FIX: Save ObjectPoint Metadata (for constrained points)
+        if (auto op = std::dynamic_pointer_cast<ObjectPoint>(pt)) {
+            jPt["isObjectPoint"] = true;
+            jPt["hostType"] = static_cast<int>(op->getHostType());
+            
+            if (op->isShapeEdgeAttachment()) {
+                jPt["edgeIndex"] = op->getEdgeIndex();
+                jPt["edgeRel"] = op->getEdgeRelativePosition();
+                jPt["t"] = op->getEdgeRelativePosition();
+            } else if (op->getHostType() == ObjectType::Circle) {
+                jPt["t"] = op->getAngleOnCircle();
+            } else if (op->getHostType() == ObjectType::Line || op->getHostType() == ObjectType::LineSegment) {
+                jPt["t"] = op->getRelativePositionOnLine();
+            }
+            
+            if (auto host = op->getHostObject()) {
+                jPt["hostId"] = host->getID();
+            }
+        }
+
+        pointsJson.push_back(jPt);
+    }
+    project["objects"]["points"] = pointsJson;
 
     // Save Lines
     json linesArray = json::array();
@@ -463,11 +507,28 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
           verticesJson.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
         }
         rectJson["vertices"] = verticesJson;
+
+        // Save vertexIds in 5-arg constructor member order:
+        // [corner1, corner2, cornerB, cornerD]
+        // For Rotatable: [A, B(adjacent), C(diagonal), D]
+        // For AA:        [A, C(diagonal), B(adjacent), D]
+        json rectVertexIds = json::array();
+        rectVertexIds.push_back(rect->getCorner1Point() ? (int)rect->getCorner1Point()->getID() : -1);
+        rectVertexIds.push_back(rect->getCorner2Point() ? (int)rect->getCorner2Point()->getID() : -1);
+        rectVertexIds.push_back(rect->getCornerBPoint() ? (int)rect->getCornerBPoint()->getID() : -1);
+        rectVertexIds.push_back(rect->getCornerDPoint() ? (int)rect->getCornerDPoint()->getID() : -1);
+        rectJson["vertexIds"] = rectVertexIds;
         rectJson["color"] = colorToHex(rect->getColor());
         rectJson["thickness"] = rect->getThickness();
         rectJson["isRotatable"] = rect->isRotatable();
         rectJson["height"] = rect->getHeight();
         rectJson["width"] = rect->getWidth();
+        // FIX: Save Label Data
+        rectJson["label"] = rect->getLabel();
+        rectJson["showLabel"] = rect->getShowLabel();
+        sf::Vector2f lo = rect->getLabelOffset();
+        rectJson["labelOffsetX"] = lo.x;
+        rectJson["labelOffsetY"] = lo.y;
 
         addTransformMetadata(rectJson, rect);
 
@@ -503,6 +564,12 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         polyJson["vertexIds"] = vertexIdsJson;
         polyJson["color"] = colorToHex(poly->getColor());
         polyJson["thickness"] = poly->getThickness();
+        // FIX: Save Label Data
+        polyJson["label"] = poly->getLabel();
+        polyJson["showLabel"] = poly->getShowLabel();
+        sf::Vector2f lo = poly->getLabelOffset();
+        polyJson["labelOffsetX"] = lo.x;
+        polyJson["labelOffsetY"] = lo.y;
         polygonsArray.push_back(polyJson);
       }
     }
@@ -538,6 +605,12 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         triJson["vertices"] = verticesJson;
         triJson["color"] = colorToHex(tri->getColor());
         triJson["thickness"] = tri->getThickness();
+        // FIX: Save Label Data
+        triJson["label"] = tri->getLabel();
+        triJson["showLabel"] = tri->getShowLabel();
+        sf::Vector2f lo = tri->getLabelOffset();
+        triJson["labelOffsetX"] = lo.x;
+        triJson["labelOffsetY"] = lo.y;
         trianglesArray.push_back(triJson);
       }
     }
@@ -742,9 +815,670 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     file >> j;
     file.close();
 
+    editor.clearScene();
+    DynamicIntersection::clearAllIntersectionConstraints(editor);
+
+    if (editor.getXAxisShared() && std::find(editor.lines.begin(), editor.lines.end(), editor.getXAxisShared()) == editor.lines.end()) {
+      editor.lines.push_back(editor.getXAxisShared());
+    }
+    if (editor.getYAxisShared() && std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxisShared()) == editor.lines.end()) {
+      editor.lines.push_back(editor.getYAxisShared());
+    }
+
+    const json& data = j.contains("objects") ? j["objects"] : j;
+    unsigned int maxId = 0;
+
+    auto bumpMaxId = [&](unsigned int id) {
+      if (id > maxId) maxId = id;
+    };
+
+    // PHASE 1: REGISTRY
+    std::map<unsigned int, json> registry;
+    std::map<unsigned int, std::pair<unsigned int, unsigned int>> vectorLineMap;
+
+    auto addToRegistry = [&](const json& list) {
+        if (!list.is_array()) return;
+        for (const auto& item : list) {
+            unsigned int id = item.value("id", 0u);
+        if (id > 0) {
+          registry[id] = item;
+          bumpMaxId(id);
+        }
+        }
+    };
+
+    if (data.contains("points")) addToRegistry(data["points"]);
+    if (data.contains("lines")) {
+        const auto& lines = data["lines"];
+        addToRegistry(lines);
+        for (const auto& line : lines) {
+            unsigned int id = line.value("id", 0u);
+            unsigned int start = line.value("startPointID", 0u);
+            unsigned int end = line.value("endPointID", 0u);
+            if (start > 0 && end > 0) vectorLineMap[end] = {start, id};
+        }
+    }
+    if (data.contains("circles")) addToRegistry(data["circles"]);
+    if (data.contains("objectPoints")) addToRegistry(data["objectPoints"]);
+
+    // PHASE 2: POLYMORPHIC POINTS (Pass 1 & Pass 2)
+    std::map<unsigned int, std::shared_ptr<GeometricObject>> created;
+    std::map<unsigned int, std::shared_ptr<Point>> pointMap;
+    if (editor.getXAxisShared()) created[editor.getXAxisShared()->getID()] = editor.getXAxisShared();
+    if (editor.getYAxisShared()) created[editor.getYAxisShared()->getID()] = editor.getYAxisShared();
+
+    auto createSmartPoint = [&](const json& jPt) -> std::shared_ptr<Point> {
+      unsigned int id = jPt.value("id", 0u);
+      double x = jPt.value("x", 0.0);
+      double y = jPt.value("y", 0.0);
+      sf::Color color = hexToColor(jPt.value("color", "#000000"));
+
+      if (jPt.value("isIntersectionPoint", false)) {
+        auto ip = std::make_shared<IntersectionPoint>(nullptr, nullptr, Point_2(x, y), color, id);
+        ip->setDependent(true);
+        return ip;
+      }
+
+      if (jPt.contains("hostId")) {
+        auto op = std::make_shared<ObjectPoint>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+        return op;
+      }
+
+      if (jPt.contains("transform") && jPt["transform"].is_object()) {
+        const json& t = jPt["transform"];
+        std::string type = t.value("type", "");
+        double tVal = t.value("transformValue", t.value("angleDeg", t.value("factor", 0.0)));
+
+        if (type == "ReflectLine") return std::make_shared<ReflectLine>(nullptr, nullptr, color, id);
+        if (type == "ReflectPoint") return std::make_shared<ReflectPoint>(nullptr, nullptr, color, id);
+        if (type == "ReflectCircle") return std::make_shared<ReflectCircle>(nullptr, nullptr, color, id);
+        // RotatePoint expects degrees (see RotatePoint::update)
+        if (type == "RotatePoint") return std::make_shared<RotatePoint>(nullptr, nullptr, tVal, color, id);
+        if (type == "TranslateVector") return std::make_shared<TranslateVector>(nullptr, nullptr, nullptr, color, id);
+        if (type == "DilatePoint") return std::make_shared<DilatePoint>(nullptr, nullptr, tVal, color, id);
+      }
+
+      return std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+    };
+
+    if (data.contains("points") && data["points"].is_array()) {
+      for (const auto& jPt : data["points"]) {
+        unsigned int id = jPt.value("id", 0u);
+        if (id == 0u) continue;
+        bumpMaxId(id);
+
+        auto pt = createSmartPoint(jPt);
+        if (!pt) continue;
+
+        pt->setLabel(jPt.value("label", ""));
+        pt->setShowLabel(jPt.value("showLabel", false));
+        if (jPt.contains("visible")) pt->setVisible(jPt.value("visible", true));
+        if (jPt.contains("locked")) pt->setLocked(jPt.value("locked", false));
+
+        if (jPt.contains("transform")) {
+          pt->setDependent(true);
+        }
+
+        pointMap[id] = pt;
+        created[id] = pt;
+        editor.points.push_back(pt);
+        if (std::dynamic_pointer_cast<ObjectPoint>(pt)) {
+          editor.ObjectPoints.push_back(std::dynamic_pointer_cast<ObjectPoint>(pt));
+        }
+      }
+    }
+
+    // PHASE 2: RECURSIVE CONSTRUCTION (Non-point objects)
+    std::vector<unsigned int> stack;
+
+    std::function<std::shared_ptr<GeometricObject>(unsigned int)> getOrCreate = 
+      [&](unsigned int id) -> std::shared_ptr<GeometricObject> {
+      if (id == 0) return nullptr;
+      if (created.count(id)) return created[id];
+      if (!registry.count(id)) return nullptr;
+      if (std::find(stack.begin(), stack.end(), id) != stack.end()) return nullptr; // Cycle
+
+      stack.push_back(id);
+      const json& jObj = registry[id];
+      std::shared_ptr<GeometricObject> obj = nullptr;
+
+      if (pointMap.count(id)) {
+        obj = pointMap[id];
+      } else if (jObj.contains("startPointID") && jObj.value("isSegment", false)) { // Line segment
+            auto start = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("startPointID", 0u)));
+            auto end = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("endPointID", 0u)));
+            sf::Color color = hexToColor(jObj.value("color", "#000000"));
+            int lType = jObj.value("lineType", 0);
+            if (start && end) {
+                // Fix: Line constructor takes bool for segment, not LineType
+                auto ln = std::make_shared<Line>(start, end, true, color, id); 
+                ln->setLineType((Line::LineType)lType); 
+          ln->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+          if (jObj.contains("decoration")) {
+            ln->setDecoration(static_cast<DecorationType>(jObj.value("decoration", 0)));
+          }
+                ln->setLabel(jObj.value("label", ""));
+                ln->setShowLabel(jObj.value("showLabel", false));
+                obj = ln;
+            }
+        } else if (jObj.contains("startPointID")) { // Infinite Line
+             auto start = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("startPointID", 0u)));
+             auto end = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("endPointID", 0u)));
+             sf::Color color = hexToColor(jObj.value("color", "#000000"));
+             int lType = jObj.value("lineType", 0);
+             if (start && end) {
+                 auto ln = std::make_shared<Line>(start, end, false, color, id);
+                 ln->setLineType((Line::LineType)lType);
+           ln->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+           if (jObj.contains("decoration")) {
+             ln->setDecoration(static_cast<DecorationType>(jObj.value("decoration", 0)));
+           }
+                 obj = ln;
+             }
+        } else if (jObj.contains("centerPointID")) { // Circle
+           auto center = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("centerPointID", 0u)));
+           sf::Color color = hexToColor(jObj.value("color", "#000000"));
+           unsigned int circleId = jObj.value("id", 0u);
+           if (circleId == 0u) {
+             circleId = ++maxId;
+           } else {
+             bumpMaxId(circleId);
+           }
+           if (center) {
+             if (jObj.contains("radiusPointID")) {
+               auto radPt = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("radiusPointID", 0u)));
+               if (radPt) {
+                 obj = std::make_shared<Circle>(center.get(), radPt, 0.0, color);
+                 obj->setID(circleId);
+               }
+             } else {
+               double r = jObj.value("radiusValue", 1.0);
+               obj = std::make_shared<Circle>(center.get(), nullptr, r, color);
+               obj->setID(circleId);
+             }
+             if (auto ci = std::dynamic_pointer_cast<Circle>(obj)) {
+               ci->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+             }
+           }
+        }
+
+        if (obj) created[id] = obj;
+        stack.pop_back();
+        return obj;
+    };
+
+      // PHASE 2.5: POINT WIRING (Transformations + ObjectPoints)
+      if (data.contains("points") && data["points"].is_array()) {
+        for (const auto& jPt : data["points"]) {
+          unsigned int id = jPt.value("id", 0u);
+          if (id == 0u) continue;
+          auto pt = (pointMap.count(id) ? pointMap[id] : nullptr);
+          if (!pt) continue;
+
+          if (jPt.contains("hostId")) {
+            unsigned int hostId = jPt.value("hostId", 0u);
+            auto host = std::dynamic_pointer_cast<GeometricObject>(getOrCreate(hostId));
+            auto op = std::dynamic_pointer_cast<ObjectPoint>(pt);
+            if (op && host) {
+              ObjectType hostType = static_cast<ObjectType>(jPt.value("hostType", static_cast<int>(host->getType())));
+              double t = jPt.value("t", 0.5);
+              op->relinkHost(host, t, hostType);
+              if (hostType == ObjectType::Line || hostType == ObjectType::LineSegment) {
+                if (auto l = std::dynamic_pointer_cast<Line>(host)) l->addChildPoint(op);
+              } else if (hostType == ObjectType::Circle) {
+                if (auto c = std::dynamic_pointer_cast<Circle>(host)) c->addChildPoint(op);
+              }
+            }
+          }
+
+          if (!jPt.contains("transform") || !jPt["transform"].is_object()) continue;
+
+          const json& t = jPt["transform"];
+          std::string type = t.value("type", "");
+
+          unsigned int parentId = t.value("parentSourceID", jPt.value("parentSourceID", 0u));
+          auto parent = (pointMap.count(parentId) ? pointMap[parentId] : nullptr);
+
+          if (type == "TranslateVector") {
+            unsigned int vecStartId = t.value("vecStartId", 0u);
+            unsigned int vecEndId = t.value("vecEndId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+            if (vecStartId == 0u && vecEndId != 0u && vectorLineMap.count(vecEndId)) {
+              vecStartId = vectorLineMap[vecEndId].first;
+            }
+            auto vecStart = (pointMap.count(vecStartId) ? pointMap[vecStartId] : nullptr);
+            auto vecEnd = (pointMap.count(vecEndId) ? pointMap[vecEndId] : nullptr);
+            auto tv = std::dynamic_pointer_cast<TranslateVector>(pt);
+            if (tv && parent && vecStart && vecEnd) {
+              tv->restoreTransformation(parent, vecEnd, TransformationType::Translate);
+              tv->setVectorStart(vecStart);
+              parent->addDependent(tv);
+              tv->update();
+            }
+          } else if (type == "RotatePoint") {
+            unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+            auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
+            auto rp = std::dynamic_pointer_cast<RotatePoint>(pt);
+            if (rp && parent && center) {
+              rp->restoreTransformation(parent, center, TransformationType::Rotate);
+              parent->addDependent(rp);
+              rp->update();
+            }
+          } else if (type == "ReflectLine") {
+            unsigned int lineId = t.value("lineId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+            auto line = std::dynamic_pointer_cast<Line>(getOrCreate(lineId));
+            auto rl = std::dynamic_pointer_cast<ReflectLine>(pt);
+            if (rl && parent && line) {
+              rl->restoreTransformation(parent, line, TransformationType::Reflect);
+              parent->addDependent(rl);
+              rl->update();
+            }
+          } else if (type == "ReflectPoint") {
+            unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+            auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
+            auto rp = std::dynamic_pointer_cast<ReflectPoint>(pt);
+            if (rp && parent && center) {
+              rp->restoreTransformation(parent, center, TransformationType::ReflectPoint);
+              parent->addDependent(rp);
+              rp->update();
+            }
+          } else if (type == "ReflectCircle") {
+            unsigned int circleId = t.value("circleId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+            auto circle = std::dynamic_pointer_cast<Circle>(getOrCreate(circleId));
+            auto rc = std::dynamic_pointer_cast<ReflectCircle>(pt);
+            if (rc && parent && circle) {
+              rc->restoreTransformation(parent, circle, TransformationType::ReflectCircle);
+              parent->addDependent(rc);
+              rc->update();
+            }
+          } else if (type == "DilatePoint") {
+            unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+            auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
+            auto dp = std::dynamic_pointer_cast<DilatePoint>(pt);
+            if (dp && parent && center) {
+              dp->restoreTransformation(parent, center, TransformationType::Dilate);
+              parent->addDependent(dp);
+              dp->update();
+            }
+          }
+        }
+      }
+
+      // PHASE 2.6: STABILIZE TRANSFORM CHAINS (Dependency-ordered)
+      // Ensures centers/parents that are themselves transformed are updated first.
+      if (data.contains("points") && data["points"].is_array()) {
+        std::unordered_set<unsigned int> updated;
+        std::vector<unsigned int> pendingIds;
+
+        for (const auto& jPt : data["points"]) {
+          unsigned int id = jPt.value("id", 0u);
+          if (id == 0u) continue;
+          if (jPt.contains("transform") && jPt["transform"].is_object()) {
+            pendingIds.push_back(id);
+          } else {
+            updated.insert(id);
+          }
+        }
+
+        auto pointReady = [&](unsigned int pid) -> bool {
+          return (pid == 0u) || (updated.find(pid) != updated.end()) || (pointMap.find(pid) == pointMap.end());
+        };
+        auto objectReady = [&](unsigned int oid) -> bool {
+          return (oid == 0u) || (created.find(oid) != created.end());
+        };
+
+        bool progressed = true;
+        int safetyPasses = 0;
+        while (progressed && safetyPasses < 8) {
+          progressed = false;
+          ++safetyPasses;
+
+          for (const auto& jPt : data["points"]) {
+            if (!jPt.contains("transform") || !jPt["transform"].is_object()) continue;
+            unsigned int id = jPt.value("id", 0u);
+            if (id == 0u || updated.find(id) != updated.end()) continue;
+
+            const json& t = jPt["transform"];
+            std::string type = t.value("type", "");
+            unsigned int parentId = t.value("parentSourceID", jPt.value("parentSourceID", 0u));
+            if (!pointReady(parentId)) continue;
+
+            if (type == "TranslateVector") {
+              unsigned int vecStartId = t.value("vecStartId", 0u);
+              unsigned int vecEndId = t.value("vecEndId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+              if (vecStartId == 0u && vecEndId != 0u && vectorLineMap.count(vecEndId)) {
+                vecStartId = vectorLineMap[vecEndId].first;
+              }
+              if (!pointReady(vecStartId) || !pointReady(vecEndId)) continue;
+            } else if (type == "ReflectLine") {
+              unsigned int lineId = t.value("lineId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+              if (!objectReady(lineId)) continue;
+            } else if (type == "ReflectCircle") {
+              unsigned int circleId = t.value("circleId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+              if (!objectReady(circleId)) continue;
+            } else {
+              unsigned int auxId = t.value("auxObjectID", jPt.value("auxObjectID", 0u));
+              if (!pointReady(auxId)) continue;
+            }
+
+            auto pt = (pointMap.count(id) ? pointMap[id] : nullptr);
+            if (pt) {
+              pt->update();
+              updated.insert(id);
+              progressed = true;
+            }
+          }
+        }
+
+        // Final safety sweep to settle any remaining transforms.
+        for (const auto& jPt : data["points"]) {
+          if (!jPt.contains("transform") || !jPt["transform"].is_object()) continue;
+          unsigned int id = jPt.value("id", 0u);
+          auto pt = (pointMap.count(id) ? pointMap[id] : nullptr);
+          if (pt) pt->update();
+        }
+      }
+
+    // Populate Editor Lists (Non-point objects only)
+    if (data.contains("lines")) {
+        for (const auto& item : data["lines"]) {
+            auto obj = getOrCreate(item.value("id", 0u));
+            if (auto ln = std::dynamic_pointer_cast<Line>(obj)) {
+              ln->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+              if (item.contains("decoration")) {
+                ln->setDecoration(static_cast<DecorationType>(item.value("decoration", 0)));
+              }
+              editor.lines.push_back(ln);
+            }
+        }
+    }
+    if (data.contains("circles")) {
+        for (const auto& item : data["circles"]) {
+          auto obj = getOrCreate(item.value("id", 0u));
+          if (auto ci = std::dynamic_pointer_cast<Circle>(obj)) {
+            ci->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+            // Ensure circle is in editor.circles only once
+            if (std::find(editor.circles.begin(), editor.circles.end(), ci) == editor.circles.end()) {
+              editor.circles.push_back(ci);
+            }
+          }
+        }
+    }
+
+    // Tangent Lines
+    if (data.contains("tangentLines")) {
+      for (const auto& item : data["tangentLines"]) {
+        auto ext = std::dynamic_pointer_cast<Point>(getOrCreate(item.value("externalPointID", 0u)));
+        auto cir = std::dynamic_pointer_cast<Circle>(getOrCreate(item.value("circleID", 0u)));
+        // If circle has id==0, assign new id and bump maxId
+        if (cir && cir->getID() == 0u) {
+            cir->setID(++maxId);
+            bumpMaxId(cir->getID());
+            if (std::find(editor.circles.begin(), editor.circles.end(), cir) == editor.circles.end()) {
+                editor.circles.push_back(cir);
+            }
+        }
+        if (!ext || !cir) continue;
+        auto tan = std::make_shared<TangentLine>(ext, cir, item.value("solutionIndex", 0),
+                                                 item.value("id", 0u),
+                                                 hexToColor(item.value("color", "#00FFFF")));
+        tan->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        editor.lines.push_back(tan);
+      }
+    }
+
+    // PHASE 3: SHAPES (Strict vertexId linkage)
+    auto hasTransformParent = [&](const json& jObj) -> bool {
+      unsigned int parentId = jObj.value("parentSourceID", 0u);
+      if (parentId != 0u) return true;
+      if (jObj.contains("transform") && jObj["transform"].is_object()) {
+        const json& t = jObj["transform"];
+        parentId = t.value("parentSourceID", t.value("sourceId", 0u));
+      }
+      return parentId != 0u;
+    };
+
+    auto processPolyShape = [&](const json& jShape, bool isRect) {
+      unsigned int id = jShape.value("id", 0u);
+      if (id == 0) {
+        id = ++maxId;
+      } else {
+        bumpMaxId(id);
+      }
+      
+      // 1. Collect Points
+      if (!jShape.contains("vertexIds") || !jShape["vertexIds"].is_array()) return;
+        
+      std::vector<std::shared_ptr<Point>> vPts;
+      for (const auto& vidVal : jShape["vertexIds"]) {
+        unsigned int vid = vidVal.get<unsigned int>();
+        if (vid == 0) continue; 
+        auto it = pointMap.find(vid);
+        if (it != pointMap.end() && it->second) {
+            vPts.push_back(it->second);
+        }
+      }
+
+      // FIX 1: Allow 2 points for Rectangles (Implicit Diagonal case)
+      if (isRect) {
+          if (vPts.size() != 4 && vPts.size() != 2) return;
+      } else {
+          if (vPts.size() < 3) return;
+      }
+
+      sf::Color color = hexToColor(jShape.value("color", "#000000"));
+
+      if (isRect) {
+        bool isRot = jShape.value("isRotatable", false);
+
+        // FIX 2: Detect Hidden Rotation
+        // If the shape is dependent and has a Rotate/Reflect transform, we MUST treat it as Rotatable
+        // even if the file says "false" (because AA Rects become Rotatable when rotated).
+        if (!vPts.empty() && vPts[0]->isDependent()) {
+            TransformationType tType = vPts[0]->getTransformType();
+            if (tType == TransformationType::Rotate || tType == TransformationType::Reflect || 
+                tType == TransformationType::ReflectPoint || tType == TransformationType::ReflectCircle) {
+                isRot = true;
+            }
+        }
+
+        std::shared_ptr<Rectangle> rect;
+
+        // CASE A: 4 Points (Explicit)
+        if (vPts.size() == 4) {
+             // 1. Sort points CCW (A -> B -> C -> D)
+             // This ensures we have the perimeter order correct before passing to constructor.
+             std::vector<std::shared_ptr<Point>> ordered = vPts;
+             double cx = 0.0; double cy = 0.0;
+             for (const auto& p : ordered) {
+               Point_2 pos = p->getCGALPosition();
+               cx += CGAL::to_double(pos.x());
+               cy += CGAL::to_double(pos.y());
+             }
+             cx *= 0.25; cy *= 0.25;
+
+             std::vector<std::pair<double, std::shared_ptr<Point>>> sorted;
+             sorted.reserve(4);
+             for (const auto& p : ordered) {
+               Point_2 pos = p->getCGALPosition();
+               double dx = CGAL::to_double(pos.x()) - cx;
+               double dy = CGAL::to_double(pos.y()) - cy;
+               sorted.push_back({std::atan2(dy, dx), p});
+             }
+             std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+
+             ordered.clear();
+             for (const auto& pair : sorted) ordered.push_back(pair.second);
+             
+             // 2. CONSTRUCTOR SELECTION (CRITICAL FIX)
+             if (isRot) {
+                 // Rotatable Constructor: Expects Perimeter Order (Corner1, Side1, Side2, Side3)
+                 // We pass: A, B, C, D (Indices 0, 1, 2, 3)
+                 rect = std::make_shared<Rectangle>(
+                     ordered[0], ordered[1], ordered[2], ordered[3], 
+                     true, color, id
+                 );
+             } else {
+                 // Standard Constructor: Expects Diagonal Pair First (Corner1, OppositeCorner, ...)
+                 // We pass: A, C, B, D (Indices 0, 2, 1, 3)
+                 rect = std::make_shared<Rectangle>(
+                     ordered[0], ordered[2], ordered[1], ordered[3], 
+                     false, color, id
+                 );
+             }
+        }
+        // CASE B: 2 Points (Implicit Diagonal - Dilation/Translation of AA Rects)
+        else if (vPts.size() == 2) {
+             // 2-point constructor handles the rest.
+             rect = std::make_shared<Rectangle>(vPts[0], vPts[1], isRot, color, id);
+        }
+
+        if (rect) {
+            bool jsonDependent = jShape.value("isDependent", false);
+            if (jsonDependent || hasTransformParent(jShape)) {
+                rect->setDependent(true);
+            }
+            
+            rect->setLabel(jShape.value("label", ""));
+            rect->setShowLabel(jShape.value("showLabel", false));
+            rect->setThickness(jShape.value("thickness", 2.0f));
+            if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
+              rect->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(),
+                                                jShape["labelOffsetY"].get<float>()));
+            }
+            editor.rectangles.push_back(rect);
+        }
+
+      } else {
+        // Polygons (Unchanged)
+        auto poly = std::make_shared<Polygon>(vPts, color, id);
+        bool jsonDependent = jShape.value("isDependent", false);
+        poly->setDependent(jsonDependent && hasTransformParent(jShape));
+        poly->setLabel(jShape.value("label", ""));
+        poly->setShowLabel(jShape.value("showLabel", false));
+        poly->setThickness(jShape.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
+          poly->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(),
+                                            jShape["labelOffsetY"].get<float>()));
+        }
+        editor.polygons.push_back(poly);
+      }
+    };
+
+    if (data.contains("rectangles")) for (const auto& item : data["rectangles"]) processPolyShape(item, true);
+    if (data.contains("polygons")) for (const auto& item : data["polygons"]) processPolyShape(item, false);
+
+    if (data.contains("triangles")) {
+      for (const auto& item : data["triangles"]) {
+        unsigned int id = item.value("id", 0u);
+        if (id == 0u) {
+          id = ++maxId;
+        } else {
+          bumpMaxId(id);
+        }
+        if (!item.contains("vertexIds") || !item["vertexIds"].is_array()) continue;
+        if (item["vertexIds"].size() != 3) continue;
+
+        unsigned int v1Id = item["vertexIds"][0].get<unsigned int>();
+        unsigned int v2Id = item["vertexIds"][1].get<unsigned int>();
+        unsigned int v3Id = item["vertexIds"][2].get<unsigned int>();
+        auto it1 = pointMap.find(v1Id);
+        auto it2 = pointMap.find(v2Id);
+        auto it3 = pointMap.find(v3Id);
+        if (it1 == pointMap.end() || it2 == pointMap.end() || it3 == pointMap.end()) continue;
+        auto v1 = it1->second;
+        auto v2 = it2->second;
+        auto v3 = it3->second;
+        if (!v1 || !v2 || !v3) continue;
+
+        sf::Color color = hexToColor(item.value("color", "#000000"));
+        auto tri = std::make_shared<Triangle>(v1, v2, v3, color, id);
+        bool jsonDependent = item.value("isDependent", false);
+        tri->setDependent(jsonDependent && hasTransformParent(item));
+        tri->setLabel(item.value("label", ""));
+        tri->setShowLabel(item.value("showLabel", false));
+        tri->setThickness(item.value("thickness", 2.0));
+        if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
+          tri->setLabelOffset(sf::Vector2f(item["labelOffsetX"].get<float>(),
+                                           item["labelOffsetY"].get<float>()));
+        }
+        editor.triangles.push_back(tri);
+      }
+    }
+
+    if (data.contains("regularPolygons")) {
+      for (const auto& item : data["regularPolygons"]) {
+        unsigned int id = item.value("id", 0u);
+        if (id == 0u) {
+          id = ++maxId;
+        } else {
+          bumpMaxId(id);
+        }
+        unsigned int centerId = item.value("centerPointID", 0u);
+        unsigned int v1Id = item.value("firstVertexPointID", 0u);
+        auto centerIt = pointMap.find(centerId);
+        auto v1It = pointMap.find(v1Id);
+        if (centerIt == pointMap.end() || v1It == pointMap.end()) continue;
+        auto center = centerIt->second;
+        auto v1 = v1It->second;
+        if (!center || !v1) continue;
+        int sides = item.value("sides", 5);
+        sf::Color color = hexToColor(item.value("color", "#000000"));
+        auto rp = std::make_shared<RegularPolygon>(center, v1, sides, color, id);
+        bool jsonDependent = item.value("isDependent", false);
+        rp->setDependent(jsonDependent && hasTransformParent(item));
+        rp->setThickness(item.value("thickness", 2.0));
+        rp->setLabel(item.value("label", ""));
+        rp->setShowLabel(item.value("showLabel", false));
+        if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
+          rp->setLabelOffset(sf::Vector2f(item["labelOffsetX"].get<float>(),
+                                          item["labelOffsetY"].get<float>()));
+        }
+        editor.regularPolygons.push_back(rp);
+      }
+    }
+
+    // Final geometry sync for non-point objects after dependency stabilization.
+    for (auto& ln : editor.lines) if (ln) ln->update();
+    for (auto& ci : editor.circles) if (ci) ci->update();
+    for (auto& rect : editor.rectangles) if (rect) rect->update();
+    for (auto& poly : editor.polygons) if (poly) poly->update();
+    for (auto& tri : editor.triangles) if (tri) tri->update();
+    for (auto& rp : editor.regularPolygons) if (rp) rp->update();
+
+    editor.objectIdCounter = maxId + 1;
+    editor.enforceLabelPolicyOnAll(false);
+    std::cout << "[Construction Protocol] Load Complete. Objects: " << created.size() << std::endl;
+    return true;
+    } catch (const std::exception& e) {
+        std::cerr << "ProjectSerializer::loadProject: Exception: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+#if 0 
+bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::string& filepath) {
+  std::ifstream file(filepath);
+  if (!file.is_open()) {
+    std::cerr << "ProjectSerializer::loadProject: Failed to open file: " << filepath << std::endl;
+    return false;
+  }
+
+  try {
+    json j;
+    file >> j;
+    file.close();
+
     // Clear existing scene completely
     editor.clearScene();
     DynamicIntersection::clearAllIntersectionConstraints(editor);
+
+    // CRITICAL: Re-add axes to lines vector after clearScene (they were removed but still exist)
+    if (editor.getXAxisShared() && std::find(editor.lines.begin(), editor.lines.end(), editor.getXAxisShared()) == editor.lines.end()) {
+      editor.lines.push_back(editor.getXAxisShared());
+    }
+    if (editor.getYAxisShared() && std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxisShared()) == editor.lines.end()) {
+      editor.lines.push_back(editor.getYAxisShared());
+    }
 
     const json& data = j.contains("objects") ? j["objects"] : j;
     bool axesVisible = j.value("settings", json::object()).value("axesVisible", true);
@@ -754,9 +1488,33 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     // ========================================================================
     std::map<unsigned int, std::shared_ptr<GeometricObject>> masterMap;
     unsigned int maxId = 0;
+    json deferredTransformPoints = json::array();
+    json pendingPolygons = json::array();
+    struct PendingLineConstraint {
+      std::shared_ptr<Line> line;
+      bool isParallel = false;
+      bool isPerpendicular = false;
+      unsigned int refId = 0u;
+      int edgeIndex = -1;
+    };
+    std::vector<PendingLineConstraint> pendingLineConstraints;
+    
+    // CRITICAL FIX: Structure for pending ObjectPoint host relinking
+    struct PendingObjectPoint {
+      std::shared_ptr<ObjectPoint> objectPoint;
+      unsigned int hostId = 0u;
+      ObjectType hostType = ObjectType::None;
+      double t = 0.0;
+      bool isShapeEdge = false;
+      size_t edgeIndex = 0;
+    };
+    std::vector<PendingObjectPoint> pendingObjectPoints;
 
     auto registerInMap = [&](unsigned int id, const std::shared_ptr<GeometricObject>& obj) {
       if (!obj || id == 0) return;
+      if (masterMap.find(id) != masterMap.end()) {
+        return;
+      }
       masterMap[id] = obj;
       if (id > maxId) maxId = id;
     };
@@ -768,6 +1526,22 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     };
 
     auto getPointFromMap = [&](unsigned int id) -> std::shared_ptr<Point> { return std::dynamic_pointer_cast<Point>(getFromMap(id)); };
+
+    auto getPointByPosition = [&](const Point_2& pos, double tolSq) -> std::shared_ptr<Point> {
+      std::shared_ptr<Point> best;
+      double bestDist = tolSq;
+      for (const auto& [objId, obj] : masterMap) {
+        auto pt = std::dynamic_pointer_cast<Point>(obj);
+        if (!pt) continue;
+        Point_2 ptPos = pt->getCGALPosition();
+        double dist = CGAL::to_double(CGAL::squared_distance(pos, ptPos));
+        if (dist <= bestDist) {
+          bestDist = dist;
+          best = pt;
+        }
+      }
+      return best;
+    };
 
     // Helper: Parse color from JSON
     auto colorFromJson = [&](const json& jCol, const sf::Color& fallback) -> sf::Color {
@@ -785,33 +1559,161 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
       if (jPt.contains("showLabel")) pt->setShowLabel(jPt.value("showLabel", true));
       if (jPt.contains("labelOffset") && jPt["labelOffset"].is_array() && jPt["labelOffset"].size() >= 2) {
         pt->setLabelOffset(sf::Vector2f(jPt["labelOffset"][0], jPt["labelOffset"][1]));
+      } else if (jPt.contains("labelOffsetX") && jPt.contains("labelOffsetY")) {
+        pt->setLabelOffset(sf::Vector2f(jPt["labelOffsetX"].get<float>(), jPt["labelOffsetY"].get<float>()));
       }
       if (jPt.contains("fixed")) pt->setLocked(jPt.value("fixed", false));
       if (jPt.contains("locked")) pt->setLocked(jPt.value("locked", false));
+      if (jPt.contains("isDependent")) pt->setDependent(jPt.value("isDependent", false));
       if (jPt.contains("visible")) pt->setVisible(jPt.value("visible", true));
     };
 
     // Helper: Apply transform metadata
+    // IMPORTANT: For shapes (Rectangle, Polygon, Triangle), only set isDependent if there's a
+    // valid parent shape to transform from. Shapes with transformed VERTICES don't need shape-level
+    // dependency - the vertices themselves handle the transformation chain.
     auto applyTransformMetadata = [&](const json& jObj, const std::shared_ptr<GeometricObject>& obj) {
       if (!obj) return;
-      if (jObj.contains("isDependent")) obj->setDependent(jObj["isDependent"].get<bool>());
-      if (jObj.contains("transformType")) {
-        obj->setTransformType(static_cast<TransformationType>(jObj["transformType"].get<int>()));
-        obj->setParentSourceID(jObj.value("parentSourceID", 0u));
-        obj->setAuxObjectID(jObj.value("auxObjectID", 0u));
-        obj->setTransformValue(jObj.value("transformValue", 0.0));
+
+      const json* tObj = nullptr;
+      if (jObj.contains("transform") && jObj["transform"].is_object()) {
+        tObj = &jObj["transform"];
       }
-      if (jObj.contains("translationVectorX") && jObj.contains("translationVectorY")) {
-        obj->setTranslationVector(Vector_2(jObj["translationVectorX"].get<double>(), jObj["translationVectorY"].get<double>()));
+
+      auto mapTypeString = [](const std::string& type) -> TransformationType {
+        if (type == "ReflectLine") return TransformationType::Reflect;
+        if (type == "ReflectPoint") return TransformationType::ReflectPoint;
+        if (type == "ReflectCircle") return TransformationType::ReflectCircle;
+        if (type == "RotatePoint") return TransformationType::Rotate;
+        if (type == "TranslateVector") return TransformationType::Translate;
+        if (type == "DilatePoint") return TransformationType::Dilate;
+        return TransformationType::None;
+      };
+
+      unsigned int parentId = jObj.value("parentSourceID", 0u);
+      if (parentId == 0u && tObj) {
+        parentId = tObj->value("parentSourceID", tObj->value("sourceId", 0u));
+      }
+      bool hasValidParent = (parentId > 0);
+
+      // Only set isDependent if there's actually a parent to depend on
+      // Shapes with isDependent:true but parentSourceID:0 use vertex-based transformation
+      if (jObj.contains("isDependent") || (tObj && tObj->contains("isDependent"))) {
+        bool jsonDependent = jObj.value("isDependent", tObj ? tObj->value("isDependent", false) : false);
+        // For shapes, only mark dependent if parent exists
+        ObjectType type = obj->getType();
+        bool isShapeType = (type == ObjectType::Rectangle || type == ObjectType::Polygon || type == ObjectType::Triangle ||
+                            type == ObjectType::RegularPolygon || type == ObjectType::RectangleRotatable);
+        if (isShapeType && !hasValidParent) {
+          // Fix for "Jelly" transformations:
+          // Transformed shapes (created via tools) often have dependent VERTICES but no explicit parent shape ID.
+          // If the JSON explicitly says it's dependent, trust it!
+          // This ensures the shape remains 'rigid' (locked) because its vertices are dependent (Translate/Rotate points).
+          if (jsonDependent) {
+             obj->setDependent(true);
+          } else {
+             obj->setDependent(false);
+          }
+        } else {
+          obj->setDependent(jsonDependent);
+        }
+      }
+
+      if (jObj.contains("transformType") || (tObj && (tObj->contains("transformType") || tObj->contains("type")))) {
+        TransformationType tType = TransformationType::None;
+        if (jObj.contains("transformType")) {
+          tType = static_cast<TransformationType>(jObj["transformType"].get<int>());
+        } else if (tObj) {
+          if (tObj->contains("transformType")) {
+            tType = static_cast<TransformationType>((*tObj)["transformType"].get<int>());
+          } else if (tObj->contains("type")) {
+            tType = mapTypeString(tObj->value("type", ""));
+          }
+        }
+        obj->setTransformType(tType);
+        obj->setParentSourceID(parentId);
+
+        // FORCE DEPENDENCY: If it has a transform type, it MUST be dependent.
+        if (tType != TransformationType::None) {
+            obj->setDependent(true);
+        }
+
+        unsigned int auxId = jObj.value("auxObjectID", 0u);
+        if (auxId == 0u && tObj) {
+          auxId = tObj->value("auxObjectID", 0u);
+          if (auxId == 0u) auxId = tObj->value("lineId", 0u);
+          if (auxId == 0u) auxId = tObj->value("centerId", 0u);
+          if (auxId == 0u) auxId = tObj->value("circleId", 0u);
+          if (auxId == 0u) auxId = tObj->value("vecEndId", 0u);
+        }
+        obj->setAuxObjectID(auxId);
+
+        double tVal = jObj.value("transformValue", 0.0);
+        if (tVal == 0.0 && tObj) {
+          tVal = tObj->value("transformValue", tObj->value("angleDeg", tObj->value("factor", 0.0)));
+        }
+        obj->setTransformValue(tVal);
+      }
+      if ((jObj.contains("translationVectorX") && jObj.contains("translationVectorY")) ||
+          (tObj && tObj->contains("translationVectorX") && tObj->contains("translationVectorY"))) {
+        double tx = jObj.value("translationVectorX", tObj ? tObj->value("translationVectorX", 0.0) : 0.0);
+        double ty = jObj.value("translationVectorY", tObj ? tObj->value("translationVectorY", 0.0) : 0.0);
+        obj->setTranslationVector(Vector_2(tx, ty));
       }
     };
+
+    auto finalizeExplicitRectangle = [&](const json& jRect, const std::shared_ptr<Rectangle>& rect, const std::vector<std::shared_ptr<Point>>& vPts) {
+      bool vertexTransformed = false;
+      for (const auto& p : vPts) {
+        if (p && p->getTransformType() != TransformationType::None) {
+          vertexTransformed = true;
+          break;
+        }
+      }
+
+      bool hasTransformMeta = jRect.contains("transformType") && jRect["transformType"].get<int>() != static_cast<int>(TransformationType::None);
+
+      // FIX 11: CORRECTED LOGIC.
+      // If vertices are transformed OR the JSON says it's a transformed shape,
+      // then this rectangle IS dependent. The old code had this inverted.
+      if (vertexTransformed || hasTransformMeta) {
+        applyTransformMetadata(jRect, rect);
+        rect->setDependent(true);
+        std::cout << "    [finalizeRect] ID=" << rect->getID() << " DEPENDENT (vertexTx=" << vertexTransformed << " meta=" << hasTransformMeta << ")" << std::endl;
+      } else {
+        rect->setTransformType(TransformationType::None);
+        rect->setParentSourceID(0u);
+        rect->setAuxObjectID(0u);
+        rect->setDependent(false);
+      }
+    };
+
+    // ========================================================================
+    // PRE-PASS: Register Axes in masterMap (for transformation references)
+    // Transformations may reference axes by their original IDs (e.g., Y-axis for ReflectLine)
+    // ========================================================================
+    if (editor.getXAxisShared()) {
+      registerInMap(editor.getXAxisShared()->getID(), editor.getXAxisShared());
+      // Also register axis endpoint points if they exist
+      if (editor.getXAxisShared()->getStartPointObjectShared())
+        registerInMap(editor.getXAxisShared()->getStartPointObjectShared()->getID(), editor.getXAxisShared()->getStartPointObjectShared());
+      if (editor.getXAxisShared()->getEndPointObjectShared())
+        registerInMap(editor.getXAxisShared()->getEndPointObjectShared()->getID(), editor.getXAxisShared()->getEndPointObjectShared());
+    }
+    if (editor.getYAxisShared()) {
+      registerInMap(editor.getYAxisShared()->getID(), editor.getYAxisShared());
+      if (editor.getYAxisShared()->getStartPointObjectShared())
+        registerInMap(editor.getYAxisShared()->getStartPointObjectShared()->getID(), editor.getYAxisShared()->getStartPointObjectShared());
+      if (editor.getYAxisShared()->getEndPointObjectShared())
+        registerInMap(editor.getYAxisShared()->getEndPointObjectShared()->getID(), editor.getYAxisShared()->getEndPointObjectShared());
+    }
 
     // ========================================================================
     // PASS 1: Identity Registration (Points & ObjectPoints)
     // ========================================================================
     std::cout << "[3-Pass Engine] Pass 1: Identity Registration..." << std::endl;
 
-    // 1a. Points (Standard, Transformation-derivied, and Intersections)
+    // 1a. Points (Standard, Transformation-derivied, Intersections, AND ObjectPoints)
     if (data.contains("points")) {
       for (const auto& jPt : data["points"]) {
         unsigned int id = jPt.value("id", 0u);
@@ -822,33 +1724,110 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         sf::Color color = colorFromJson(jPt.contains("color") ? jPt["color"] : json(nullptr), sf::Color::Black);
 
         std::shared_ptr<Point> pt;
-        // Instantiate correct subclass based on legacy transform object if present
-        if (jPt.contains("transform")) {
+        
+        // CRITICAL FIX: Detect and instantiate ObjectPoints from unified array
+        bool isObjectPoint = jPt.value("isObjectPoint", false) || jPt.contains("hostId");
+        if (isObjectPoint) {
+          // Create ObjectPoint stub for Pass 3 relinking
+          auto op = std::make_shared<ObjectPoint>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+          pt = op;
+          
+          // Store host relinking data for Pass 3
+          PendingObjectPoint pending;
+          pending.objectPoint = op;
+          pending.hostId = jPt.value("hostId", 0u);
+          pending.hostType = static_cast<ObjectType>(jPt.value("hostType", 0));
+          pending.t = jPt.value("t", 0.0);
+          pending.isShapeEdge = jPt.value("edgeIndex", -1) >= 0;
+          if (pending.isShapeEdge) {
+            pending.edgeIndex = jPt.value("edgeIndex", 0);
+          }
+          pendingObjectPoints.push_back(pending);
+          
+          // Add to ObjectPoints list
+          editor.ObjectPoints.push_back(op);
+        }
+        // PASS 1: TYPE-AWARE INSTANTIATION (Prevent Type Erasure)
+        // Instantiate correct derived class based on transform metadata
+        else if (jPt.contains("transform") && jPt["transform"].is_object()) {
           const json& t = jPt["transform"];
           std::string type = t.value("type", "");
-          if (type == "ReflectLine")
+          
+          // CRITICAL FIX: Read transform parameters from correct fields
+          // The save code uses "transformValue" - use that with legacy fallbacks
+          double transformValue = t.value("transformValue", 0.0);
+          double angleDeg = t.value("angleDeg", transformValue);  // Legacy fallback
+          double factor = t.value("factor", transformValue);      // Legacy fallback
+          
+          // Create the CORRECT derived class to preserve vtable
+          if (type == "ReflectLine") {
             pt = std::make_shared<ReflectLine>(nullptr, nullptr, color, id);
-          else if (type == "ReflectPoint")
+          } else if (type == "ReflectPoint") {
             pt = std::make_shared<ReflectPoint>(nullptr, nullptr, color, id);
-          else if (type == "ReflectCircle")
-            pt = std::make_shared<ReflectCircle>(nullptr, nullptr, color, id);
-          else if (type == "RotatePoint")
-            pt = std::make_shared<RotatePoint>(nullptr, nullptr, t.value("angleDeg", 0.0), color, id);
-          else if (type == "TranslateVector")
+          } else if (type == "ReflectCircle") {
+             pt = std::make_shared<ReflectCircle>(nullptr, nullptr, color, id);
+          } else if (type == "RotatePoint") {
+            pt = std::make_shared<RotatePoint>(nullptr, nullptr, angleDeg, color, id);
+          } else if (type == "TranslateVector") {
             pt = std::make_shared<TranslateVector>(nullptr, nullptr, nullptr, color, id);
-          else if (type == "DilatePoint")
-            pt = std::make_shared<DilatePoint>(nullptr, nullptr, t.value("factor", 1.0), color, id);
-          else
+          } else if (type == "DilatePoint") {
+            pt = std::make_shared<DilatePoint>(nullptr, nullptr, factor, color, id);
+          } else {
             pt = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+          }
+           
+           // CRITICAL: Transformed points MUST be dependent.
+           // JSON might say "isDependent": false if it was saved before the fix, or applyCommonPointFields might overwrite it.
+           // We explicitly set it to true for these types.
+           pt->setDependent(true); 
+
         } else if (jPt.value("isIntersectionPoint", false)) {
           pt = std::make_shared<IntersectionPoint>(nullptr, nullptr, Point_2(x, y), color, id);
+          pt->setDependent(true); // Intersections are dependent
         } else {
           pt = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
         }
 
+        if (pt) {
+          pt->setCGALPosition(Point_2(x, y));
+        }
+
         applyCommonPointFields(jPt, pt);
-        applyTransformMetadata(jPt, pt);
-        editor.points.push_back(pt);
+        
+        // FIX: Re-enforce dependency if it was a transformed type, 
+        // in case applyCommonPointFields overwrote it with 'false' from JSON.
+        if (jPt.contains("transform") || jPt.value("isIntersectionPoint", false)) {
+            pt->setDependent(true);
+        }
+
+        bool legacyTranslateWithoutStart = false;
+        if (jPt.contains("transform") && jPt["transform"].is_object()) {
+          const json& t = jPt["transform"];
+          std::string type = t.value("type", "");
+          if (type == "TranslateVector" && !t.contains("vecStartId") && !jPt.contains("transformType")) {
+            legacyTranslateWithoutStart = true;
+          }
+        }
+
+        if (!legacyTranslateWithoutStart) {
+          applyTransformMetadata(jPt, pt);
+        }
+        if (jPt.contains("transform") && jPt["transform"].is_object()) {
+          const json& t = jPt["transform"];
+          std::string type = t.value("type", "");
+          if (type == "TranslateVector") {
+            json dp;
+            dp["id"] = id;
+            dp["vecStartId"] = t.value("vecStartId", 0u);
+            dp["vecEndId"] = t.value("vecEndId", t.value("auxObjectID", 0u));
+            deferredTransformPoints.push_back(dp);
+          }
+        }
+        
+        // Only add non-ObjectPoints to editor.points (ObjectPoints already added above)
+        if (!isObjectPoint) {
+          editor.points.push_back(pt);
+        }
         registerInMap(id, pt);
       }
     }
@@ -908,68 +1887,352 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         applyTransformMetadata(jLn, ln);
         editor.lines.push_back(ln);
         registerInMap(id, ln);
-      }
-    }
 
-    // 2c. Rectangles
-    if (data.contains("rectangles")) {
-      for (const auto& jRect : data["rectangles"]) {
-        unsigned int id = jRect.value("id", 0u);
-        auto c1 = getPointFromMap(jRect.value("corner1ID", 0u));
-        auto c2 = getPointFromMap(jRect.value("corner2ID", 0u));
-        if (!c1 || !c2) continue;
-
-        sf::Color color = colorFromJson(jRect.contains("color") ? jRect["color"] : json(nullptr), sf::Color::White);
-        auto rect = std::make_shared<Rectangle>(c1, c2, jRect.value("isRotatable", false), color, id);
-
-        auto cb = getPointFromMap(jRect.value("cornerBID", 0u));
-        auto cd = getPointFromMap(jRect.value("cornerDID", 0u));
-        if (cb && cd) rect->setDependentCornerPoints(cb, cd);
-
-        rect->setThickness(jRect.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
-        applyTransformMetadata(jRect, rect);
-        editor.rectangles.push_back(rect);
-        registerInMap(id, rect);
-      }
-    }
-
-    // 2d. Polygons, Triangles, RegularPolygons
-    if (data.contains("polygons")) {
-      for (const auto& jPoly : data["polygons"]) {
-        std::vector<std::shared_ptr<Point>> vPts;
-        for (const auto& vId : jPoly.value("vertexIds", json::array())) {
-          auto v = getPointFromMap(vId.get<unsigned int>());
-          if (v) vPts.push_back(v);
+        bool isParallel = jLn.value("isParallel", false);
+        bool isPerpendicular = jLn.value("isPerpendicular", false);
+        if (isParallel || isPerpendicular) {
+          PendingLineConstraint pending;
+          pending.line = ln;
+          pending.isParallel = isParallel;
+          pending.isPerpendicular = isPerpendicular;
+          pending.refId = static_cast<unsigned int>(jLn.value("constraintRefId", 0u));
+          pending.edgeIndex = jLn.value("constraintRefEdgeIndex", -1);
+          pendingLineConstraints.push_back(pending);
         }
-        if (vPts.size() < 3) continue;
-        auto poly = std::make_shared<Polygon>(vPts, colorFromJson(jPoly["color"], sf::Color::White), jPoly.value("id", 0u));
-        applyTransformMetadata(jPoly, poly);
-        editor.polygons.push_back(poly);
-        registerInMap(poly->getID(), poly);
       }
     }
+    // Helper to check if any vertex ID is in deferredTransformPoints
+    auto isVertexPending = [&](int vId) -> bool {
+      for (const auto& dp : deferredTransformPoints) {
+        if (dp.value("id", -1) == vId) return true;
+      }
+      return false;
+    };
+
+    auto orderRectangleVertices = [&](std::vector<std::shared_ptr<Point>>& pts) {
+      if (pts.size() != 4) return;
+      double cx = 0.0;
+      double cy = 0.0;
+      for (const auto& p : pts) {
+        Point_2 pos = p->getCGALPosition();
+        cx += CGAL::to_double(pos.x());
+        cy += CGAL::to_double(pos.y());
+      }
+      cx *= 0.25;
+      cy *= 0.25;
+
+      std::vector<std::pair<double, std::shared_ptr<Point>>> sorted;
+      sorted.reserve(4);
+      for (const auto& p : pts) {
+        Point_2 pos = p->getCGALPosition();
+        double dx = CGAL::to_double(pos.x()) - cx;
+        double dy = CGAL::to_double(pos.y()) - cy;
+        double angle = std::atan2(dy, dx);
+        sorted.push_back({angle, p});
+      }
+
+      std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+
+      std::vector<std::shared_ptr<Point>> ordered;
+      ordered.reserve(4);
+      for (const auto& pair : sorted) ordered.push_back(pair.second);
+
+      int bestStart = 0;
+      double bestScore = -1e18;
+      for (int i = 0; i < 4; ++i) {
+        Point_2 pos = ordered[i]->getCGALPosition();
+        double score = CGAL::to_double(pos.y()) - CGAL::to_double(pos.x());
+        if (score > bestScore) {
+          bestScore = score;
+          bestStart = i;
+        }
+      }
+
+      std::rotate(ordered.begin(), ordered.begin() + bestStart, ordered.end());
+      std::swap(ordered[1], ordered[3]);
+      pts = ordered;
+    };
+    
+    // 2c. Rectangles (Corrected Strategy C to handle Legacy Files)
+    if (data.contains("rectangles")) {
+        for (const auto& jRect : data["rectangles"]) {
+            unsigned int id = jRect.value("id", 0u);
+            
+            // --------------------------------------------------------
+            // STEP 1: Gather Vertices (Try 3 Strategies)
+            // --------------------------------------------------------
+            std::vector<std::shared_ptr<Point>> vPts;
+            bool usedIdStrategy = false; // Track if IDs resolved the vertices
+            
+            // Strategy A: Explicit Corner IDs (Preferred)
+            // 5-arg constructor expects: [corner1, corner2, cornerB, cornerD]
+            // We need to support both legacy keys (corner1ID...) and new format (vertexIds).
+            
+            // Try Legacy Keys First (Most reliable for corner mapping)
+            if (jRect.contains("corner1ID")) {
+                auto c1 = getPointFromMap(jRect.value("corner1ID", 0u));
+                auto c2 = getPointFromMap(jRect.value("corner2ID", 0u));
+                // FIX 11: Save writes "cornerBID" and "cornerDID" — use those directly.
+                auto cb = getPointFromMap(jRect.value("cornerBID", 0u));
+                auto cd = getPointFromMap(jRect.value("cornerDID", 0u));
+                
+                if (c1 && c2 && cb && cd) {
+                    vPts = {c1, c2, cb, cd};
+                    usedIdStrategy = true;
+                    std::cout << "    [RectLoad] ID=" << id << " Strategy A (cornerXID): OK" << std::endl;
+                } else {
+                    std::cout << "    [RectLoad] ID=" << id << " Strategy A FAILED: c1=" << (bool)c1 << " c2=" << (bool)c2 << " cb=" << (bool)cb << " cd=" << (bool)cd << std::endl;
+                }
+            } 
+            // Fallback to vertexIds array if present and legacy keys failed
+            else if (jRect.contains("vertexIds") && jRect["vertexIds"].is_array()) {
+                 std::vector<std::shared_ptr<Point>> tempPts;
+                 for (const auto& idVal : jRect["vertexIds"]) {
+                    int vid = idVal.get<int>();
+                    if (vid > 0) {
+                        auto p = getPointFromMap(static_cast<unsigned int>(vid));
+                        if(p) tempPts.push_back(p);
+                    }
+                }
+                if (tempPts.size() == 4) {
+                    vPts = tempPts; // Assume they are saved in constructor order [c1, c2, cb, cd]
+                    usedIdStrategy = true;
+                }
+            }
+
+            // Strategy C: Raw Coordinates ("vertices" array) - Legacy fallback
+            if (vPts.size() != 4 && jRect.contains("vertices") && jRect["vertices"].is_array()) {
+                vPts.clear();
+                const double tolSq = 1e-6;
+                for (size_t i = 0; i < 4; ++i) {
+                    const auto& v = jRect["vertices"][i];
+                    if (!v.is_array() || v.size() < 2) continue;
+                    Point_2 pos(FT(v[0].get<double>()), FT(v[1].get<double>()));
+                    
+                    auto match = getPointByPosition(pos, tolSq);
+                    
+                    if (match) {
+                        vPts.push_back(match);
+                    } else {
+                        auto newPt = std::make_shared<Point>(pos, 1.0);
+                        unsigned int newPtID = editor.objectIdCounter++;
+                        newPt->setID(newPtID);
+                        newPt->setVisible(true);
+                        editor.points.push_back(newPt);
+                        registerInMap(newPtID, newPt);
+                        vPts.push_back(newPt);
+                    }
+                }
+                // usedIdStrategy stays false — angular sorting needed
+            }
+
+            // --------------------------------------------------------
+            // STEP 2: Create Rectangle
+            // --------------------------------------------------------
+            if (vPts.size() == 4) {
+                bool isRot = jRect.value("isRotatable", true);
+                std::shared_ptr<Rectangle> rect;
+
+                if (usedIdStrategy) {
+                    // Strategy A/B: vPts is in 5-arg constructor member order
+                    // [corner1, corner2, cornerB, cornerD]
+                    // Pass directly — NO angular sorting, NO swaps.
+                    rect = std::make_shared<Rectangle>(
+                        vPts[0], vPts[1], vPts[2], vPts[3],
+                        isRot,
+                        colorFromJson(jRect["color"], sf::Color::Black),
+                        id
+                    );
+                    // FIX: Load Label Data
+                    if (jRect.contains("label")) rect->setLabel(jRect.value("label", ""));
+                    if (jRect.contains("showLabel")) rect->setShowLabel(jRect.value("showLabel", false));
+                    if (jRect.contains("labelOffsetX") && jRect.contains("labelOffsetY")) {
+                        rect->setLabelOffset(sf::Vector2f(jRect["labelOffsetX"], jRect["labelOffsetY"]));
+                    }
+                } else {
+                    // Strategy C: raw coordinates — need angular sort for perimeter order
+                    orderRectangleVertices(vPts);
+
+                    // Sanity check for crossed edges
+                    Point_2 p0 = vPts[0]->getCGALPosition();
+                    Point_2 p1 = vPts[1]->getCGALPosition();
+                    Point_2 p2 = vPts[2]->getCGALPosition();
+                    Vector_2 v1 = p1 - p0;
+                    Vector_2 v2 = p2 - p0;
+                    double crossZ = CGAL::to_double(v1.x() * v2.y() - v1.y() * v2.x());
+                    if (std::abs(crossZ) < 1e-3) {
+                        std::swap(vPts[1], vPts[2]);
+                    }
+
+                    // Raw coords are in perimeter order [A,B,C,D]
+                    // Use vector constructor which expects perimeter order
+                    rect = std::make_shared<Rectangle>(
+                        vPts,
+                        isRot,
+                        colorFromJson(jRect["color"], sf::Color::Black),
+                        id
+                    );
+                }
+
+                rect->setThickness(jRect.value("thickness", 2.0f));
+                finalizeExplicitRectangle(jRect, rect, vPts);
+                
+                // CRITICAL FIX: Ensure vertices are visible for Rotatable Rectangles
+                // Deep Harvesting might have saved them as hidden, but they must be visible to be editable.
+                if (isRot) {
+                    for (auto& p : vPts) {
+                        if (p) p->setVisible(true);
+                    }
+                }
+
+                for(auto& p : vPts) p->addDependent(rect);
+                
+                editor.rectangles.push_back(rect);
+                registerInMap(id, rect);
+            }
+        }
+    }
+    // 2d. Load Polygons
+    if (data.contains("polygons")) {
+      for (const auto& polyJson : data["polygons"]) {
+        std::vector<std::shared_ptr<Point>> vertexPoints;
+
+        bool deferPoly = false;
+        if (polyJson.contains("vertexIds") && polyJson["vertexIds"].is_array()) {
+          for (const auto& idJson : polyJson["vertexIds"]) {
+            int vId = idJson.get<int>();
+            if (isVertexPending(vId)) {
+              deferPoly = true;
+              break;
+            }
+            auto vPtr = getPointFromMap(static_cast<unsigned int>(vId));
+            if (!vPtr) {
+              // vertex missing entirely (yet), so must defer
+              deferPoly = true;
+              break;
+            }
+            vertexPoints.push_back(vPtr);
+          }
+        } else if (polyJson.contains("vertices")) {
+          // STRICT LEGACY FALLBACK: Only if vertexIds is missing
+           if (!polyJson.contains("vertexIds")) {
+              for (const auto& vJson : polyJson["vertices"]) {
+                 std::shared_ptr<Point> vPtr = nullptr;
+                 Point_2 pos;
+                 bool validCoord = false;
+
+                 if (vJson.is_array() && vJson.size() >= 2) {
+                   pos = Point_2(vJson[0].get<double>(), vJson[1].get<double>());
+                   validCoord = true;
+                 } else if (vJson.is_object()) {
+                   pos = Point_2(vJson.value("x", 0.0), vJson.value("y", 0.0));
+                   validCoord = true;
+                 }
+                 
+                 if (validCoord) {
+                     vPtr = getPointByPosition(pos, 1e-6);
+                     if (!vPtr) {
+                        // Not found? Create it! (Fixing Locked Vertices / Missing Data)
+                        auto newPt = std::make_shared<Point>(pos, 1.0);
+                        unsigned int newPtID = editor.objectIdCounter++;
+                        newPt->setID(newPtID);
+                        newPt->setVisible(true); // Default to visible
+                        
+                        editor.points.push_back(newPt);
+                        registerInMap(newPtID, newPt);
+                        vPtr = newPt;
+                     }
+                     vertexPoints.push_back(vPtr);
+                 }
+              }
+           }
+        }
+
+        if (deferPoly || vertexPoints.size() < 3) {
+          pendingPolygons.push_back(polyJson);
+          continue;
+        }
+
+        sf::Color color = sf::Color::Black;
+        if (polyJson.contains("color")) {
+          color = colorFromJson(polyJson["color"], color);
+        }
+
+        int id = polyJson.value("id", -1);
+        auto polygon = std::make_shared<Polygon>(vertexPoints, color, static_cast<unsigned int>(std::max(id, 0)));
+        
+        // CRITICAL FIX: Ensure all polygon vertices are visible
+        for (auto& p : vertexPoints) {
+            if (p) p->setVisible(true);
+        }
+
+        polygon->setThickness(polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+
+        applyTransformMetadata(polyJson, polygon);
+
+        // FIX: Load Label Data
+        if (polyJson.contains("label")) polygon->setLabel(polyJson.value("label", ""));
+        if (polyJson.contains("showLabel")) polygon->setShowLabel(polyJson.value("showLabel", false));
+        if (polyJson.contains("labelOffsetX") && polyJson.contains("labelOffsetY")) {
+             polygon->setLabelOffset(sf::Vector2f(polyJson["labelOffsetX"], polyJson["labelOffsetY"]));
+        }
+
+        editor.polygons.push_back(polygon);
+        if (id > 0) registerInMap(static_cast<unsigned int>(id), polygon);
+      }
+    }
+
+
+    // 2e. Triangles
     if (data.contains("triangles")) {
       for (const auto& jTri : data["triangles"]) {
-        auto v0 = getPointFromMap(jTri["vertexIds"][0]);
-        auto v1 = getPointFromMap(jTri["vertexIds"][1]);
-        auto v2 = getPointFromMap(jTri["vertexIds"][2]);
-        if (!v0 || !v1 || !v2) continue;
-        auto tri = std::make_shared<Triangle>(v0, v1, v2, colorFromJson(jTri["color"], sf::Color::White), jTri.value("id", 0u));
-        applyTransformMetadata(jTri, tri);
-        editor.triangles.push_back(tri);
-        registerInMap(tri->getID(), tri);
+        unsigned int id = jTri.value("id", 0u);
+
+        if (jTri.contains("vertexIds") && jTri["vertexIds"].size() >= 3) {
+          auto p1 = getPointFromMap(jTri["vertexIds"][0]);
+          auto p2 = getPointFromMap(jTri["vertexIds"][1]);
+          auto p3 = getPointFromMap(jTri["vertexIds"][2]);
+
+          if (p1 && p2 && p3) {
+            auto tri = std::make_shared<Triangle>(p1, p2, p3, colorFromJson(jTri["color"], sf::Color::Black), id);
+            tri->setThickness(jTri.value("thickness", 2.0));
+            tri->setThickness(jTri.value("thickness", 2.0));
+            // FIX: Load Label Data
+            if (jTri.contains("label")) tri->setLabel(jTri.value("label", ""));
+            if (jTri.contains("showLabel")) tri->setShowLabel(jTri.value("showLabel", false));
+            if (jTri.contains("labelOffsetX") && jTri.contains("labelOffsetY")) {
+                 tri->setLabelOffset(sf::Vector2f(jTri["labelOffsetX"], jTri["labelOffsetY"]));
+            }
+            applyTransformMetadata(jTri, tri);
+
+            p1->addDependent(tri);
+            p2->addDependent(tri);
+            p3->addDependent(tri);
+
+            editor.triangles.push_back(tri);
+            registerInMap(id, tri);
+          }
+        }
       }
     }
+
+    // 2f. Regular Polygons (e.g. Hexagons)
     if (data.contains("regularPolygons")) {
-      for (const auto& jRPoly : data["regularPolygons"]) {
-        auto center = getPointFromMap(jRPoly.value("centerPointID", 0u));
-        auto radPt = getPointFromMap(jRPoly.value("firstVertexPointID", 0u));
-        if (!center || !radPt) continue;
-        auto rpoly = std::make_shared<RegularPolygon>(center, radPt, jRPoly.value("sides", 3), colorFromJson(jRPoly["color"], sf::Color::White),
-                                                      jRPoly.value("id", 0u));
-        applyTransformMetadata(jRPoly, rpoly);
-        editor.regularPolygons.push_back(rpoly);
-        registerInMap(rpoly->getID(), rpoly);
+      for (const auto& jRp : data["regularPolygons"]) {
+        unsigned int id = jRp.value("id", 0u);
+        // These depend on Center + First Vertex, NOT a list of vertices
+        auto center = getPointFromMap(jRp.value("centerPointID", 0u));
+        auto v1 = getPointFromMap(jRp.value("firstVertexPointID", 0u));
+
+        if (center && v1) {
+          int sides = jRp.value("sides", 5);
+          auto rp = std::make_shared<RegularPolygon>(center, v1, sides, colorFromJson(jRp["color"], sf::Color::Black), 0);
+          rp->setID(id);  // Set ID before map registration
+          rp->setThickness(jRp.value("thickness", 2.0));
+          applyTransformMetadata(jRp, rp);
+          editor.regularPolygons.push_back(rp);
+          registerInMap(id, rp);
+        }
       }
     }
 
@@ -1007,23 +2270,131 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     // ========================================================================
     std::cout << "[3-Pass Engine] Pass 3: Dependency Wake-up..." << std::endl;
 
-    // 3a. Re-link Transformations & Construction Dependencies
-    for (auto& [id, obj] : masterMap) {
-      if (!obj) continue;
-      if (obj->getTransformType() != TransformationType::None || obj->isDependent()) {
-        auto parent = getFromMap(obj->getParentSourceID());
-        auto aux = getFromMap(obj->getAuxObjectID());
-        if (parent) obj->relinkTransformation(parent, aux);
+    // 3a. Re-link ObjectPoints host pointers (Moved to START of Pass 3)
+    // Must be done before dependency wake-up so dependent objects (like PerpendicularLines) see valid host positions.
+    
+    // CRITICAL FIX: Re-link ObjectPoints loaded from unified "points" array
+    std::cout << "  Linking ObjectPoints from unified array..." << std::endl;
+    for (const auto& pending : pendingObjectPoints) {
+      if (!pending.objectPoint) continue;
+      auto host = getFromMap(pending.hostId);
+      if (host) {
+        pending.objectPoint->relinkHost(host, pending.t, pending.hostType);
+        
+        // Manually register with host since setHost() doesn't call addChildPoint()
+        if (pending.hostType == ObjectType::Line || pending.hostType == ObjectType::LineSegment) {
+          if (auto l = std::dynamic_pointer_cast<Line>(host)) l->addChildPoint(pending.objectPoint);
+        } else if (pending.hostType == ObjectType::Circle) {
+          if (auto c = std::dynamic_pointer_cast<Circle>(host)) c->addChildPoint(pending.objectPoint);
+        }
       }
     }
-
-    // 3b. Re-link ObjectPoints host pointers
+    
+    // Legacy ObjectPoints array (for backward compatibility)
     if (data.contains("objectPoints")) {
+      std::cout << "  Linking ObjectPoints from legacy array..." << std::endl;
       for (const auto& jOp : data["objectPoints"]) {
         auto op = std::dynamic_pointer_cast<ObjectPoint>(getFromMap(jOp.value("id", 0u)));
         if (!op) continue;
         auto host = getFromMap(jOp.value("hostId", 0u));
-        if (host) op->relinkHost(host, jOp.value("t", 0.0), static_cast<ObjectType>(jOp.value("hostType", 0)));
+        if (host) {
+            ObjectType type = static_cast<ObjectType>(jOp.value("hostType", 0));
+            op->relinkHost(host, jOp.value("t", 0.0), type);
+            
+            // Manually register with host since setHost() doesn't call addChildPoint()
+            if (type == ObjectType::Line || type == ObjectType::LineSegment) {
+                if (auto l = std::dynamic_pointer_cast<Line>(host)) l->addChildPoint(op);
+            } else if (type == ObjectType::Circle) {
+                if (auto c = std::dynamic_pointer_cast<Circle>(host)) c->addChildPoint(op);
+            }
+        }
+      }
+    }
+
+    // PASS 3a: COMPREHENSIVE TRANSFORMATION RE-LINKING
+    // This is where we "wake up" transformed objects by restoring their source/aux pointers
+    std::cout << "  Re-linking transformations..." << std::endl;
+    
+    int transformCount = 0;
+    // Strategy: Iterate all objects and reconnect transformation dependencies
+    for (auto& [id, obj] : masterMap) {
+      if (!obj) continue;
+      if (obj->getTransformType() == TransformationType::None && !obj->isDependent()) continue;
+      
+      // Get source and auxiliary objects from IDs
+      auto parent = getFromMap(obj->getParentSourceID());
+      auto aux = getFromMap(obj->getAuxObjectID());
+      
+      if (parent) {
+        // Generic relinking (handles most cases)
+        obj->relinkTransformation(parent, aux);
+        transformCount++;
+        
+        // Type-specific post-linking for complex transformations
+        if (auto pt = std::dynamic_pointer_cast<Point>(obj)) {
+          // Ensure position is calculated from transform
+          pt->update();
+          
+          // Debug output for first few points
+          if (transformCount <= 3) {
+            std::cout << "    [DEBUG] Restored transform for Point ID=" << id 
+                      << " type=" << static_cast<int>(obj->getTransformType())
+                      << " parent=" << (parent ? parent->getID() : 0)
+                      << " aux=" << (aux ? aux->getID() : 0) << std::endl;
+          }
+          
+          // Special handling for TranslateVector (needs vector endpoints)
+          if (auto tv = std::dynamic_pointer_cast<TranslateVector>(pt)) {
+            // TranslateVector might have vecStart/vecEnd stored separately
+            // (These are handled by deferredTransformPoints below)
+          }
+        }
+      }
+    }
+    std::cout << "    Relinked " << transformCount << " transformed objects." << std::endl;
+
+    // PASS 3a.1: TranslateVector Special Case (Legacy & New Format)
+    // TranslateVector needs the vector start/end points restored
+    std::cout << "  Re-linking TranslateVector points..." << std::endl;
+    for (const auto& dp : deferredTransformPoints) {
+      unsigned int pid = dp.value("id", 0u);
+      if (pid == 0u) continue;
+      
+      auto p = getPointFromMap(pid);
+      auto tv = std::dynamic_pointer_cast<TranslateVector>(p);
+      if (!tv) continue;
+      
+      auto vStart = getPointFromMap(dp.value("vecStartId", 0u));
+      auto vEnd = getPointFromMap(dp.value("vecEndId", 0u));
+      
+      if (vStart) tv->setVectorStart(vStart);
+      if (vEnd) tv->setVectorEnd(vEnd);
+      
+      // Force update to calculate position from vector
+      tv->update();
+    }
+
+
+
+    // 3b.1. Restore line constraints (parallel/perpendicular)
+    for (const auto& pending : pendingLineConstraints) {
+      if (!pending.line) continue;
+      auto refObj = getFromMap(pending.refId);
+      Vector_2 refDir(0, 0);
+      if (refObj) {
+        if (pending.edgeIndex >= 0) {
+          auto edges = refObj->getEdges();
+          if (pending.edgeIndex < static_cast<int>(edges.size())) {
+            refDir = edges[static_cast<size_t>(pending.edgeIndex)].to_vector();
+          }
+        } else if (auto refLine = std::dynamic_pointer_cast<Line>(refObj)) {
+          refDir = refLine->getEndPoint() - refLine->getStartPoint();
+        }
+      }
+      if (pending.isParallel) {
+        pending.line->setAsParallelLine(refObj, pending.edgeIndex, refDir);
+      } else if (pending.isPerpendicular) {
+        pending.line->setAsPerpendicularLine(refObj, pending.edgeIndex, refDir);
       }
     }
 
@@ -1054,12 +2425,12 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
     std::cout << "[3-Pass Engine] Success. Restored " << masterMap.size() << " objects." << std::endl;
     return true;
-
   } catch (const std::exception& e) {
     std::cerr << "ProjectSerializer::loadProject: Exception: " << e.what() << std::endl;
     return false;
   }
 }
+#endif
 
 // ============================================================================
 // EXPORT SVG
@@ -1179,21 +2550,21 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
       gridStyle.stroke = "#e0e0e0";
       gridStyle.strokeWidth = gridStrokeWidth;
       gridStyle.fill = "none";
-      
+
       // 1. Vertical Lines (X is unchanged in flip)
       // We draw from Top (minY) to Bottom (maxY) coverage
       double startX = std::floor(minX / adaptiveGridStep) * adaptiveGridStep;
       for (double x = startX; x <= maxX; x += adaptiveGridStep) {
-          svg.drawLine(x, minY, x, maxY, gridStyle);
+        svg.drawLine(x, minY, x, maxY, gridStyle);
       }
-      
+
       // 2. Horizontal Lines (FIX: Apply Y-Flip)
       double startY = std::floor(minY / adaptiveGridStep) * adaptiveGridStep;
       for (double y = startY; y <= maxY; y += adaptiveGridStep) {
-          // BUG FIX: Map World Y to SVG Screen Y
-          double sy = (minY + maxY) - y; 
-          
-          svg.drawLine(minX, sy, maxX, sy, gridStyle);
+        // BUG FIX: Map World Y to SVG Screen Y
+        double sy = (minY + maxY) - y;
+
+        svg.drawLine(minX, sy, maxX, sy, gridStyle);
       }
     }
 
@@ -1557,52 +2928,55 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
       textStyle.dominantBaseline = "central";
       svg.drawText(sx, sy, label, textStyle);
     }
-// 2. Angle Labels
+    // 2. Angle Labels
     for (const auto& angle : editor.angles) {
-        if (angle && angle->isValid() && angle->isVisible() && !angle->getLabel().empty()) {
-             // FIX 1: Lock pointers
-             auto pA = angle->getPointA().lock();
-             auto pB = angle->getPointB().lock();
-             auto pV = angle->getVertex().lock();
-             
-             if (pV && pA && pB) {
-                 Point_2 center = pV->getCGALPosition();
-                 Point_2 start = pA->getCGALPosition();
-                 Point_2 end = pB->getCGALPosition();
-                 double radius = angle->getRadius();
+      if (angle && angle->isValid() && angle->isVisible() && !angle->getLabel().empty()) {
+        // FIX 1: Lock pointers
+        auto pA = angle->getPointA().lock();
+        auto pB = angle->getPointB().lock();
+        auto pV = angle->getVertex().lock();
 
-                 // FIX 2: Explicit double conversion
-                 double startAngle = std::atan2(CGAL::to_double(start.y() - center.y()), CGAL::to_double(start.x() - center.x()));
-                 double endAngle = std::atan2(CGAL::to_double(end.y() - center.y()), CGAL::to_double(end.x() - center.x()));
-                 
-                 double diff = endAngle - startAngle;
-                 while (diff < 0) diff += 2 * 3.14159265359;
-                 while (diff >= 2 * 3.14159265359) diff -= 2 * 3.14159265359;
+        if (pV && pA && pB) {
+          Point_2 center = pV->getCGALPosition();
+          Point_2 start = pA->getCGALPosition();
+          Point_2 end = pB->getCGALPosition();
+          double radius = angle->getRadius();
 
-                 if (!angle->isReflex()) { if (diff > 3.14159265359) diff -= 2 * 3.14159265359; }
-                 else { if (diff < 3.14159265359) diff -= 2 * 3.14159265359; }
+          // FIX 2: Explicit double conversion
+          double startAngle = std::atan2(CGAL::to_double(start.y() - center.y()), CGAL::to_double(start.x() - center.x()));
+          double endAngle = std::atan2(CGAL::to_double(end.y() - center.y()), CGAL::to_double(end.x() - center.x()));
 
-                 // Calculate Mid-Angle
-                 double midAngle = startAngle + diff / 2.0;
-                 
-                 // Position Label
-                 double labelRadius = radius + (15.0 * pixelToWorldScale);
-                 double lx = CGAL::to_double(center.x()) + labelRadius * std::cos(midAngle);
-                 double ly = CGAL::to_double(center.y()) + labelRadius * std::sin(midAngle);
+          double diff = endAngle - startAngle;
+          while (diff < 0) diff += 2 * 3.14159265359;
+          while (diff >= 2 * 3.14159265359) diff -= 2 * 3.14159265359;
 
-                 // Convert to Screen Space
-                 double sx = lx;
-                 double sy = (minY + maxY) - ly;
+          if (!angle->isReflex()) {
+            if (diff > 3.14159265359) diff -= 2 * 3.14159265359;
+          } else {
+            if (diff < 3.14159265359) diff -= 2 * 3.14159265359;
+          }
 
-                 SVGWriter::Style textStyle;
-                 textStyle.fill = colorToHex(angle->getColor());
-                 textStyle.stroke = "none";
-                 textStyle.fontSize = 12.0 * pixelToWorldScale;
-                 textStyle.textAnchor = "middle";
-                 textStyle.dominantBaseline = "central";
-                 svg.drawText(sx, sy, angle->getLabel(), textStyle);
-             }
+          // Calculate Mid-Angle
+          double midAngle = startAngle + diff / 2.0;
+
+          // Position Label
+          double labelRadius = radius + (15.0 * pixelToWorldScale);
+          double lx = CGAL::to_double(center.x()) + labelRadius * std::cos(midAngle);
+          double ly = CGAL::to_double(center.y()) + labelRadius * std::sin(midAngle);
+
+          // Convert to Screen Space
+          double sx = lx;
+          double sy = (minY + maxY) - ly;
+
+          SVGWriter::Style textStyle;
+          textStyle.fill = colorToHex(angle->getColor());
+          textStyle.stroke = "none";
+          textStyle.fontSize = 12.0 * pixelToWorldScale;
+          textStyle.textAnchor = "middle";
+          textStyle.dominantBaseline = "central";
+          svg.drawText(sx, sy, angle->getLabel(), textStyle);
         }
+      }
     }
     if (svg.save(filepath)) {
       std::cout << "SVG exported successfully (WYSIWYG)." << std::endl;

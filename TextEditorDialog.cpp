@@ -119,18 +119,19 @@ void TextEditorDialog::updatePreview() {
     
     if (m_isLatexMode) {
         // Render LaTeX with high quality
-        sf::Texture* rawTex = LatexRenderer::RenderLatex(m_currentText, m_fontSize, 0.0f, m_textColor);
-        std::shared_ptr<sf::Texture> texture(rawTex);
+       auto tex = LatexRenderer::RenderLatex(m_currentText, m_fontSize,0, m_textColor);
         
-        if (texture) {
-            sf::Sprite sprite(*texture);
+        if (tex) {
+            sf::Sprite sprite(*tex);
             
             // Center in preview area
-            sf::Vector2u texSize = texture->getSize();
+            sf::Vector2u texSize = tex->getSize();
             sf::Vector2u previewSize = m_previewTexture.getSize();
             
             float x = (previewSize.x - texSize.x) * 0.5f;
             float y = (previewSize.y - texSize.y) * 0.5f;
+            float scale = LatexRenderer::HD_INVERSE; 
+            sprite.setScale(scale, scale);
             
             sprite.setPosition(x, y);
             m_previewTexture.draw(sprite);

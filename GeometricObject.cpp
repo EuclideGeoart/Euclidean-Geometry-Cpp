@@ -132,14 +132,17 @@ void GeometricObject::removeDependent(GeometricObject* obj) {
 }
 
 void GeometricObject::notifyDependents() {
-    std::vector<std::weak_ptr<GeometricObject>> validDependents;
-    for (auto& wp : m_dependents) {
-        if (auto sp = wp.lock()) {
-            sp->update();
-            validDependents.push_back(wp);
-        }
+  auto dependentsSnapshot = m_dependents;
+  for (auto& wp : dependentsSnapshot) {
+    if (auto sp = wp.lock()) {
+      sp->update();
     }
-    m_dependents = std::move(validDependents);
+  }
+
+  m_dependents.erase(std::remove_if(m_dependents.begin(), m_dependents.end(),
+    [](const std::weak_ptr<GeometricObject>& wp) {
+      return wp.expired();
+    }), m_dependents.end());
 }
 
 // --- NEW Zoom-Independent Halo Logic ---

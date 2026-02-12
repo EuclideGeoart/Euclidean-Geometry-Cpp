@@ -82,6 +82,8 @@ private:
     sf::ConvexShape m_sfmlShape;      // SFML shape for rendering
     int m_hoveredVertex = -1;         // For handle coloring
     int m_activeVertex = -1;          // For handle coloring
+    bool m_isUpdating = false;        // Recursion guard
+    std::shared_ptr<Point> m_v1, m_v2, m_v3;
 
     // Helper methods
     void updateSFMLShape();

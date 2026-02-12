@@ -86,6 +86,64 @@ using namespace CGALSafeUtils;
 float currentZoomFactor = 1.0f;
 static std::set<GeometricObject*> objectsBeingDeleted;
 static GeometricObject* g_lastHoveredObject = nullptr;
+
+static std::string getObjectTypeName(ObjectType type) {
+  switch (type) {
+    case ObjectType::Point:
+      return "Point";
+    case ObjectType::ObjectPoint:
+      return "ObjectPoint";
+    case ObjectType::IntersectionPoint:
+      return "IntersectionPoint";
+    case ObjectType::Line:
+      return "Line";
+    case ObjectType::LineSegment:
+      return "LineSegment";
+    case ObjectType::Ray:
+      return "Ray";
+    case ObjectType::Vector:
+      return "Vector";
+    case ObjectType::Circle:
+      return "Circle";
+    case ObjectType::Semicircle:
+      return "Semicircle";
+    case ObjectType::Rectangle:
+    case ObjectType::RectangleRotatable:
+      return "Rectangle";
+    case ObjectType::Triangle:
+      return "Triangle";
+    case ObjectType::Polygon:
+      return "Polygon";
+    case ObjectType::RegularPolygon:
+      return "RegularPolygon";
+    case ObjectType::Angle:
+      return "Angle";
+    case ObjectType::TextLabel:
+      return "TextLabel";
+    default:
+      return "Object";
+  }
+}
+
+static std::string getTransformTypeName(TransformationType type) {
+  switch (type) {
+    case TransformationType::Translate:
+      return "Translate";
+    case TransformationType::Rotate:
+      return "Rotate";
+    case TransformationType::Reflect:
+      return "Reflect (Line)";
+    case TransformationType::ReflectPoint:
+      return "Reflect (Point)";
+    case TransformationType::ReflectCircle:
+      return "Reflect (Circle)";
+    case TransformationType::Dilate:
+      return "Dilate";
+    case TransformationType::None:
+    default:
+      return "None";
+  }
+}
 bool is_cgal_point_finite(const Point_2& point) {
   try {
     return std::isfinite(CGAL::to_double(point.x())) && std::isfinite(CGAL::to_double(point.y()));
@@ -2430,6 +2488,75 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
     std::cerr << "Unknown error in hover detection" << std::endl;
   }
 
+  // Hover message for transformed shapes
+  if (g_lastHoveredObject && !isObjectBeingDeleted(g_lastHoveredObject)) {
+    TransformationType t = g_lastHoveredObject->getTransformType();
+    std::shared_ptr<GeometricObject> parent = g_lastHoveredObject->getParentSource();
+    unsigned int parentId = g_lastHoveredObject->getParentSourceID();
+
+    if (t == TransformationType::None) {
+      auto findTransformedPoint = [&](const std::vector<std::shared_ptr<Point>>& pts) -> std::shared_ptr<Point> {
+        for (const auto& p : pts) {
+          if (p && p->getTransformType() != TransformationType::None) return p;
+        }
+        return nullptr;
+      };
+
+      if (auto rect = dynamic_cast<Rectangle*>(g_lastHoveredObject)) {
+        std::vector<std::shared_ptr<Point>> pts = {rect->getCorner1Point(), rect->getCornerBPoint(), rect->getCorner2Point(), rect->getCornerDPoint()};
+        if (auto tp = findTransformedPoint(pts)) {
+          t = tp->getTransformType();
+          parent = tp->getParentSource();
+          parentId = tp->getParentSourceID();
+        }
+      } else if (auto poly = dynamic_cast<Polygon*>(g_lastHoveredObject)) {
+        std::vector<std::shared_ptr<Point>> pts;
+        pts.reserve(poly->getVertexCount());
+        for (size_t i = 0; i < poly->getVertexCount(); ++i) {
+          pts.push_back(poly->getVertexPoint(i));
+        }
+        if (auto tp = findTransformedPoint(pts)) {
+          t = tp->getTransformType();
+          parent = tp->getParentSource();
+          parentId = tp->getParentSourceID();
+        }
+      } else if (auto tri = dynamic_cast<Triangle*>(g_lastHoveredObject)) {
+        std::vector<std::shared_ptr<Point>> pts = {tri->getVertexPoint(0), tri->getVertexPoint(1), tri->getVertexPoint(2)};
+        if (auto tp = findTransformedPoint(pts)) {
+          t = tp->getTransformType();
+          parent = tp->getParentSource();
+          parentId = tp->getParentSourceID();
+        }
+      } else if (auto rpoly = dynamic_cast<RegularPolygon*>(g_lastHoveredObject)) {
+        std::vector<std::shared_ptr<Point>> pts = {rpoly->getCenterPoint(), rpoly->getFirstVertexPoint()};
+        if (auto tp = findTransformedPoint(pts)) {
+          t = tp->getTransformType();
+          parent = tp->getParentSource();
+          parentId = tp->getParentSourceID();
+        }
+      }
+    }
+
+    if (t != TransformationType::None) {
+      std::string message = "Transform: " + getTransformTypeName(t);
+      if (parent) {
+        std::string sourceLabel = parent->getLabel();
+        if (sourceLabel.empty()) {
+          sourceLabel = getObjectTypeName(parent->getType()) + " " + std::to_string(parent->getID());
+        }
+        message += " | Source: " + sourceLabel;
+      } else if (parentId != 0) {
+        message += " | Source ID: " + std::to_string(parentId);
+      }
+      editor.hoverMessageText.setString(message);
+      editor.showHoverMessage = true;
+    } else {
+      editor.showHoverMessage = false;
+    }
+  } else {
+    editor.showHoverMessage = false;
+  }
+
   // === EDGE HOVER DETECTION (Universal Snapping) ===
   // Only check for edge hover if no object is currently hovered
   try {
@@ -2458,6 +2585,115 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   }
 
   editor.lastMousePos_sfml = worldPos;
+
+  // ------------------------------------------------------------
+  // TOOLTIP LOGIC (Transformation Info)
+  // ------------------------------------------------------------
+  editor.currentTooltip = ""; 
+  std::shared_ptr<GeometricObject> hoveredObj = nullptr;
+
+  if (editor.dragMode == DragMode::None && !editor.isDragging) {
+      // 1. Check points (highest priority)
+      for (auto& p : editor.points) {
+          if (p->isVisible() && p->contains(worldPos, getDynamicSelectionTolerance(editor))) { hoveredObj = p; break; }
+      }
+      
+      // 2. Check shapes
+      if (!hoveredObj) {
+          float tol = getDynamicSelectionTolerance(editor);
+          // Check in reverse draw order (top to bottom)
+          for (auto it = editor.rectangles.rbegin(); it != editor.rectangles.rend(); ++it) {
+              if ((*it)->isVisible() && (*it)->contains(worldPos, tol)) { hoveredObj = *it; break; }
+          }
+          if (!hoveredObj) {
+              for (auto it = editor.polygons.rbegin(); it != editor.polygons.rend(); ++it) {
+                   if ((*it)->isVisible() && (*it)->contains(worldPos, tol)) { hoveredObj = *it; break; }
+              }
+          }
+           if (!hoveredObj) {
+              for (auto it = editor.triangles.rbegin(); it != editor.triangles.rend(); ++it) {
+                   if ((*it)->isVisible() && (*it)->contains(worldPos, tol)) { hoveredObj = *it; break; }
+              }
+          }
+           if (!hoveredObj) {
+              for (auto it = editor.regularPolygons.rbegin(); it != editor.regularPolygons.rend(); ++it) {
+                   if ((*it)->isVisible() && (*it)->contains(worldPos, tol)) { hoveredObj = *it; break; }
+              }
+          }
+           if (!hoveredObj) {
+              for (auto it = editor.circles.rbegin(); it != editor.circles.rend(); ++it) {
+                   if ((*it)->isVisible() && (*it)->contains(worldPos, tol)) { hoveredObj = *it; break; }
+              }
+          }
+      }
+
+      if (hoveredObj) {
+        TransformationType type = TransformationType::None;
+        unsigned int sourceID = 0;
+
+        if (hoveredObj->getType() == ObjectType::Point) {
+            auto p = std::dynamic_pointer_cast<Point>(hoveredObj);
+            if (p) {
+                type = p->getTransformType();
+                if (auto parent = p->getParentSource()) sourceID = parent->getID();
+            }
+        }
+        else if (hoveredObj->getType() == ObjectType::Rectangle || hoveredObj->getType() == ObjectType::RectangleRotatable) {
+            auto r = std::dynamic_pointer_cast<Rectangle>(hoveredObj);
+             if (r && r->isDependent() && r->getCorner1Point()) {
+                type = r->getCorner1Point()->getTransformType();
+                if (auto parent = r->getCorner1Point()->getParentSource()) sourceID = parent->getID();
+            }
+        }
+        else if (hoveredObj->getType() == ObjectType::Triangle) {
+            auto t = std::dynamic_pointer_cast<Triangle>(hoveredObj);
+             if (t && t->isDependent() && t->getVertexPoint(0)) {
+                type = t->getVertexPoint(0)->getTransformType();
+                if (auto parent = t->getVertexPoint(0)->getParentSource()) sourceID = parent->getID();
+            }
+        }
+        else if (hoveredObj->getType() == ObjectType::Polygon) {
+             auto p = std::dynamic_pointer_cast<Polygon>(hoveredObj);
+             if (p && p->isDependent() && p->getVertexPoint(0)) {
+                type = p->getVertexPoint(0)->getTransformType();
+                if (auto parent = p->getVertexPoint(0)->getParentSource()) sourceID = parent->getID();
+            }
+        }
+        else if (hoveredObj->getType() == ObjectType::RegularPolygon) {
+             auto rp = std::dynamic_pointer_cast<RegularPolygon>(hoveredObj);
+             if (rp && rp->isDependent() && rp->getCenterPoint()) {
+                type = rp->getCenterPoint()->getTransformType();
+                if (auto parent = rp->getCenterPoint()->getParentSource()) sourceID = parent->getID();
+            }
+        }
+         else if (hoveredObj->getType() == ObjectType::Circle) {
+             auto c = std::dynamic_pointer_cast<Circle>(hoveredObj);
+             if (c && c->isDependent() && c->getCenterPointObject()) {
+                 auto center = std::dynamic_pointer_cast<Point>(editor.findSharedPtr(c->getCenterPointObject()));
+                 if (center) {
+                    type = center->getTransformType();
+                    if (auto parent = center->getParentSource()) sourceID = parent->getID();
+                 }
+            }
+        }
+
+        if (type != TransformationType::None) {
+            std::string typeStr = "";
+             switch(type) {
+                case TransformationType::Reflect: typeStr = "Reflection (Line)"; break;
+                case TransformationType::ReflectPoint: typeStr = "Reflection (Point)"; break;
+                case TransformationType::ReflectCircle: typeStr = "Reflection (Circle)"; break;
+                case TransformationType::Translate: typeStr = "Translation"; break;
+                case TransformationType::Rotate: typeStr = "Rotation"; break;
+                case TransformationType::Dilate: typeStr = "Dilation"; break;
+                default: break;
+            }
+            if (!typeStr.empty()) {
+                editor.currentTooltip = typeStr + "\nSource: " + getObjectTypeName(hoveredObj->getType()) + " #" + std::to_string(sourceID);
+            }
+        }
+      }
+  }
 }
 
 // --- Precise Selection Helpers ---

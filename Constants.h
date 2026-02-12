@@ -112,7 +112,7 @@ const sf::Color GUI_MESSAGE_COLOR = sf::Color::Black;
 // HandleEvents.cpp to get properly scaled world-unit tolerances.
 // ============================================================================
 
-constexpr float SELECTION_SCREEN_PIXELS = 7.0f;      // Click/selection precision
+constexpr float SELECTION_SCREEN_PIXELS = 9.0f;      // Click/selection precision
 constexpr float SNAP_SCREEN_PIXELS = 12.0f;          // Snapping "magnetism" radius
 constexpr float HOVER_SCREEN_PIXELS = 10.0f;         // Hover detection radius
 constexpr float DRAG_THRESHOLD_PIXELS = 5.0f;        // Drag initiation threshold
@@ -280,4 +280,6 @@ const float MAX_CENTER_POINT_VISUAL_RADIUS = 10.0f;  // Maximum size for center 
 
 const double MIN_DISTANCE_SQUARED_LINE_CREATION =
     1e-36;  // Microscopic support
+
+    constexpr double PI= 3.14159265358979323846;
 }  // namespace Constants

@@ -6,28 +6,27 @@
 #warning "CGAL_USE_SSE2 was defined, now undefined locally for testing"
 #endif
 
-#include "CharTraitsFix.h"
+#include <SFML/Graphics.hpp>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "CharTraitsFix.h"
+#include "Constants.h"
 #include "ForwardDeclarations.h"  // For ObjectType enum
 #include "ObjectType.h"
-#include "Constants.h"
 #include "Types.h"  // For Point_2 and other CGAL types
-#include <SFML/Graphics.hpp>
-#include <vector>
-#include <memory>
+
 
 // Abstract base class for all geometric objects
 class GeometricObject {
  public:
   // Add constructor that takes ObjectType and color
-  GeometricObject(ObjectType type, const sf::Color &color)
-      : m_type(type), m_color(color), m_selected(false), m_hovered(false), m_isValid(true) {}
+  GeometricObject(ObjectType type, const sf::Color& color) : m_type(type), m_color(color), m_selected(false), m_hovered(false), m_isValid(true) {}
 
   // NEW constructor to handle Point_2 and ID
-  GeometricObject(ObjectType type, const sf::Color &color, const Point_2 &cgal_pos,
-                  unsigned int id);
-  GeometricObject(ObjectType type, const sf::Color &color, unsigned int id);
+  GeometricObject(ObjectType type, const sf::Color& color, const Point_2& cgal_pos, unsigned int id);
+  GeometricObject(ObjectType type, const sf::Color& color, unsigned int id);
   virtual ~GeometricObject() = default;
 
   // Object properties
@@ -36,10 +35,10 @@ class GeometricObject {
   virtual ObjectType getType() const { return m_type; }
 
   // Geometry operations
-  virtual void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const = 0;
+  virtual void draw(sf::RenderWindow& window, float scale, bool forceVisible = false) const = 0;
   // NEW: Screen-space label rendering
-  virtual void drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {}
-  virtual bool contains(const sf::Vector2f &worldPos, float tolerance) const = 0;
+  virtual void drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {}
+  virtual bool contains(const sf::Vector2f& worldPos, float tolerance) const = 0;
   virtual sf::FloatRect getGlobalBounds() const = 0;
   virtual void update() {
     if (isDependent()) {
@@ -50,9 +49,9 @@ class GeometricObject {
 
   // Position access
   virtual Point_2 getCGALPosition() const = 0;
-  virtual void setCGALPosition(const Point_2 &newPos) = 0;
-  virtual void setPosition(const sf::Vector2f &newSfmlPos) = 0;
-  
+  virtual void setCGALPosition(const Point_2& newPos) = 0;
+  virtual void setPosition(const sf::Vector2f& newSfmlPos) = 0;
+
   // NEW: Label Anchor for dragging/positioning
   virtual sf::Vector2f getLabelAnchor(const sf::View& view) const {
     (void)view;
@@ -60,17 +59,17 @@ class GeometricObject {
     return sf::Vector2f((float)CGAL::to_double(p.x()), (float)CGAL::to_double(p.y()));
   }
 
-  virtual void setColor(const sf::Color &color);
-  virtual void translate(const Vector_2 &offset) { (void)offset; }  // No default implementation
-  void move(const Vector_2 &delta);
-  
+  virtual void setColor(const sf::Color& color);
+  virtual void translate(const Vector_2& offset) { (void)offset; }  // No default implementation
+  void move(const Vector_2& delta);
+
   // Point/Edge provider interface for generic anchor point detection
   // Shapes override these to expose their vertices and edges to all tools
   virtual std::vector<Point_2> getInteractableVertices() const { return {}; }
   virtual std::vector<Segment_2> getEdges() const { return {}; }
   virtual std::vector<Segment_2> getBoundarySegments() const { return getEdges(); }
-  virtual bool getClosestPointOnPerimeter(const Point_2 &query, Point_2 &outPoint) const;
-  
+  virtual bool getClosestPointOnPerimeter(const Point_2& query, Point_2& outPoint) const;
+
   // virtual int getIDIfAvailable() const { return m_id; }
   //  Selection/hover state
   virtual void setSelected(bool selected);
@@ -94,11 +93,11 @@ class GeometricObject {
   virtual void setHasUserOverride(bool override) { m_hasUserOverride = override; }
   virtual bool hasUserOverride() const { return m_hasUserOverride; }
   virtual void clearUserOverride() { m_hasUserOverride = false; }
-  virtual sf::FloatRect getLabelBounds(const sf::View &view) const {
+  virtual sf::FloatRect getLabelBounds(const sf::View& view) const {
     (void)view;
     return sf::FloatRect();
   }
-  virtual void setLabelOffset(const sf::Vector2f &offset) { m_labelOffset = offset; }
+  virtual void setLabelOffset(const sf::Vector2f& offset) { m_labelOffset = offset; }
   virtual const sf::Vector2f& getLabelOffset() const { return m_labelOffset; }
 
   // Label content
@@ -120,7 +119,7 @@ class GeometricObject {
   // Locking
   virtual void setLocked(bool locked);
   virtual bool isLocked() const;
-  
+
   // Resizability
   virtual bool isResizable() const { return true; }
   virtual void lock() { setLocked(true); }
@@ -133,7 +132,7 @@ class GeometricObject {
   // Transformation support
   void setTransformType(TransformationType t) { m_transformType = t; }
   TransformationType getTransformType() const { return m_transformType; }
-  void setTranslationVector(const Vector_2 &translation) { m_translationVector = translation; }
+  void setTranslationVector(const Vector_2& translation) { m_translationVector = translation; }
   Vector_2 getTranslationVector() const { return m_translationVector; }
   void setTransformValue(double val) { m_transformValue = val; }
   double getTransformValue() const { return m_transformValue; }
@@ -142,6 +141,10 @@ class GeometricObject {
   void setAuxObjectID(unsigned int id) { m_auxObjectID = id; }
   unsigned int getAuxObjectID() const { return m_auxObjectID; }
   void setAuxObject(std::shared_ptr<GeometricObject> aux);
+  std::shared_ptr<GeometricObject> getParentSource() const { return m_parentSource.lock(); }
+
+  std::shared_ptr<GeometricObject> getAuxObject() const { return m_auxObject.lock(); }
+  void setParentSource(std::shared_ptr<GeometricObject> parent) { m_parentSource = parent; }
 
   virtual void relinkTransformation(std::shared_ptr<GeometricObject> parent,
                                     std::shared_ptr<GeometricObject> aux = nullptr,
@@ -150,18 +153,16 @@ class GeometricObject {
     // Note: aux2 handling is extended in derived classes like Angle
   }
 
-  virtual void restoreTransformation(std::shared_ptr<GeometricObject> parent,
-                                    std::shared_ptr<GeometricObject> aux,
-                                    TransformationType type) {
+  virtual void restoreTransformation(std::shared_ptr<GeometricObject> parent, std::shared_ptr<GeometricObject> aux, TransformationType type) {
     m_parentSource = parent;
     setAuxObject(aux);
     m_transformType = type;
-    
+
     // CRITICAL: Re-establish observer pattern so parent updates trigger child updates
     if (parent && m_selfHandle) {
       parent->addDependent(m_selfHandle);
     }
-    
+
     // Default implementation stores metadata. Derived classes (like ReflectPoint) override this.
   }
 
@@ -171,16 +172,14 @@ class GeometricObject {
   virtual void notifyDependents();
 
   // Added validation method that can be overridden by derived classes
-  virtual bool isValid() const {
-    return m_isValid;
-  }
-  
+  virtual bool isValid() const { return m_isValid; }
+
   // Added getColor for serialization support
   virtual sf::Color getColor() const { return m_color; }
-  
+
   // Generic Halo Helper
   virtual void drawHalo(sf::RenderTarget& target, float radius) const;
-  
+
   // Hosted ObjectPoint management (Generic for all shapes)
   virtual void addChildPoint(std::shared_ptr<ObjectPoint> point);
   virtual void removeChildPoint(ObjectPoint* point);
@@ -214,7 +213,7 @@ class GeometricObject {
   LabelMode m_labelMode = LabelMode::Name;
   std::string m_caption = "";
   float m_thickness = Constants::LINE_THICKNESS_DEFAULT;
-  float m_vertexHandleSize = 4.0f;  
+  float m_vertexHandleSize = 4.0f;
   DecorationType m_decoration = DecorationType::None;
 
   std::vector<std::weak_ptr<GeometricObject>> m_dependents;

@@ -59,9 +59,25 @@ Triangle::Triangle(const std::shared_ptr<Point>& p1, const std::shared_ptr<Point
     setShowLabel(true);
 }
 
+// void Triangle::updateSFMLShape() {
+//     if (m_vertices.size() != 3) return;
+//     updateSFMLShapeInternal();
+// }
 void Triangle::updateSFMLShape() {
-    if (m_vertices.size() != 3) return;
-    updateSFMLShapeInternal();
+    auto verts = getVertices();
+    if (verts.size() != 3) return;
+
+    m_sfmlShape.setPointCount(3);
+    for (size_t i = 0; i < 3; ++i) {
+        float x = static_cast<float>(CGAL::to_double(verts[i].x()));
+        float y = static_cast<float>(CGAL::to_double(verts[i].y()));
+        m_sfmlShape.setPoint(i, sf::Vector2f(x, y));
+    }
+    
+    // Standard visual updates
+    m_sfmlShape.setFillColor(m_color);
+    m_sfmlShape.setOutlineThickness(m_thickness);
+    m_sfmlShape.setOutlineColor(sf::Color::Black);
 }
 
 void Triangle::updateSFMLShapeInternal() {
@@ -206,12 +222,18 @@ void Triangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) co
 }
 
 void Triangle::update() {
+    // Recursion guard: prevent infinite loops when vertices notify us
+    if (m_isUpdating) return;
+    m_isUpdating = true;
+
     if (isDependent()) {
         updateDependentShape();
     } else {
         updateSFMLShape();
         updateHostedPoints();
     }
+
+    m_isUpdating = false;
 }
 
 void Triangle::updateDependentShape() {
@@ -362,6 +384,15 @@ bool Triangle::contains(const sf::Vector2f& screenPos, float tolerance) const {
     
     // Use CGAL's point-in-triangle test
     Point_2 queryPoint(FT(screenPos.x), FT(screenPos.y));
+
+    // CRITICAL FIX: Guard against collinear/degenerate triangles which crash CGAL::Polygon_2
+    Point_2 v1 = m_vertices[0]->getCGALPosition();
+    Point_2 v2 = m_vertices[1]->getCGALPosition();
+    Point_2 v3 = m_vertices[2]->getCGALPosition();
+    
+    if (CGAL::collinear(v1, v2, v3)) {
+        return false; 
+    }
     
     // Create CGAL polygon from vertices
     CGAL::Polygon_2<Kernel> poly;
