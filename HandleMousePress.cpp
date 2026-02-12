@@ -1884,19 +1884,33 @@ bool handleTransformationCreation(GeometryEditor& editor,
                   }
               }
 
-              // 3. CREATE RECTANGLE
-              // Constructor expects (Corner1, Corner2, CornerB, CornerD)
-              // We pass the Diagonal Pair first.
-              
-              auto newRect = std::make_shared<Rectangle>(
-                  tPts[d1_idx], // Diagonal Start
-                  tPts[d2_idx], // Diagonal End
-                  adjPts[0],    // Adjacent 1
-                  adjPts[1],    // Adjacent 2
-                  rect->isRotatable(), 
-                  rect->getColor(), 
-                  editor.objectIdCounter++
-              );
+                // 3. CREATE RECTANGLE
+                // Constructor expects (Corner1, Corner2, CornerB, CornerD).
+                // For rotatable rectangles, tPts order here is [A, C, B, D]
+                // because srcPts was collected as [corner1, cornerB, corner2, cornerD].
+                std::shared_ptr<Rectangle> newRect;
+                if (rect->isRotatable()) {
+                  newRect = std::make_shared<Rectangle>(
+                    tPts[0], // A -> corner1
+                    tPts[1], // B -> corner2
+                    tPts[2], // C -> cornerB
+                    tPts[3], // D -> cornerD
+                    true,
+                    rect->getColor(),
+                    editor.objectIdCounter++
+                  );
+                } else {
+                  // Axis-aligned path: diagonal pair first (existing behavior)
+                  newRect = std::make_shared<Rectangle>(
+                    tPts[d1_idx], // Diagonal Start
+                    tPts[d2_idx], // Diagonal End
+                    adjPts[0],    // Adjacent 1
+                    adjPts[1],    // Adjacent 2
+                    false,
+                    rect->getColor(),
+                    editor.objectIdCounter++
+                  );
+                }
 
               newRect->setThickness(rect->getThickness());
               newRect->setDependent(true);
@@ -3211,6 +3225,9 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
     auto bisector = std::make_shared<PerpendicularBisector>(a, b, editor.objectIdCounter++);
     if (bisector && bisector->isValid()) {
       bisector->setThickness(editor.currentThickness);
+      bisector->setDependent(true);
+      a->addDependent(bisector);
+      b->addDependent(bisector);
       editor.addObject(bisector);
       editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
       editor.setGUIMessage("Perpendicular bisector created.");
@@ -3234,9 +3251,24 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
       return;
     }
 
-    // 2. CHECK FOR SHAPE EDGES
+    // 2. CHECK FOR LINE BODY FIRST (keeps dynamic parent linkage)
+    GeometricObject* hitLine = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment});
+    if (hitLine) {
+      auto* lineRaw = static_cast<Line*>(hitLine);
+      createBisectorFromPoints(lineRaw->getStartPointObjectShared(), lineRaw->getEndPointObjectShared());
+      return;
+    }
+
+    // 3. CHECK FOR SHAPE EDGES
     auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
     if (edgeHit.has_value()) {
+      if (edgeHit->host) {
+        if (auto hostLine = dynamic_cast<Line*>(edgeHit->host)) {
+          createBisectorFromPoints(hostLine->getStartPointObjectShared(), hostLine->getEndPointObjectShared());
+          return;
+        }
+      }
+
       // Found an edge - create bisector from edge endpoints
       Point_2 edgeStart = edgeHit->edge.source();
       Point_2 edgeEnd = edgeHit->edge.target();
@@ -3246,16 +3278,6 @@ void handlePerpendicularBisectorCreation(GeometryEditor& editor, const sf::Event
       auto p2 = std::make_shared<Point>(edgeEnd, 1.0f, Constants::POINT_DEFAULT_COLOR);
 
       createBisectorFromPoints(p1, p2);
-      return;
-    }
-
-    // 3. SECONDARY CHECK: Is there a LINE? (Clicked "Empty" part of line)
-    GeometricObject* hitLine = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment});
-
-    if (hitLine) {
-      // Found a line body - Immediate Creation
-      auto* lineRaw = static_cast<Line*>(hitLine);
-      createBisectorFromPoints(lineRaw->getStartPointObjectShared(), lineRaw->getEndPointObjectShared());
       return;
     }
 
@@ -3298,7 +3320,68 @@ void handleAngleBisectorCreation(GeometryEditor& editor, const sf::Event::MouseB
     editor.angleBisectorLine2 = nullptr;
   };
 
-  // 1. PRIORITY CHECK: Points
+  // 1. PRIORITY CHECK: Existing lines (restore line-line bisector workflow)
+  GeometricObject* lineObj = editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Line, ObjectType::LineSegment});
+  if (lineObj && (lineObj->getType() == ObjectType::Line || lineObj->getType() == ObjectType::LineSegment)) {
+    auto linePtr = editor.getLineSharedPtr(static_cast<Line*>(lineObj));
+    if (!editor.isCreatingAngleBisector) {
+      editor.angleBisectorLine1 = linePtr;
+      if (editor.angleBisectorLine1) {
+        editor.isCreatingAngleBisector = true;
+        editor.setGUIMessage("AngleBis: Select second line or edge.");
+        return;
+      }
+    } else if (editor.angleBisectorLine1) {
+      editor.angleBisectorLine2 = linePtr;
+      if (!editor.angleBisectorLine2 || editor.angleBisectorLine1 == editor.angleBisectorLine2) {
+        editor.setGUIMessage("AngleBis: Invalid second line.");
+        resetState();
+        return;
+      }
+
+      auto result = CGAL::intersection(editor.angleBisectorLine1->getCGALLine(), editor.angleBisectorLine2->getCGALLine());
+      if (!result) {
+        editor.setGUIMessage("AngleBis: Lines do not intersect.");
+        resetState();
+        return;
+      }
+      const Point_2* I = safe_get_point<Point_2>(&(*result));
+      if (!I) {
+        editor.setGUIMessage("AngleBis: Intersection not a point.");
+        resetState();
+        return;
+      }
+
+      auto bisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++);
+      if (bisector && bisector->isValid()) {
+        bisector->setThickness(editor.currentThickness);
+        bisector->setDependent(true);
+        editor.angleBisectorLine1->addDependent(bisector);
+        editor.angleBisectorLine2->addDependent(bisector);
+        editor.addObject(bisector);
+        editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(bisector)));
+
+        auto extBisector = std::make_shared<AngleBisector>(editor.angleBisectorLine1, editor.angleBisectorLine2, editor.objectIdCounter++, true);
+        if (extBisector && extBisector->isValid()) {
+          extBisector->setThickness(editor.currentThickness);
+          extBisector->setAsConstructionLine();
+          extBisector->setDependent(true);
+          editor.angleBisectorLine1->addDependent(extBisector);
+          editor.angleBisectorLine2->addDependent(extBisector);
+          editor.addObject(extBisector);
+          editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(extBisector)));
+        }
+
+        editor.setGUIMessage("Angle bisectors created.");
+      } else {
+        editor.setGUIMessage("AngleBis: Failed to create line.");
+      }
+      resetState();
+      return;
+    }
+  }
+
+  // 2. POINT mode fallback
   GeometricObject* hitPt =
       editor.lookForObjectAt(worldPos_sfml, tolerance, {ObjectType::Point, ObjectType::ObjectPoint, ObjectType::IntersectionPoint});
 

@@ -408,19 +408,38 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 
         addTransformMetadata(lnJson, ln);
 
-        if (auto startObj = ln->getStartPointObject()) {
+        if (auto startObj = ln->getStartPointObject(); startObj && startObj->getID() > 0 && savedPointIDs.find(startObj->getID()) != savedPointIDs.end()) {
           lnJson["startPointID"] = startObj->getID();
         } else {
           Point_2 start = ln->getStartPoint();
           lnJson["startX"] = CGAL::to_double(start.x());
           lnJson["startY"] = CGAL::to_double(start.y());
         }
-        if (auto endObj = ln->getEndPointObject()) {
+        if (auto endObj = ln->getEndPointObject(); endObj && endObj->getID() > 0 && savedPointIDs.find(endObj->getID()) != savedPointIDs.end()) {
           lnJson["endPointID"] = endObj->getID();
         } else {
           Point_2 end = ln->getEndPoint();
           lnJson["endX"] = CGAL::to_double(end.x());
           lnJson["endY"] = CGAL::to_double(end.y());
+        }
+
+        if (auto pb = std::dynamic_pointer_cast<PerpendicularBisector>(ln)) {
+          lnJson["constructionType"] = "PerpendicularBisector";
+          if (auto p1 = pb->getFirstParentPoint()) lnJson["pbP1ID"] = p1->getID();
+          if (auto p2 = pb->getSecondParentPoint()) lnJson["pbP2ID"] = p2->getID();
+        } else if (auto ab = std::dynamic_pointer_cast<AngleBisector>(ln)) {
+          lnJson["constructionType"] = "AngleBisector";
+          lnJson["isExternalBisector"] = ab->isExternalBisector();
+          if (ab->usesLineParents()) {
+            lnJson["abMode"] = "lines";
+            if (auto l1 = ab->getFirstParentLine()) lnJson["abLine1ID"] = l1->getID();
+            if (auto l2 = ab->getSecondParentLine()) lnJson["abLine2ID"] = l2->getID();
+          } else {
+            lnJson["abMode"] = "points";
+            if (auto v = ab->getVertexParentPoint()) lnJson["abVertexID"] = v->getID();
+            if (auto a = ab->getFirstArmParentPoint()) lnJson["abArm1ID"] = a->getID();
+            if (auto b = ab->getSecondArmParentPoint()) lnJson["abArm2ID"] = b->getID();
+          }
         }
 
         lnJson["isParallel"] = ln->isParallelLine();
@@ -714,9 +733,16 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         tJson["id"] = tangent->getID();
         if (auto ext = tangent->getExternalPoint()) {
           tJson["externalPointID"] = ext->getID();
+          Point_2 p = ext->getCGALPosition();
+          tJson["externalPointX"] = CGAL::to_double(p.x());
+          tJson["externalPointY"] = CGAL::to_double(p.y());
         }
         if (auto cir = tangent->getCircle()) {
           tJson["circleID"] = cir->getID();
+          Point_2 c = cir->getCGALPosition();
+          tJson["circleCenterX"] = CGAL::to_double(c.x());
+          tJson["circleCenterY"] = CGAL::to_double(c.y());
+          tJson["circleRadius"] = cir->getRadius();
         }
         tJson["solutionIndex"] = tangent->getSolutionIndex();
         tJson["color"] = colorToHex(tangent->getColor());
@@ -864,8 +890,23 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     // PHASE 2: POLYMORPHIC POINTS (Pass 1 & Pass 2)
     std::map<unsigned int, std::shared_ptr<GeometricObject>> created;
     std::map<unsigned int, std::shared_ptr<Point>> pointMap;
+    std::unordered_set<unsigned int> usedPointIds;
+    std::vector<std::pair<const json*, std::shared_ptr<Point>>> loadedPointRecords;
+    std::vector<std::shared_ptr<ObjectPoint>> pendingCircleHostIdZero;
+    std::vector<std::shared_ptr<Point>> zeroIdCircleHostedPointCandidates;
     if (editor.getXAxisShared()) created[editor.getXAxisShared()->getID()] = editor.getXAxisShared();
     if (editor.getYAxisShared()) created[editor.getYAxisShared()->getID()] = editor.getYAxisShared();
+
+    auto allocatePointId = [&](unsigned int requestedId) -> unsigned int {
+      if (requestedId == 0u || usedPointIds.find(requestedId) != usedPointIds.end()) {
+        unsigned int generated = ++maxId;
+        usedPointIds.insert(generated);
+        return generated;
+      }
+      usedPointIds.insert(requestedId);
+      bumpMaxId(requestedId);
+      return requestedId;
+    };
 
     auto createSmartPoint = [&](const json& jPt) -> std::shared_ptr<Point> {
       unsigned int id = jPt.value("id", 0u);
@@ -903,12 +944,12 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
     if (data.contains("points") && data["points"].is_array()) {
       for (const auto& jPt : data["points"]) {
-        unsigned int id = jPt.value("id", 0u);
-        if (id == 0u) continue;
-        bumpMaxId(id);
+        unsigned int requestedId = jPt.value("id", 0u);
+        unsigned int effectiveId = allocatePointId(requestedId);
 
         auto pt = createSmartPoint(jPt);
         if (!pt) continue;
+        pt->setID(effectiveId);
 
         pt->setLabel(jPt.value("label", ""));
         pt->setShowLabel(jPt.value("showLabel", false));
@@ -919,11 +960,69 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
           pt->setDependent(true);
         }
 
-        pointMap[id] = pt;
-        created[id] = pt;
+        pointMap[effectiveId] = pt;
+        created[effectiveId] = pt;
+        if (requestedId > 0u) {
+          if (!pointMap.count(requestedId)) pointMap[requestedId] = pt;
+          if (!created.count(requestedId)) created[requestedId] = pt;
+        }
         editor.points.push_back(pt);
         if (std::dynamic_pointer_cast<ObjectPoint>(pt)) {
           editor.ObjectPoints.push_back(std::dynamic_pointer_cast<ObjectPoint>(pt));
+        }
+        loadedPointRecords.push_back({&jPt, pt});
+
+        if (requestedId == 0u && jPt.contains("hostType")) {
+          int hostTypeVal = jPt.value("hostType", -1);
+          if (hostTypeVal == static_cast<int>(ObjectType::Circle)) {
+            zeroIdCircleHostedPointCandidates.push_back(pt);
+          }
+        }
+      }
+    }
+
+    if (data.contains("objectPoints") && data["objectPoints"].is_array()) {
+      for (const auto& jOp : data["objectPoints"]) {
+        unsigned int requestedId = jOp.value("id", 0u);
+
+        if (requestedId > 0u && pointMap.count(requestedId)) {
+          auto existingOp = std::dynamic_pointer_cast<ObjectPoint>(pointMap[requestedId]);
+          if (existingOp) {
+            std::string existingLabel = existingOp->getLabel();
+            std::string incomingLabel = jOp.value("label", "");
+            if (existingLabel == incomingLabel) {
+              continue;
+            }
+          }
+        }
+
+        unsigned int effectiveId = allocatePointId(requestedId);
+        double x = jOp.value("x", 0.0);
+        double y = jOp.value("y", 0.0);
+        sf::Color color = hexToColor(jOp.value("color", "#000000"));
+
+        auto op = std::make_shared<ObjectPoint>(Point_2(x, y), Constants::CURRENT_ZOOM, color, effectiveId);
+        op->setLabel(jOp.value("label", ""));
+        op->setShowLabel(jOp.value("showLabel", false));
+        if (jOp.contains("visible")) op->setVisible(jOp.value("visible", true));
+        if (jOp.contains("locked")) op->setLocked(jOp.value("locked", false));
+
+        pointMap[effectiveId] = op;
+        created[effectiveId] = op;
+        if (requestedId > 0u) {
+          if (!pointMap.count(requestedId)) pointMap[requestedId] = op;
+          if (!created.count(requestedId)) created[requestedId] = op;
+        }
+
+        editor.points.push_back(op);
+        editor.ObjectPoints.push_back(op);
+        loadedPointRecords.push_back({&jOp, op});
+
+        if (requestedId == 0u) {
+          int hostTypeVal = jOp.value("hostType", -1);
+          if (hostTypeVal == static_cast<int>(ObjectType::Circle)) {
+            zeroIdCircleHostedPointCandidates.push_back(op);
+          }
         }
       }
     }
@@ -944,9 +1043,72 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
       if (pointMap.count(id)) {
         obj = pointMap[id];
+      } else if (jObj.contains("constructionType")) {
+            std::string cType = jObj.value("constructionType", "");
+            sf::Color color = hexToColor(jObj.value("color", "#000000"));
+
+            if (cType == "PerpendicularBisector") {
+              auto p1 = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("pbP1ID", 0u)));
+              auto p2 = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("pbP2ID", 0u)));
+              if (p1 && p2) {
+                auto pb = std::make_shared<PerpendicularBisector>(p1, p2, id, color);
+                pb->setDependent(true);
+                pb->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                p1->addDependent(pb);
+                p2->addDependent(pb);
+                obj = pb;
+              }
+            } else if (cType == "AngleBisector") {
+              bool isExternal = jObj.value("isExternalBisector", false);
+              std::string mode = jObj.value("abMode", "");
+
+              if (mode == "lines") {
+                auto l1 = std::dynamic_pointer_cast<Line>(getOrCreate(jObj.value("abLine1ID", 0u)));
+                auto l2 = std::dynamic_pointer_cast<Line>(getOrCreate(jObj.value("abLine2ID", 0u)));
+                if (l1 && l2) {
+                  auto ab = std::make_shared<AngleBisector>(l1, l2, id, isExternal, color);
+                  ab->setDependent(true);
+                  ab->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                  l1->addDependent(ab);
+                  l2->addDependent(ab);
+                  obj = ab;
+                }
+              } else {
+                auto v = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("abVertexID", 0u)));
+                auto a = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("abArm1ID", 0u)));
+                auto b = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("abArm2ID", 0u)));
+                if (v && a && b) {
+                  auto ab = std::make_shared<AngleBisector>(v, a, b, id, isExternal, color);
+                  ab->setDependent(true);
+                  ab->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                  a->addDependent(ab);
+                  v->addDependent(ab);
+                  b->addDependent(ab);
+                  obj = ab;
+                }
+              }
+            }
       } else if (jObj.contains("startPointID") && jObj.value("isSegment", false)) { // Line segment
             auto start = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("startPointID", 0u)));
             auto end = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("endPointID", 0u)));
+            if (!start && jObj.contains("startX") && jObj.contains("startY")) {
+              unsigned int pid = ++maxId;
+              auto p = std::make_shared<Point>(Point_2(jObj.value("startX", 0.0), jObj.value("startY", 0.0)), Constants::CURRENT_ZOOM,
+                                               Constants::POINT_DEFAULT_COLOR, pid);
+              pointMap[pid] = p;
+              created[pid] = p;
+              editor.points.push_back(p);
+              start = p;
+            }
+            if (!end && jObj.contains("endX") && jObj.contains("endY")) {
+              unsigned int pid = ++maxId;
+              auto p = std::make_shared<Point>(Point_2(jObj.value("endX", 0.0), jObj.value("endY", 0.0)), Constants::CURRENT_ZOOM,
+                                               Constants::POINT_DEFAULT_COLOR, pid);
+              pointMap[pid] = p;
+              created[pid] = p;
+              editor.points.push_back(p);
+              end = p;
+            }
             sf::Color color = hexToColor(jObj.value("color", "#000000"));
             int lType = jObj.value("lineType", 0);
             if (start && end) {
@@ -964,6 +1126,24 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         } else if (jObj.contains("startPointID")) { // Infinite Line
              auto start = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("startPointID", 0u)));
              auto end = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("endPointID", 0u)));
+             if (!start && jObj.contains("startX") && jObj.contains("startY")) {
+               unsigned int pid = ++maxId;
+               auto p = std::make_shared<Point>(Point_2(jObj.value("startX", 0.0), jObj.value("startY", 0.0)), Constants::CURRENT_ZOOM,
+                                                Constants::POINT_DEFAULT_COLOR, pid);
+               pointMap[pid] = p;
+               created[pid] = p;
+               editor.points.push_back(p);
+               start = p;
+             }
+             if (!end && jObj.contains("endX") && jObj.contains("endY")) {
+               unsigned int pid = ++maxId;
+               auto p = std::make_shared<Point>(Point_2(jObj.value("endX", 0.0), jObj.value("endY", 0.0)), Constants::CURRENT_ZOOM,
+                                                Constants::POINT_DEFAULT_COLOR, pid);
+               pointMap[pid] = p;
+               created[pid] = p;
+               editor.points.push_back(p);
+               end = p;
+             }
              sf::Color color = hexToColor(jObj.value("color", "#000000"));
              int lType = jObj.value("lineType", 0);
              if (start && end) {
@@ -1008,99 +1188,106 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     };
 
       // PHASE 2.5: POINT WIRING (Transformations + ObjectPoints)
-      if (data.contains("points") && data["points"].is_array()) {
-        for (const auto& jPt : data["points"]) {
-          unsigned int id = jPt.value("id", 0u);
-          if (id == 0u) continue;
-          auto pt = (pointMap.count(id) ? pointMap[id] : nullptr);
-          if (!pt) continue;
+      auto wirePoint = [&](const json& jPt, const std::shared_ptr<Point>& pt) {
+        if (!pt) return;
 
-          if (jPt.contains("hostId")) {
-            unsigned int hostId = jPt.value("hostId", 0u);
-            auto host = std::dynamic_pointer_cast<GeometricObject>(getOrCreate(hostId));
-            auto op = std::dynamic_pointer_cast<ObjectPoint>(pt);
-            if (op && host) {
-              ObjectType hostType = static_cast<ObjectType>(jPt.value("hostType", static_cast<int>(host->getType())));
-              double t = jPt.value("t", 0.5);
-              op->relinkHost(host, t, hostType);
-              if (hostType == ObjectType::Line || hostType == ObjectType::LineSegment) {
-                if (auto l = std::dynamic_pointer_cast<Line>(host)) l->addChildPoint(op);
-              } else if (hostType == ObjectType::Circle) {
-                if (auto c = std::dynamic_pointer_cast<Circle>(host)) c->addChildPoint(op);
-              }
-            }
+        if (jPt.contains("hostId")) {
+          unsigned int hostId = jPt.value("hostId", 0u);
+          auto op = std::dynamic_pointer_cast<ObjectPoint>(pt);
+          ObjectType hostType = static_cast<ObjectType>(jPt.value("hostType", static_cast<int>(ObjectType::None)));
+          if (op && hostId == 0u && hostType == ObjectType::Circle) {
+            pendingCircleHostIdZero.push_back(op);
           }
 
-          if (!jPt.contains("transform") || !jPt["transform"].is_object()) continue;
-
-          const json& t = jPt["transform"];
-          std::string type = t.value("type", "");
-
-          unsigned int parentId = t.value("parentSourceID", jPt.value("parentSourceID", 0u));
-          auto parent = (pointMap.count(parentId) ? pointMap[parentId] : nullptr);
-
-          if (type == "TranslateVector") {
-            unsigned int vecStartId = t.value("vecStartId", 0u);
-            unsigned int vecEndId = t.value("vecEndId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
-            if (vecStartId == 0u && vecEndId != 0u && vectorLineMap.count(vecEndId)) {
-              vecStartId = vectorLineMap[vecEndId].first;
+          auto host = std::dynamic_pointer_cast<GeometricObject>(getOrCreate(hostId));
+          if (op && host) {
+            if (hostType == ObjectType::None) {
+              hostType = static_cast<ObjectType>(host->getType());
             }
-            auto vecStart = (pointMap.count(vecStartId) ? pointMap[vecStartId] : nullptr);
-            auto vecEnd = (pointMap.count(vecEndId) ? pointMap[vecEndId] : nullptr);
-            auto tv = std::dynamic_pointer_cast<TranslateVector>(pt);
-            if (tv && parent && vecStart && vecEnd) {
-              tv->restoreTransformation(parent, vecEnd, TransformationType::Translate);
-              tv->setVectorStart(vecStart);
-              parent->addDependent(tv);
-              tv->update();
-            }
-          } else if (type == "RotatePoint") {
-            unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
-            auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
-            auto rp = std::dynamic_pointer_cast<RotatePoint>(pt);
-            if (rp && parent && center) {
-              rp->restoreTransformation(parent, center, TransformationType::Rotate);
-              parent->addDependent(rp);
-              rp->update();
-            }
-          } else if (type == "ReflectLine") {
-            unsigned int lineId = t.value("lineId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
-            auto line = std::dynamic_pointer_cast<Line>(getOrCreate(lineId));
-            auto rl = std::dynamic_pointer_cast<ReflectLine>(pt);
-            if (rl && parent && line) {
-              rl->restoreTransformation(parent, line, TransformationType::Reflect);
-              parent->addDependent(rl);
-              rl->update();
-            }
-          } else if (type == "ReflectPoint") {
-            unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
-            auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
-            auto rp = std::dynamic_pointer_cast<ReflectPoint>(pt);
-            if (rp && parent && center) {
-              rp->restoreTransformation(parent, center, TransformationType::ReflectPoint);
-              parent->addDependent(rp);
-              rp->update();
-            }
-          } else if (type == "ReflectCircle") {
-            unsigned int circleId = t.value("circleId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
-            auto circle = std::dynamic_pointer_cast<Circle>(getOrCreate(circleId));
-            auto rc = std::dynamic_pointer_cast<ReflectCircle>(pt);
-            if (rc && parent && circle) {
-              rc->restoreTransformation(parent, circle, TransformationType::ReflectCircle);
-              parent->addDependent(rc);
-              rc->update();
-            }
-          } else if (type == "DilatePoint") {
-            unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
-            auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
-            auto dp = std::dynamic_pointer_cast<DilatePoint>(pt);
-            if (dp && parent && center) {
-              dp->restoreTransformation(parent, center, TransformationType::Dilate);
-              parent->addDependent(dp);
-              dp->update();
+            double tHost = jPt.value("t", 0.5);
+            op->relinkHost(host, tHost, hostType);
+            if (hostType == ObjectType::Line || hostType == ObjectType::LineSegment) {
+              if (auto l = std::dynamic_pointer_cast<Line>(host)) l->addChildPoint(op);
+            } else if (hostType == ObjectType::Circle) {
+              if (auto c = std::dynamic_pointer_cast<Circle>(host)) c->addChildPoint(op);
             }
           }
         }
+
+        if (!jPt.contains("transform") || !jPt["transform"].is_object()) return;
+
+        const json& t = jPt["transform"];
+        std::string type = t.value("type", "");
+
+        unsigned int parentId = t.value("parentSourceID", jPt.value("parentSourceID", 0u));
+        auto parent = (pointMap.count(parentId) ? pointMap[parentId] : nullptr);
+
+        if (type == "TranslateVector") {
+          unsigned int vecStartId = t.value("vecStartId", 0u);
+          unsigned int vecEndId = t.value("vecEndId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+          if (vecStartId == 0u && vecEndId != 0u && vectorLineMap.count(vecEndId)) {
+            vecStartId = vectorLineMap[vecEndId].first;
+          }
+          auto vecStart = (pointMap.count(vecStartId) ? pointMap[vecStartId] : nullptr);
+          auto vecEnd = (pointMap.count(vecEndId) ? pointMap[vecEndId] : nullptr);
+          auto tv = std::dynamic_pointer_cast<TranslateVector>(pt);
+          if (tv && parent && vecStart && vecEnd) {
+            tv->restoreTransformation(parent, vecEnd, TransformationType::Translate);
+            tv->setVectorStart(vecStart);
+            parent->addDependent(tv);
+            tv->update();
+          }
+        } else if (type == "RotatePoint") {
+          unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+          auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
+          auto rp = std::dynamic_pointer_cast<RotatePoint>(pt);
+          if (rp && parent && center) {
+            rp->restoreTransformation(parent, center, TransformationType::Rotate);
+            parent->addDependent(rp);
+            rp->update();
+          }
+        } else if (type == "ReflectLine") {
+          unsigned int lineId = t.value("lineId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+          auto line = std::dynamic_pointer_cast<Line>(getOrCreate(lineId));
+          auto rl = std::dynamic_pointer_cast<ReflectLine>(pt);
+          if (rl && parent && line) {
+            rl->restoreTransformation(parent, line, TransformationType::Reflect);
+            parent->addDependent(rl);
+            rl->update();
+          }
+        } else if (type == "ReflectPoint") {
+          unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+          auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
+          auto rp = std::dynamic_pointer_cast<ReflectPoint>(pt);
+          if (rp && parent && center) {
+            rp->restoreTransformation(parent, center, TransformationType::ReflectPoint);
+            parent->addDependent(rp);
+            rp->update();
+          }
+        } else if (type == "ReflectCircle") {
+          unsigned int circleId = t.value("circleId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+          auto circle = std::dynamic_pointer_cast<Circle>(getOrCreate(circleId));
+          auto rc = std::dynamic_pointer_cast<ReflectCircle>(pt);
+          if (rc && parent && circle) {
+            rc->restoreTransformation(parent, circle, TransformationType::ReflectCircle);
+            parent->addDependent(rc);
+            rc->update();
+          }
+        } else if (type == "DilatePoint") {
+          unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
+          auto center = (pointMap.count(centerId) ? pointMap[centerId] : nullptr);
+          auto dp = std::dynamic_pointer_cast<DilatePoint>(pt);
+          if (dp && parent && center) {
+            dp->restoreTransformation(parent, center, TransformationType::Dilate);
+            parent->addDependent(dp);
+            dp->update();
+          }
+        }
+      };
+
+      for (const auto& rec : loadedPointRecords) {
+        if (!rec.first || !rec.second) continue;
+        wirePoint(*rec.first, rec.second);
       }
 
       // PHASE 2.6: STABILIZE TRANSFORM CHAINS (Dependency-ordered)
@@ -1190,16 +1377,87 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
               editor.lines.push_back(ln);
             }
         }
+
+        for (const auto& item : data["lines"]) {
+          bool isParallel = item.value("isParallel", false);
+          bool isPerpendicular = item.value("isPerpendicular", false);
+          if (!isParallel && !isPerpendicular) continue;
+
+          auto ln = std::dynamic_pointer_cast<Line>(getOrCreate(item.value("id", 0u)));
+          if (!ln) continue;
+
+          auto refObj = getOrCreate(item.value("constraintRefId", 0u));
+          int edgeIndex = item.value("constraintRefEdgeIndex", -1);
+          Vector_2 refDir(0, 0);
+
+          if (refObj) {
+            if (edgeIndex >= 0) {
+              auto edges = refObj->getEdges();
+              if (edgeIndex < static_cast<int>(edges.size())) {
+                refDir = edges[static_cast<size_t>(edgeIndex)].to_vector();
+              }
+            } else if (auto refLine = std::dynamic_pointer_cast<Line>(refObj)) {
+              refDir = refLine->getEndPoint() - refLine->getStartPoint();
+            }
+          }
+
+          if (isParallel) {
+            ln->setAsParallelLine(refObj, edgeIndex, refDir);
+          } else if (isPerpendicular) {
+            ln->setAsPerpendicularLine(refObj, edgeIndex, refDir);
+          }
+        }
     }
+
+    std::shared_ptr<Circle> zeroIdCircleFallback;
     if (data.contains("circles")) {
         for (const auto& item : data["circles"]) {
-          auto obj = getOrCreate(item.value("id", 0u));
-          if (auto ci = std::dynamic_pointer_cast<Circle>(obj)) {
+          unsigned int jsonCircleId = item.value("id", 0u);
+          auto obj = (jsonCircleId == 0u) ? nullptr : getOrCreate(jsonCircleId);
+          auto ci = std::dynamic_pointer_cast<Circle>(obj);
+
+          if (!ci) {
+            auto center = std::dynamic_pointer_cast<Point>(getOrCreate(item.value("centerPointID", 0u)));
+            if (center) {
+              sf::Color color = hexToColor(item.value("color", "#000000"));
+              unsigned int assignedCircleId = (jsonCircleId == 0u) ? ++maxId : jsonCircleId;
+              bumpMaxId(assignedCircleId);
+
+              if (item.contains("radiusPointID")) {
+                auto radiusPt = std::dynamic_pointer_cast<Point>(getOrCreate(item.value("radiusPointID", 0u)));
+                if (radiusPt) {
+                  ci = std::make_shared<Circle>(center.get(), radiusPt, 0.0, color);
+                }
+              } else {
+                double r = item.value("radiusValue", 1.0);
+                ci = std::make_shared<Circle>(center.get(), nullptr, r, color);
+              }
+
+              if (ci) {
+                ci->setID(assignedCircleId);
+                created[assignedCircleId] = ci;
+                if (jsonCircleId > 0u && !created.count(jsonCircleId)) created[jsonCircleId] = ci;
+              }
+            }
+          }
+
+          if (ci) {
             ci->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
             // Ensure circle is in editor.circles only once
             if (std::find(editor.circles.begin(), editor.circles.end(), ci) == editor.circles.end()) {
               editor.circles.push_back(ci);
             }
+            if (jsonCircleId == 0u && !zeroIdCircleFallback) {
+              zeroIdCircleFallback = ci;
+            }
+          }
+        }
+
+        if (zeroIdCircleFallback) {
+          for (const auto& op : pendingCircleHostIdZero) {
+            if (!op) continue;
+            op->relinkHost(zeroIdCircleFallback, op->getAngleOnCircle(), ObjectType::Circle);
+            zeroIdCircleFallback->addChildPoint(op);
           }
         }
     }
@@ -1207,8 +1465,38 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     // Tangent Lines
     if (data.contains("tangentLines")) {
       for (const auto& item : data["tangentLines"]) {
-        auto ext = std::dynamic_pointer_cast<Point>(getOrCreate(item.value("externalPointID", 0u)));
-        auto cir = std::dynamic_pointer_cast<Circle>(getOrCreate(item.value("circleID", 0u)));
+        unsigned int extId = item.value("externalPointID", 0u);
+        auto ext = std::dynamic_pointer_cast<Point>(getOrCreate(extId));
+        if (!ext && extId == 0u && !zeroIdCircleHostedPointCandidates.empty()) {
+          ext = zeroIdCircleHostedPointCandidates.front();
+        }
+        if (!ext && item.contains("externalPointX") && item.contains("externalPointY")) {
+          unsigned int pid = ++maxId;
+          ext = std::make_shared<Point>(Point_2(item.value("externalPointX", 0.0), item.value("externalPointY", 0.0)),
+                                        Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, pid);
+          pointMap[pid] = ext;
+          created[pid] = ext;
+          editor.points.push_back(ext);
+        }
+        unsigned int tangentCircleId = item.value("circleID", 0u);
+        auto cir = (tangentCircleId == 0u)
+                     ? zeroIdCircleFallback
+                     : std::dynamic_pointer_cast<Circle>(getOrCreate(tangentCircleId));
+        if (!cir && item.contains("circleCenterX") && item.contains("circleCenterY") && item.contains("circleRadius")) {
+          unsigned int centerPid = ++maxId;
+          auto centerPt = std::make_shared<Point>(Point_2(item.value("circleCenterX", 0.0), item.value("circleCenterY", 0.0)),
+                                                  Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, centerPid);
+          pointMap[centerPid] = centerPt;
+          created[centerPid] = centerPt;
+          editor.points.push_back(centerPt);
+
+          cir = std::make_shared<Circle>(centerPt.get(), nullptr, item.value("circleRadius", 1.0), sf::Color::Black);
+          cir->setID(++maxId);
+          created[cir->getID()] = cir;
+          if (std::find(editor.circles.begin(), editor.circles.end(), cir) == editor.circles.end()) {
+            editor.circles.push_back(cir);
+          }
+        }
         // If circle has id==0, assign new id and bump maxId
         if (cir && cir->getID() == 0u) {
             cir->setID(++maxId);

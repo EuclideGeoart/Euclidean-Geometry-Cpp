@@ -61,6 +61,10 @@ class PerpendicularBisector : public Line {
     }
   }
 
+  ObjectType getType() const override { return ObjectType::PerpendicularBisector; }
+  std::shared_ptr<Point> getFirstParentPoint() const { return p1; }
+  std::shared_ptr<Point> getSecondParentPoint() const { return p2; }
+
  private:
   static std::shared_ptr<Point> makePlaceholderPoint() {
     return std::make_shared<Point>(Point_2(0, 0), 1.0f, Constants::POINT_DEFAULT_COLOR,
@@ -202,6 +206,15 @@ class AngleBisector : public Line {
       if (isVisible()) setVisible(false);
     }
   }
+
+  ObjectType getType() const override { return ObjectType::AngleBisector; }
+  bool usesLineParents() const { return usesLines; }
+  bool isExternalBisector() const { return m_isExternal; }
+  std::shared_ptr<Line> getFirstParentLine() const { return line1.lock(); }
+  std::shared_ptr<Line> getSecondParentLine() const { return line2.lock(); }
+  std::shared_ptr<Point> getVertexParentPoint() const { return vertex; }
+  std::shared_ptr<Point> getFirstArmParentPoint() const { return arm1; }
+  std::shared_ptr<Point> getSecondArmParentPoint() const { return arm2; }
 
  private:
   static std::shared_ptr<Point> makePlaceholderPoint() {
