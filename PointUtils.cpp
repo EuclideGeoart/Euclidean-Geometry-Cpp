@@ -1056,12 +1056,9 @@ LabelManager::LabelManager() : m_visible(true), m_fontSize(18), m_currentFontTyp
     }
     
     // Load Math font
-    if (!m_fonts[FontType::Math].loadFromFile("C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/latinmodern-math.otf")) {
-        // Fallback to local if absolute path fails (e.g. distributed build)
-        if (!m_fonts[FontType::Math].loadFromFile("latinmodern-math.otf")) {
-            std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf. Falling back to Sans." << std::endl;
-            m_fonts[FontType::Math] = m_fonts[FontType::Sans];
-        }
+    if (!m_fonts[FontType::Math].loadFromFile("latinmodern-math.otf")) {
+        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf. Falling back to Sans." << std::endl;
+        m_fonts[FontType::Math] = m_fonts[FontType::Sans];
     }
     
     // Load Serif font (Specific to Windows for now as requested by user environment)
@@ -1071,11 +1068,9 @@ LabelManager::LabelManager() : m_visible(true), m_fontSize(18), m_currentFontTyp
     }
 
     // Load LaTeX font (Aliased to Math for now, but distinct type for future flexibility)
-    if (!m_fonts[FontType::LaTeX].loadFromFile("C:/Users/Mario_Geometry2/Desktop/Coding/Geometry_Tool_2/latinmodern-math.otf")) {
-         if (!m_fonts[FontType::LaTeX].loadFromFile("latinmodern-math.otf")) {
-            std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf for LaTeX style. Falling back to Serif." << std::endl;
-            m_fonts[FontType::LaTeX] = m_fonts[FontType::Serif];
-         }
+    if (!m_fonts[FontType::LaTeX].loadFromFile("latinmodern-math.otf")) {
+        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf for LaTeX style. Falling back to Serif." << std::endl;
+        m_fonts[FontType::LaTeX] = m_fonts[FontType::Serif];
     }
 }
 
