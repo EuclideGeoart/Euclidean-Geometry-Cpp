@@ -19,6 +19,7 @@ enum class ObjectType {
   RectangleRotatable,      // Rotatable rectangle
   Polygon,                 // General polygon (user-drawn vertices)
   RegularPolygon,          // Regular polygon with N sides
+  RegularPolygonEdge,      // Regular polygon defined by one edge (two adjacent vertices)
   Triangle,                // General triangle (3 arbitrary vertices)
 
   Angle,                   // Angle measurement

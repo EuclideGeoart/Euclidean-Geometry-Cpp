@@ -114,6 +114,7 @@ set(SOURCES
     LineToolMode.cpp
     QuickProfiler.cpp
     ContextMenu.cpp
+    Commands.cpp
     ConstraintUtils.cpp
     PointUtils.cpp
     ProjectSerializer.cpp

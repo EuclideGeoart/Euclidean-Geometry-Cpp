@@ -56,6 +56,7 @@
 #include "Angle.h"
 #include "CGALSafeUtils.h"  // For CGALSafeUtils functions
 #include "Circle.h"
+#include "Commands.h"
 #include "Constants.h"
 #include "ConstraintUtils.h"  // For isPointConstrainedByLine
 #include "ConstructionObjects.h"
@@ -116,6 +117,8 @@ static std::string getObjectTypeName(ObjectType type) {
       return "Polygon";
     case ObjectType::RegularPolygon:
       return "RegularPolygon";
+    case ObjectType::RegularPolygonEdge:
+      return "RegularPolygonEdge";
     case ObjectType::Angle:
       return "Angle";
     case ObjectType::TextLabel:
@@ -1194,7 +1197,8 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
        editor.m_currentToolType == ObjectType::LineSegment || editor.m_currentToolType == ObjectType::Circle ||
        editor.m_currentToolType == ObjectType::Intersection || editor.m_currentToolType == ObjectType::Rectangle ||
        editor.m_currentToolType == ObjectType::RectangleRotatable || editor.m_currentToolType == ObjectType::Polygon ||
-       editor.m_currentToolType == ObjectType::RegularPolygon || editor.m_currentToolType == ObjectType::Triangle)) {
+        editor.m_currentToolType == ObjectType::RegularPolygon || editor.m_currentToolType == ObjectType::RegularPolygonEdge ||
+        editor.m_currentToolType == ObjectType::Triangle)) {
     float tolerance = getDynamicSnapTolerance(editor);  // Use dynamic SNAP tolerance for consistency
     editor.m_snapState = PointUtils::checkSnapping(editor, worldPos, tolerance);
 
@@ -1330,11 +1334,23 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
 
   // Handle preview regular polygon
   if (shouldUpdatePreview && editor.isCreatingRegularPolygon && editor.regularPolygonPhase == 1) {
-    if (!editor.previewRegularPolygon) {
-      editor.previewRegularPolygon =
-          std::make_shared<RegularPolygon>(editor.regularPolygonCenter, cgalWorldPos, editor.regularPolygonNumSides, editor.getCurrentColor());
+    if (editor.m_currentToolType == ObjectType::RegularPolygonEdge) {
+      if (!editor.previewRegularPolygon) {
+        auto edgeStartPreview = editor.regularPolygonEdgeStartPoint ? editor.regularPolygonEdgeStartPoint
+                                                                    : std::make_shared<Point>(editor.regularPolygonEdgeStart, 1.0f);
+        editor.previewRegularPolygon = std::make_shared<RegularPolygon>(
+            edgeStartPreview, std::make_shared<Point>(cgalWorldPos, 1.0f), editor.regularPolygonNumSides,
+            editor.getCurrentColor(), editor.objectIdCounter, RegularPolygon::CreationMode::Edge);
+      } else {
+        editor.previewRegularPolygon->setCreationPointPosition(1, cgalWorldPos);
+      }
     } else {
-      editor.previewRegularPolygon->setVertexPosition(0, cgalWorldPos);
+      if (!editor.previewRegularPolygon) {
+        editor.previewRegularPolygon =
+            std::make_shared<RegularPolygon>(editor.regularPolygonCenter, cgalWorldPos, editor.regularPolygonNumSides, editor.getCurrentColor());
+      } else {
+        editor.previewRegularPolygon->setVertexPosition(0, cgalWorldPos);
+      }
     }
   }
 
@@ -1577,8 +1593,13 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
           }
           case ObjectType::RegularPolygon: {
             auto regPoly = static_cast<RegularPolygon*>(obj);
-            addPoint(regPoly->getCenterPoint());
-            addPoint(regPoly->getFirstVertexPoint());
+            if (regPoly->getCreationMode() == RegularPolygon::CreationMode::Edge) {
+              addPoint(regPoly->getEdgeStartPoint());
+              addPoint(regPoly->getEdgeEndPoint());
+            } else {
+              addPoint(regPoly->getCenterPoint());
+              addPoint(regPoly->getFirstVertexPoint());
+            }
             break;
           }
           case ObjectType::Circle: {
@@ -3175,22 +3196,43 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
         postDragCooldown.restart();
       }
 
-      // Record translation command for move operations
+      // Record move command for drag operations using point ID snapshots
       if (previousDragMode == DragMode::MoveFreePoint || previousDragMode == DragMode::DragObjectPoint ||
-          previousDragMode == DragMode::TranslateLine || previousDragMode == DragMode::TranslateShape) {
-        sf::Vector2f totalDeltaSfml = worldPos - editor.dragStart_sfml;
-        float threshold = std::max(0.001f, getDynamicSelectionTolerance(editor) * 0.1f);
-        if (editor.length(totalDeltaSfml) > threshold) {
-          std::vector<GeometricObject*> translationTargets = editor.selectedObjects;
-          if (translationTargets.empty() && draggedObject) {
-            translationTargets.push_back(draggedObject);
-          }
-          if (!translationTargets.empty()) {
-            Vector_2 cgalDelta = editor.toCGALVector(totalDeltaSfml);
-            editor.commandManager.pushHistoryOnly(std::make_shared<TranslateCommand>(translationTargets, cgalDelta));
+          previousDragMode == DragMode::TranslateLine || previousDragMode == DragMode::MoveLineEndpointStart ||
+          previousDragMode == DragMode::MoveLineEndpointEnd || previousDragMode == DragMode::TranslateShape ||
+          previousDragMode == DragMode::MoveShapeVertex || previousDragMode == DragMode::InteractWithCircle) {
+        std::map<unsigned int, Point_2> endPositions;
+        for (const auto& entry : editor.m_dragStartPositions) {
+          unsigned int pointId = entry.first;
+          for (const auto& point : editor.getAllPoints()) {
+            if (point && point->getID() == pointId) {
+              endPositions[pointId] = point->getCGALPosition();
+              break;
+            }
           }
         }
+
+        const double epsilonSq = 1e-16;
+        bool moved = false;
+        for (const auto& oldEntry : editor.m_dragStartPositions) {
+          auto endIt = endPositions.find(oldEntry.first);
+          if (endIt == endPositions.end()) {
+            continue;
+          }
+          double distSq = CGAL::to_double(CGAL::squared_distance(oldEntry.second, endIt->second));
+          if (distSq > epsilonSq) {
+            moved = true;
+            break;
+          }
+        }
+
+        if (moved && !editor.m_dragStartPositions.empty()) {
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<MoveCommand>(editor, editor.m_dragStartPositions, std::move(endPositions)));
+        }
       }
+
+      editor.m_dragStartPositions.clear();
     }
 
     // Reset general drag interaction state

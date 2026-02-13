@@ -18,6 +18,8 @@ class Point;
  */
 class RegularPolygon : public GeometricObject {
  public:
+  enum class CreationMode { CenterAndVertex, Edge };
+
   /**
    * @brief Constructor for regular polygon
    * @param center Center point of the polygon (CGAL)
@@ -31,6 +33,9 @@ class RegularPolygon : public GeometricObject {
 
   RegularPolygon(const std::shared_ptr<Point> &center, const std::shared_ptr<Point> &firstVertex,
                  int numSides, const sf::Color &color = sf::Color::White, unsigned int id = 0);
+
+  RegularPolygon(const std::shared_ptr<Point> &edgeStart, const std::shared_ptr<Point> &edgeEnd,
+                 int numSides, const sf::Color &color, unsigned int id, CreationMode mode);
 
   virtual ~RegularPolygon() = default;
 
@@ -60,6 +65,10 @@ class RegularPolygon : public GeometricObject {
   // RegularPolygon-specific methods
   std::shared_ptr<Point> getCenterPoint() const { return m_centerPoint; }
   std::shared_ptr<Point> getFirstVertexPoint() const { return m_firstVertexPoint; }
+  std::shared_ptr<Point> getEdgeStartPoint() const { return m_edgeStartPoint; }
+  std::shared_ptr<Point> getEdgeEndPoint() const { return m_edgeEndPoint; }
+  const std::vector<std::shared_ptr<Point>>& getDerivedVertices() const { return m_derivedVertices; }
+  CreationMode getCreationMode() const { return m_creationMode; }
   int getNumSides() const { return m_numSides; }
   double getRadius() const { return m_radius; }
   double getRotationAngle() const { return m_rotationAngle; }
@@ -80,8 +89,12 @@ class RegularPolygon : public GeometricObject {
   void setCreationPointPosition(size_t index, const Point_2& value);  // 0=center, 1=first vertex
 
  private:
+  CreationMode m_creationMode = CreationMode::CenterAndVertex;
   std::shared_ptr<Point> m_centerPoint;      // Center point
   std::shared_ptr<Point> m_firstVertexPoint; // First vertex point
+  std::shared_ptr<Point> m_edgeStartPoint;   // Edge mode start point
+  std::shared_ptr<Point> m_edgeEndPoint;     // Edge mode end point
+  std::vector<std::shared_ptr<Point>> m_derivedVertices; // Persistent derived polygon vertices
   std::vector<Point_2> m_vertices;  // Polygon vertices
   int m_numSides;                   // Number of sides (must be >= 3)
   double m_radius;                  // Distance from center to vertex
@@ -93,6 +106,8 @@ class RegularPolygon : public GeometricObject {
 
   // Helper methods
   void generateVertices();
+  void ensureDerivedVertices();
+  void syncDerivedVertices();
   void updateSFMLShape();
   void updateSFMLShapeInternal();
   void drawVertexHandles(sf::RenderWindow &window, float scale) const;

@@ -1,3 +1,16 @@
+/**
+ * ============================================================================
+ * FluxGeo Geometry Engine
+ * ============================================================================
+ *
+ * Created by: Mario Balit
+ * Assisted by: AI Coding Tools
+ * Year: 2026
+ *
+ * Description: An advanced, GeoGebra-style geometric construction 
+ * and transformation editor built with C++, SFML, and ImGui.
+ * ============================================================================
+ */
 
 #pragma message("--- In GeometryEditor.cpp: Checking CGAL preprocessor flags ---")
 
@@ -836,9 +849,16 @@ void GeometryEditor::render() {
         
         if (t == ObjectType::RegularPolygon) {
           if (auto* rpoly = dynamic_cast<RegularPolygon*>(obj.get())) {
-            // Draw regular polygon center and first vertex labels
-            if (rpoly->getCenterPoint()) rpoly->getCenterPoint()->drawLabelExplicit(window, drawingView);
-            if (rpoly->getFirstVertexPoint()) rpoly->getFirstVertexPoint()->drawLabelExplicit(window, drawingView);
+            if (rpoly->getCreationMode() == RegularPolygon::CreationMode::Edge) {
+              if (rpoly->getEdgeStartPoint()) rpoly->getEdgeStartPoint()->drawLabelExplicit(window, drawingView);
+              if (rpoly->getEdgeEndPoint()) rpoly->getEdgeEndPoint()->drawLabelExplicit(window, drawingView);
+            } else {
+              if (rpoly->getCenterPoint()) rpoly->getCenterPoint()->drawLabelExplicit(window, drawingView);
+              if (rpoly->getFirstVertexPoint()) rpoly->getFirstVertexPoint()->drawLabelExplicit(window, drawingView);
+            }
+            for (const auto& dv : rpoly->getDerivedVertices()) {
+              if (dv && dv->isValid()) dv->drawLabelExplicit(window, drawingView);
+            }
           }
           return; // Don't draw regular polygon's own label
         }
@@ -1220,6 +1240,7 @@ void GeometryEditor::setCurrentTool(ObjectType newTool) {
         gui.toggleButton("Polygon", true);
         break;
       case ObjectType::RegularPolygon:
+      case ObjectType::RegularPolygonEdge:
         gui.toggleButton("RegPoly", true);
         break;
       case ObjectType::Triangle:
@@ -1512,6 +1533,15 @@ void GeometryEditor::resetCreationStates() {
   }
   m_compassSelection.clear();
   m_previewCompassCenter.reset();
+
+  // Reset regular polygon creation state (both center+vertex and edge modes)
+  isCreatingRegularPolygon = false;
+  regularPolygonPhase = 0;
+  regularPolygonCenterPoint.reset();
+  regularPolygonFirstVertexPoint.reset();
+  regularPolygonEdgeStartPoint.reset();
+  regularPolygonEdgeEndPoint.reset();
+  previewRegularPolygon.reset();
 
   dragMode = DragMode::None;
   isDragging = false;
@@ -2113,6 +2143,10 @@ std::string GeometryEditor::getCurrentToolName() const {
       return "Angle (Given)";
     case ObjectType::Detach:
       return "Detach";
+    case ObjectType::RegularPolygon:
+      return "Regular Polygon (Center, Vertex)";
+    case ObjectType::RegularPolygonEdge:
+      return "Regular Polygon (Edge)";
     // Add other cases as needed
     default:
       return "Unknown";

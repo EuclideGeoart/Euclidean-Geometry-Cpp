@@ -13,6 +13,9 @@
  * CRITICAL: Uses std::map<unsigned int, std::shared_ptr<GeometricObject>> objectMap
  *           to guarantee pointer uniqueness - NO duplicates.
  */
+ //===========================================================================
+ //Deprecated: The deserializer is now part of ProjectSerializer
+ //===========================================================================
 #if 0
 #include "Deserializer.h"
 
@@ -584,10 +587,26 @@ void applyCommonPointFields(const json& jPoint,
         std::shared_ptr<RegularPolygon> rpoly;
         int sides = rpolyJson.value("sides", 3);
         int id = rpolyJson.value("id", -1);
+        std::string creationMode = rpolyJson.value("creationMode", "CenterAndVertex");
 
         sf::Color color = sf::Color::Black;
         if (rpolyJson.contains("color")) {
           color = colorFromJson(rpolyJson["color"], color);
+        }
+
+        if (!rpoly && creationMode == "Edge" && rpolyJson.contains("edgeStartID") && rpolyJson.contains("edgeEndID")) {
+          int edgeStartId = rpolyJson["edgeStartID"].get<int>();
+          int edgeEndId = rpolyJson["edgeEndID"].get<int>();
+
+          auto edgeStartPt = getPoint(edgeStartId);
+          auto edgeEndPt = getPoint(edgeEndId);
+
+          if (edgeStartPt && edgeEndPt) {
+            rpoly = std::make_shared<RegularPolygon>(edgeStartPt, edgeEndPt, sides, color, static_cast<unsigned int>(std::max(id, 0)),
+                                                     RegularPolygon::CreationMode::Edge);
+            edgeStartPt->addDependent(rpoly);
+            edgeEndPt->addDependent(rpoly);
+          }
         }
 
         // Try loading by Point IDs first (preferred method)

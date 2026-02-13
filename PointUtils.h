@@ -1,3 +1,17 @@
+/**
+ * ============================================================================
+ * FluxGeo Geometry Engine
+ * ============================================================================
+ *
+ * Created by: Mario Balit
+ * Assisted by: AI Coding Tools
+ * Year: 2026
+ *
+ * Description: An advanced, GeoGebra-style geometric construction 
+ * and transformation editor built with C++, SFML, and ImGui.
+ * ============================================================================
+ */
+
 #pragma once
 
 #ifdef CGAL_USE_SSE2
@@ -199,6 +213,12 @@ public:
      * @return Unique label string
      */
     std::string getNextPolygonLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects);
+
+    /**
+     * @brief Generates a transformed label based on parent (e.g., A -> A'_1 -> A''_1)
+     */
+    std::string getNextTransformedLabel(const std::string& parentLabel, const std::vector<std::shared_ptr<Point>>& allPoints);
+
 
 private:
     LabelManager();

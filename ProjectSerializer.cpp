@@ -1,11 +1,15 @@
 ﻿/**
- * ProjectSerializer.cpp
+ * ============================================================================
+ * FluxGeo Geometry Engine
+ * ============================================================================
  *
- * Implements project save/load (JSON) and SVG export.
+ * Created by: Mario Balit
+ * Assisted by: AI Coding Tools
+ * Year: 2026
  *
- * IMPORTANT: This implementation uses nlohmann/json library.
- * Download json.hpp from: https://github.com/nlohmann/json/releases
- * Place it in the project directory or include path.
+ * Description: An advanced, GeoGebra-style geometric construction 
+ * and transformation editor built with C++, SFML, and ImGui.
+ * ============================================================================
  */
 
 #include "ProjectSerializer.h"
@@ -248,14 +252,43 @@ void ProjectSerializer::calculateBounds(const GeometryEditor& editor, double& mi
 // ============================================================================
 
 bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::string& filepath) {
+  std::unordered_map<const Point*, unsigned int> pointIdForSave;
+
+  auto getObjectIdForSave = [&](const std::shared_ptr<GeometricObject>& obj) -> unsigned int {
+    if (!obj) return 0u;
+    auto asPoint = std::dynamic_pointer_cast<Point>(obj);
+    if (asPoint) {
+      auto it = pointIdForSave.find(asPoint.get());
+      if (it != pointIdForSave.end()) return it->second;
+    }
+    return obj->getID();
+  };
+
+  auto getObjectRawIdForSave = [&](GeometricObject* obj) -> unsigned int {
+    if (!obj) return 0u;
+    if (auto asPoint = dynamic_cast<Point*>(obj)) {
+      auto it = pointIdForSave.find(asPoint);
+      if (it != pointIdForSave.end()) return it->second;
+    }
+    return obj->getID();
+  };
+
   // Helper to add transformation metadata
-  auto addTransformMetadata = [](json& jObj, const std::shared_ptr<GeometricObject>& obj) {
+  auto addTransformMetadata = [&](json& jObj, const std::shared_ptr<GeometricObject>& obj) {
     if (!obj) return;
     jObj["isDependent"] = obj->isDependent();
     jObj["transformType"] = static_cast<int>(obj->getTransformType());
     if (obj->getTransformType() != TransformationType::None) {
-      jObj["parentSourceID"] = obj->getParentSourceID();
-      jObj["auxObjectID"] = obj->getAuxObjectID();
+      if (auto p = obj->getParentSource()) {
+        jObj["parentSourceID"] = getObjectIdForSave(p);
+      } else {
+        jObj["parentSourceID"] = obj->getParentSourceID();
+      }
+      if (auto aux = obj->getAuxObject()) {
+        jObj["auxObjectID"] = getObjectIdForSave(aux);
+      } else {
+        jObj["auxObjectID"] = obj->getAuxObjectID();
+      }
       jObj["transformValue"] = obj->getTransformValue();
 
       if (obj->getTransformType() == TransformationType::Translate) {
@@ -281,11 +314,11 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
     // 1. COLLECT ALL UNIQUE POINTS
     // We use a Set to track IDs to avoid duplicates, and a Vector to preserve order.
     std::vector<std::shared_ptr<Point>> pointsToSave;
-    std::set<unsigned int> savedPointIDs;
+    std::set<const Point*> savedPointPtrs;
 
     auto markForSave = [&](std::shared_ptr<Point> p) {
-        if (p && savedPointIDs.find(p->getID()) == savedPointIDs.end()) {
-            savedPointIDs.insert(p->getID());
+      if (p && savedPointPtrs.find(p.get()) == savedPointPtrs.end()) {
+        savedPointPtrs.insert(p.get());
             pointsToSave.push_back(p);
         }
     };
@@ -323,11 +356,33 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         markForSave(op);
     }
 
+    // Build a collision-free point ID map for serialization.
+    std::set<unsigned int> usedSerializedPointIds;
+    unsigned int nextSerializedPointId = 0u;
+    for (const auto& obj : editor.getAllObjects()) {
+      if (obj && obj->getID() > nextSerializedPointId) {
+        nextSerializedPointId = obj->getID();
+      }
+    }
+
+    for (const auto& pt : pointsToSave) {
+      if (!pt) continue;
+      unsigned int sid = pt->getID();
+      if (sid == 0u || usedSerializedPointIds.find(sid) != usedSerializedPointIds.end()) {
+        do {
+          sid = ++nextSerializedPointId;
+        } while (usedSerializedPointIds.find(sid) != usedSerializedPointIds.end());
+      }
+      usedSerializedPointIds.insert(sid);
+      pointIdForSave[pt.get()] = sid;
+    }
+
     // 2. SERIALIZE THE UNIFIED LIST
     for (const auto& pt : pointsToSave) {
         if (!pt) continue;
         json jPt;
-        jPt["id"] = pt->getID();
+        auto mappedIt = pointIdForSave.find(pt.get());
+        jPt["id"] = (mappedIt != pointIdForSave.end()) ? mappedIt->second : pt->getID();
         Point_2 pos = pt->getCGALPosition();
         jPt["x"] = CGAL::to_double(pos.x());
         jPt["y"] = CGAL::to_double(pos.y());
@@ -346,8 +401,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             json t;
             t["transformType"] = static_cast<int>(pt->getTransformType());
             
-            if (auto p = pt->getParentSource()) t["parentSourceID"] = p->getID();
-            if (auto aux = pt->getAuxObject()) t["auxObjectID"] = aux->getID();
+            if (auto p = pt->getParentSource()) t["parentSourceID"] = getObjectIdForSave(p);
+            if (auto aux = pt->getAuxObject()) t["auxObjectID"] = getObjectIdForSave(aux);
             
             // TRANSLATION VECTOR FIX
             if (pt->getTransformType() == TransformationType::Translate) {
@@ -385,7 +440,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             }
             
             if (auto host = op->getHostObject()) {
-                jPt["hostId"] = host->getID();
+              jPt["hostId"] = getObjectRawIdForSave(host);
             }
         }
 
@@ -411,15 +466,29 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 
         addTransformMetadata(lnJson, ln);
 
-        if (auto startObj = ln->getStartPointObject(); startObj && startObj->getID() > 0 && savedPointIDs.find(startObj->getID()) != savedPointIDs.end()) {
-          lnJson["startPointID"] = startObj->getID();
+        if (auto startObj = ln->getStartPointObjectShared()) {
+          auto itStart = pointIdForSave.find(startObj.get());
+          if (itStart != pointIdForSave.end()) {
+            lnJson["startPointID"] = itStart->second;
+          } else {
+            Point_2 start = ln->getStartPoint();
+            lnJson["startX"] = CGAL::to_double(start.x());
+            lnJson["startY"] = CGAL::to_double(start.y());
+          }
         } else {
           Point_2 start = ln->getStartPoint();
           lnJson["startX"] = CGAL::to_double(start.x());
           lnJson["startY"] = CGAL::to_double(start.y());
         }
-        if (auto endObj = ln->getEndPointObject(); endObj && endObj->getID() > 0 && savedPointIDs.find(endObj->getID()) != savedPointIDs.end()) {
-          lnJson["endPointID"] = endObj->getID();
+        if (auto endObj = ln->getEndPointObjectShared()) {
+          auto itEnd = pointIdForSave.find(endObj.get());
+          if (itEnd != pointIdForSave.end()) {
+            lnJson["endPointID"] = itEnd->second;
+          } else {
+            Point_2 end = ln->getEndPoint();
+            lnJson["endX"] = CGAL::to_double(end.x());
+            lnJson["endY"] = CGAL::to_double(end.y());
+          }
         } else {
           Point_2 end = ln->getEndPoint();
           lnJson["endX"] = CGAL::to_double(end.x());
@@ -428,8 +497,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 
         if (auto pb = std::dynamic_pointer_cast<PerpendicularBisector>(ln)) {
           lnJson["constructionType"] = "PerpendicularBisector";
-          if (auto p1 = pb->getFirstParentPoint()) lnJson["pbP1ID"] = p1->getID();
-          if (auto p2 = pb->getSecondParentPoint()) lnJson["pbP2ID"] = p2->getID();
+          if (auto p1 = pb->getFirstParentPoint()) lnJson["pbP1ID"] = getObjectIdForSave(p1);
+          if (auto p2 = pb->getSecondParentPoint()) lnJson["pbP2ID"] = getObjectIdForSave(p2);
         } else if (auto ab = std::dynamic_pointer_cast<AngleBisector>(ln)) {
           lnJson["constructionType"] = "AngleBisector";
           lnJson["isExternalBisector"] = ab->isExternalBisector();
@@ -439,9 +508,9 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             if (auto l2 = ab->getSecondParentLine()) lnJson["abLine2ID"] = l2->getID();
           } else {
             lnJson["abMode"] = "points";
-            if (auto v = ab->getVertexParentPoint()) lnJson["abVertexID"] = v->getID();
-            if (auto a = ab->getFirstArmParentPoint()) lnJson["abArm1ID"] = a->getID();
-            if (auto b = ab->getSecondArmParentPoint()) lnJson["abArm2ID"] = b->getID();
+            if (auto v = ab->getVertexParentPoint()) lnJson["abVertexID"] = getObjectIdForSave(v);
+            if (auto a = ab->getFirstArmParentPoint()) lnJson["abArm1ID"] = getObjectIdForSave(a);
+            if (auto b = ab->getSecondArmParentPoint()) lnJson["abArm2ID"] = getObjectIdForSave(b);
           }
         }
 
@@ -484,7 +553,12 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         }
 
         if (auto centerObj = ci->getCenterPointObject()) {
-          ciJson["centerPointID"] = centerObj->getID();
+          if (auto centerPt = dynamic_cast<Point*>(centerObj)) {
+            auto itCenter = pointIdForSave.find(centerPt);
+            ciJson["centerPointID"] = (itCenter != pointIdForSave.end()) ? itCenter->second : centerObj->getID();
+          } else {
+            ciJson["centerPointID"] = centerObj->getID();
+          }
         } else {
           Point_2 center = ci->getCGALPosition();
           ciJson["centerX"] = CGAL::to_double(center.x());
@@ -492,7 +566,12 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         }
 
         if (auto radiusObj = ci->getRadiusPointObject()) {
-          ciJson["radiusPointID"] = radiusObj->getID();
+          if (auto radiusPt = dynamic_cast<Point*>(radiusObj)) {
+            auto itRadius = pointIdForSave.find(radiusPt);
+            ciJson["radiusPointID"] = (itRadius != pointIdForSave.end()) ? itRadius->second : radiusObj->getID();
+          } else {
+            ciJson["radiusPointID"] = radiusObj->getID();
+          }
         } else {
           ciJson["radiusValue"] = ci->getRadius();
         }
@@ -502,62 +581,68 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
     }
     project["objects"]["circles"] = circlesArray;
 
-    // Save Rectangles
+    // Save Rectangles in dedicated array (never serialize as generic shapes).
     json rectanglesArray = json::array();
     for (const auto& rect : editor.rectangles) {
-      if (rect && rect->isValid()) {
-        json rectJson;
-        rectJson["id"] = rect->getID();
+      if (!rect || !rect->isValid()) continue;
 
-        // Save corner Point IDs instead of just coordinates
-        if (auto c1 = rect->getCorner1Point()) {
-          rectJson["corner1ID"] = c1->getID();
-        }
-        if (auto c2 = rect->getCorner2Point()) {
-          rectJson["corner2ID"] = c2->getID();
-        }
-        if (auto cb = rect->getCornerBPoint()) {
-          rectJson["cornerBID"] = cb->getID();
-        }
-        if (auto cd = rect->getCornerDPoint()) {
-          rectJson["cornerDID"] = cd->getID();
-        }
+      json rectJson;
+      rectJson["id"] = rect->getID();
+      rectJson["color"] = colorToHex(rect->getColor());
+      rectJson["thickness"] = rect->getThickness();
+      rectJson["isDependent"] = rect->isDependent();
+      rectJson["isRotatable"] = rect->isRotatable();
+      rectJson["label"] = rect->getLabel();
+      rectJson["showLabel"] = rect->getShowLabel();
 
-        // Keep vertices for legacy compatibility
-        auto vertices = rect->getInteractableVertices();
-        json verticesJson = json::array();
-        for (const auto& v : vertices) {
-          verticesJson.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
-        }
-        rectJson["vertices"] = verticesJson;
-
-        // Save vertexIds in 5-arg constructor member order:
-        // [corner1, corner2, cornerB, cornerD]
-        // For Rotatable: [A, B(adjacent), C(diagonal), D]
-        // For AA:        [A, C(diagonal), B(adjacent), D]
-        json rectVertexIds = json::array();
-        rectVertexIds.push_back(rect->getCorner1Point() ? (int)rect->getCorner1Point()->getID() : -1);
-        rectVertexIds.push_back(rect->getCorner2Point() ? (int)rect->getCorner2Point()->getID() : -1);
-        rectVertexIds.push_back(rect->getCornerBPoint() ? (int)rect->getCornerBPoint()->getID() : -1);
-        rectVertexIds.push_back(rect->getCornerDPoint() ? (int)rect->getCornerDPoint()->getID() : -1);
-        rectJson["vertexIds"] = rectVertexIds;
-        rectJson["color"] = colorToHex(rect->getColor());
-        rectJson["thickness"] = rect->getThickness();
-        rectJson["lineStyle"] = static_cast<int>(rect->getLineStyle());
-        rectJson["isRotatable"] = rect->isRotatable();
-        rectJson["height"] = rect->getHeight();
-        rectJson["width"] = rect->getWidth();
-        // FIX: Save Label Data
-        rectJson["label"] = rect->getLabel();
-        rectJson["showLabel"] = rect->getShowLabel();
-        sf::Vector2f lo = rect->getLabelOffset();
-        rectJson["labelOffsetX"] = lo.x;
-        rectJson["labelOffsetY"] = lo.y;
-
-        addTransformMetadata(rectJson, rect);
-
-        rectanglesArray.push_back(rectJson);
+      if (auto c1 = rect->getCorner1Point()) {
+        auto it = pointIdForSave.find(c1.get());
+        rectJson["corner1ID"] = (it != pointIdForSave.end()) ? it->second : c1->getID();
       }
+      if (auto c2 = rect->getCorner2Point()) {
+        auto it = pointIdForSave.find(c2.get());
+        rectJson["corner2ID"] = (it != pointIdForSave.end()) ? it->second : c2->getID();
+      }
+      if (auto cB = rect->getCornerBPoint()) {
+        auto it = pointIdForSave.find(cB.get());
+        rectJson["cornerBID"] = (it != pointIdForSave.end()) ? it->second : cB->getID();
+      }
+      if (auto cD = rect->getCornerDPoint()) {
+        auto it = pointIdForSave.find(cD.get());
+        rectJson["cornerDID"] = (it != pointIdForSave.end()) ? it->second : cD->getID();
+      }
+
+      // Keep existing style/label offset fields for compatibility.
+      rectJson["lineStyle"] = static_cast<int>(rect->getLineStyle());
+      sf::Vector2f lo = rect->getLabelOffset();
+      rectJson["labelOffsetX"] = lo.x;
+      rectJson["labelOffsetY"] = lo.y;
+
+      if (rect->isDependent()) {
+        rectJson["transformType"] = static_cast<int>(rect->getTransformType());
+
+        // Preserve transform magnitude/angle and translation vector for proper reload.
+        rectJson["transformValue"] = rect->getTransformValue();
+        if (rect->getTransformType() == TransformationType::Translate) {
+          Vector_2 v = rect->getTranslationVector();
+          rectJson["translationVectorX"] = CGAL::to_double(v.x());
+          rectJson["translationVectorY"] = CGAL::to_double(v.y());
+        }
+
+        if (auto parent = rect->getParentSource()) {
+          rectJson["parentID"] = getObjectIdForSave(parent);
+        } else if (rect->getParentSourceID() != 0u) {
+          rectJson["parentID"] = rect->getParentSourceID();
+        }
+
+        if (auto aux = rect->getAuxObject()) {
+          rectJson["auxObjectID"] = getObjectIdForSave(aux);
+        } else if (rect->getAuxObjectID() != 0u) {
+          rectJson["auxObjectID"] = rect->getAuxObjectID();
+        }
+      }
+
+      rectanglesArray.push_back(rectJson);
     }
     project["objects"]["rectangles"] = rectanglesArray;
 
@@ -580,7 +665,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         for (size_t i = 0; i < poly->getVertexCount(); ++i) {
           auto vPtr = poly->getVertexPoint(i);
           if (vPtr) {
-            vertexIdsJson.push_back(static_cast<int>(vPtr->getID()));
+            auto it = pointIdForSave.find(vPtr.get());
+            vertexIdsJson.push_back(it != pointIdForSave.end() ? static_cast<int>(it->second) : static_cast<int>(vPtr->getID()));
           } else {
             vertexIdsJson.push_back(-1);
           }
@@ -614,7 +700,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         for (size_t i = 0; i < 3; ++i) {
           auto vPtr = tri->getVertexPoint(i);
           if (vPtr) {
-            vertexIdsJson.push_back(static_cast<int>(vPtr->getID()));
+            auto it = pointIdForSave.find(vPtr.get());
+            vertexIdsJson.push_back(it != pointIdForSave.end() ? static_cast<int>(it->second) : static_cast<int>(vPtr->getID()));
           } else {
             vertexIdsJson.push_back(-1);
           }
@@ -651,12 +738,27 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 
         addTransformMetadata(rpolyJson, rpoly);
 
-        // Save center and first vertex Point IDs
-        if (auto centerPt = rpoly->getCenterPoint()) {
-          rpolyJson["centerPointID"] = centerPt->getID();
-        }
-        if (auto firstVertPt = rpoly->getFirstVertexPoint()) {
-          rpolyJson["firstVertexPointID"] = firstVertPt->getID();
+        // Save creation mode + creation points
+        if (rpoly->getCreationMode() == RegularPolygon::CreationMode::Edge) {
+          rpolyJson["creationMode"] = "Edge";
+          if (auto edgeStartPt = rpoly->getEdgeStartPoint()) {
+            auto it = pointIdForSave.find(edgeStartPt.get());
+            rpolyJson["edgeStartID"] = (it != pointIdForSave.end()) ? it->second : edgeStartPt->getID();
+          }
+          if (auto edgeEndPt = rpoly->getEdgeEndPoint()) {
+            auto it = pointIdForSave.find(edgeEndPt.get());
+            rpolyJson["edgeEndID"] = (it != pointIdForSave.end()) ? it->second : edgeEndPt->getID();
+          }
+        } else {
+          rpolyJson["creationMode"] = "CenterAndVertex";
+          if (auto centerPt = rpoly->getCenterPoint()) {
+            auto it = pointIdForSave.find(centerPt.get());
+            rpolyJson["centerPointID"] = (it != pointIdForSave.end()) ? it->second : centerPt->getID();
+          }
+          if (auto firstVertPt = rpoly->getFirstVertexPoint()) {
+            auto it = pointIdForSave.find(firstVertPt.get());
+            rpolyJson["firstVertexPointID"] = (it != pointIdForSave.end()) ? it->second : firstVertPt->getID();
+          }
         }
 
         // Keep vertices for legacy compatibility
@@ -675,38 +777,16 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
     }
     project["objects"]["regularPolygons"] = regularPolygonsArray;
 
-    // Save Shapes (combined for convenience - logic kept same, just adding metadata)
-    json shapesArray = json::array();
-    for (const auto& rect : editor.rectangles) {
-      if (rect && rect->isValid()) {
-        json shapeJson;
-        shapeJson["shapeType"] = "rectangle";
-        shapeJson["id"] = rect->getID();
-        // ... (Original shapesArray logic didn't seem to process metadata,
-        // but since these are redundant/duplicates of specific arrays, we update mainly the specific arrays above)
-        // We'll keep this block as is or minimal update since specific arrays are primary.
-        // Actually, let's leave shapesArray as legacy or secondary view unchanged to avoid bloat,
-        // the deserializer uses the specific arrays 'rectangles', 'circles' etc primarily.
-        auto vertices = rect->getInteractableVertices();
-        json verticesJson = json::array();
-        for (const auto& v : vertices) {
-          verticesJson.push_back({CGAL::to_double(v.x()), CGAL::to_double(v.y())});
-        }
-        shapeJson["vertices"] = verticesJson;
-        shapeJson["color"] = colorToHex(rect->getColor());
-        shapesArray.push_back(shapeJson);
-      }
-    }
-    // ... (Repeating for other shapes in shapesArray - skipping explicit metadata here as it's for export view likely)
-
-    project["objects"]["shapes"] = shapesArray;
+    // Keep legacy container for backward compatibility, but do not place rectangles in it.
+    project["objects"]["shapes"] = json::array();
 
     // Save ObjectPoints
     json objectPointsArray = json::array();
     for (const auto& op : editor.ObjectPoints) {
       if (op && op->isValid()) {
         json opJson;
-        opJson["id"] = op->getID();
+        auto opIdIt = pointIdForSave.find(op.get());
+        opJson["id"] = (opIdIt != pointIdForSave.end()) ? opIdIt->second : op->getID();
         opJson["hostType"] = static_cast<int>(op->getHostType());
         if (op->isShapeEdgeAttachment()) {
           opJson["edgeIndex"] = op->getEdgeIndex();
@@ -718,7 +798,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
           opJson["t"] = op->getRelativePositionOnLine();
         }
         if (auto host = op->getHostObject()) {
-          opJson["hostId"] = host->getID();
+          opJson["hostId"] = getObjectRawIdForSave(host);
         }
         opJson["color"] = colorToHex(op->getColor());
         opJson["visible"] = op->isVisible();
@@ -740,7 +820,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         json tJson;
         tJson["id"] = tangent->getID();
         if (auto ext = tangent->getExternalPoint()) {
-          tJson["externalPointID"] = ext->getID();
+          auto it = pointIdForSave.find(ext.get());
+          tJson["externalPointID"] = (it != pointIdForSave.end()) ? it->second : ext->getID();
           Point_2 p = ext->getCGALPosition();
           tJson["externalPointX"] = CGAL::to_double(p.x());
           tJson["externalPointY"] = CGAL::to_double(p.y());
@@ -772,9 +853,9 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
 
       json aJson;
       aJson["id"] = angle->getID();
-      aJson["pointAID"] = pA->getID();
-      aJson["vertexID"] = v->getID();
-      aJson["pointBID"] = pB->getID();
+      aJson["pointAID"] = pointIdForSave.count(pA.get()) ? pointIdForSave[pA.get()] : pA->getID();
+      aJson["vertexID"] = pointIdForSave.count(v.get()) ? pointIdForSave[v.get()] : v->getID();
+      aJson["pointBID"] = pointIdForSave.count(pB.get()) ? pointIdForSave[pB.get()] : pB->getID();
       aJson["reflex"] = angle->isReflex();
       aJson["radius"] = angle->getRadius();
       aJson["color"] = colorToHex(angle->getColor());
@@ -799,7 +880,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
       for (const auto& wp : constraint.resultingPoints) {
         if (auto sp = wp.lock()) {
           json pJson;
-          pJson["id"] = sp->getID();
+          pJson["id"] = pointIdForSave.count(sp.get()) ? pointIdForSave[sp.get()] : sp->getID();
           pJson["label"] = sp->getLabel();
           pJson["showLabel"] = sp->getShowLabel();
           sf::Vector2f offset = sp->getLabelOffset();
@@ -909,6 +990,8 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     // PHASE 2: POLYMORPHIC POINTS (Pass 1 & Pass 2)
     std::map<unsigned int, std::shared_ptr<GeometricObject>> created;
     std::map<unsigned int, std::shared_ptr<Point>> pointMap;
+    std::map<unsigned int, std::vector<std::shared_ptr<Point>>> pointAliases;
+    std::unordered_set<unsigned int> wiredTransformPointIds;
     std::unordered_set<unsigned int> usedPointIds;
     std::vector<std::pair<const json*, std::shared_ptr<Point>>> loadedPointRecords;
     std::vector<std::shared_ptr<ObjectPoint>> pendingCircleHostIdZero;
@@ -972,6 +1055,12 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
         pt->setLabel(jPt.value("label", ""));
         pt->setShowLabel(jPt.value("showLabel", false));
+        if (jPt.contains("labelOffsetX") && jPt.contains("labelOffsetY")) {
+          pt->setLabelOffset(sf::Vector2f(jPt.value("labelOffsetX", 0.0f), jPt.value("labelOffsetY", 0.0f)));
+        } else if (jPt.contains("labelOffset") && jPt["labelOffset"].is_array() && jPt["labelOffset"].size() >= 2) {
+          pt->setLabelOffset(
+              sf::Vector2f(jPt["labelOffset"][0].get<float>(), jPt["labelOffset"][1].get<float>()));
+        }
         if (jPt.contains("visible")) pt->setVisible(jPt.value("visible", true));
         if (jPt.contains("locked")) pt->setLocked(jPt.value("locked", false));
 
@@ -981,9 +1070,11 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
         pointMap[effectiveId] = pt;
         created[effectiveId] = pt;
+        if (effectiveId > 0u) pointAliases[effectiveId].push_back(pt);
         if (requestedId > 0u) {
           if (!pointMap.count(requestedId)) pointMap[requestedId] = pt;
           if (!created.count(requestedId)) created[requestedId] = pt;
+          pointAliases[requestedId].push_back(pt);
         }
         editor.points.push_back(pt);
         if (std::dynamic_pointer_cast<ObjectPoint>(pt)) {
@@ -1023,14 +1114,22 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         auto op = std::make_shared<ObjectPoint>(Point_2(x, y), Constants::CURRENT_ZOOM, color, effectiveId);
         op->setLabel(jOp.value("label", ""));
         op->setShowLabel(jOp.value("showLabel", false));
+        if (jOp.contains("labelOffsetX") && jOp.contains("labelOffsetY")) {
+          op->setLabelOffset(sf::Vector2f(jOp.value("labelOffsetX", 0.0f), jOp.value("labelOffsetY", 0.0f)));
+        } else if (jOp.contains("labelOffset") && jOp["labelOffset"].is_array() && jOp["labelOffset"].size() >= 2) {
+          op->setLabelOffset(
+              sf::Vector2f(jOp["labelOffset"][0].get<float>(), jOp["labelOffset"][1].get<float>()));
+        }
         if (jOp.contains("visible")) op->setVisible(jOp.value("visible", true));
         if (jOp.contains("locked")) op->setLocked(jOp.value("locked", false));
 
         pointMap[effectiveId] = op;
         created[effectiveId] = op;
+        if (effectiveId > 0u) pointAliases[effectiveId].push_back(op);
         if (requestedId > 0u) {
           if (!pointMap.count(requestedId)) pointMap[requestedId] = op;
           if (!created.count(requestedId)) created[requestedId] = op;
+          pointAliases[requestedId].push_back(op);
         }
 
         editor.points.push_back(op);
@@ -1048,6 +1147,59 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
     // PHASE 2: RECURSIVE CONSTRUCTION (Non-point objects)
     std::vector<unsigned int> stack;
+
+    auto choosePointAlias = [&](unsigned int requestedId, const json& owner, bool isStart,
+                                const std::shared_ptr<Point>& partner) -> std::shared_ptr<Point> {
+      auto it = pointAliases.find(requestedId);
+      if (it == pointAliases.end() || it->second.empty()) {
+        auto fallbackIt = pointMap.find(requestedId);
+        return (fallbackIt != pointMap.end()) ? fallbackIt->second : nullptr;
+      }
+
+      const auto& candidates = it->second;
+      if (candidates.size() == 1) return candidates.front();
+
+      const char* xKey = isStart ? "startX" : "endX";
+      const char* yKey = isStart ? "startY" : "endY";
+      if (owner.contains(xKey) && owner.contains(yKey)) {
+        Point_2 target(owner.value(xKey, 0.0), owner.value(yKey, 0.0));
+        double bestDist = std::numeric_limits<double>::max();
+        std::shared_ptr<Point> best = candidates.front();
+        for (const auto& c : candidates) {
+          if (!c) continue;
+          double d = CGAL::to_double(CGAL::squared_distance(c->getCGALPosition(), target));
+          if (d < bestDist) {
+            bestDist = d;
+            best = c;
+          }
+        }
+        return best;
+      }
+
+      if (partner) {
+        Point_2 partnerPos = partner->getCGALPosition();
+        double px = CGAL::to_double(partnerPos.x());
+        double py = CGAL::to_double(partnerPos.y());
+        bool partnerLooksOffscreen = (std::abs(px) > 500.0) || (std::abs(py) > 500.0);
+
+        double bestScore = std::numeric_limits<double>::max();
+        std::shared_ptr<Point> best = candidates.front();
+        for (const auto& c : candidates) {
+          if (!c) continue;
+          Point_2 cp = c->getCGALPosition();
+          double cx = CGAL::to_double(cp.x());
+          double cy = CGAL::to_double(cp.y());
+          double score = partnerLooksOffscreen ? std::abs(cy - py) : CGAL::to_double(CGAL::squared_distance(cp, partnerPos));
+          if (score < bestScore) {
+            bestScore = score;
+            best = c;
+          }
+        }
+        return best;
+      }
+
+      return candidates.front();
+    };
 
     std::function<std::shared_ptr<GeometricObject>(unsigned int)> getOrCreate = 
       [&](unsigned int id) -> std::shared_ptr<GeometricObject> {
@@ -1116,9 +1268,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 }
               }
             }
-      } else if (jObj.contains("startPointID") && jObj.value("isSegment", false)) { // Line segment
-            auto start = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("startPointID", 0u)));
-            auto end = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("endPointID", 0u)));
+      } else if ((jObj.contains("startPointID") || jObj.contains("startX")) && jObj.value("isSegment", false)) { // Line segment
+        unsigned int startId = jObj.value("startPointID", 0u);
+        unsigned int endId = jObj.value("endPointID", 0u);
+        auto start = std::dynamic_pointer_cast<Point>(getOrCreate(startId));
+        auto end = std::dynamic_pointer_cast<Point>(getOrCreate(endId));
+        if (startId > 0u) start = choosePointAlias(startId, jObj, true, end);
+        if (endId > 0u) end = choosePointAlias(endId, jObj, false, start);
             if (!start && jObj.contains("startX") && jObj.contains("startY")) {
               unsigned int pid = ++maxId;
               auto p = std::make_shared<Point>(Point_2(jObj.value("startX", 0.0), jObj.value("startY", 0.0)), Constants::CURRENT_ZOOM,
@@ -1154,9 +1310,13 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 ln->setShowLabel(jObj.value("showLabel", false));
                 obj = ln;
             }
-        } else if (jObj.contains("startPointID")) { // Infinite Line
-             auto start = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("startPointID", 0u)));
-             auto end = std::dynamic_pointer_cast<Point>(getOrCreate(jObj.value("endPointID", 0u)));
+           } else if (jObj.contains("startPointID") || jObj.contains("startX") || jObj.contains("endPointID")) { // Infinite Line
+             unsigned int startId = jObj.value("startPointID", 0u);
+             unsigned int endId = jObj.value("endPointID", 0u);
+             auto start = std::dynamic_pointer_cast<Point>(getOrCreate(startId));
+             auto end = std::dynamic_pointer_cast<Point>(getOrCreate(endId));
+             if (startId > 0u) start = choosePointAlias(startId, jObj, true, end);
+             if (endId > 0u) end = choosePointAlias(endId, jObj, false, start);
              if (!start && jObj.contains("startX") && jObj.contains("startY")) {
                unsigned int pid = ++maxId;
                auto p = std::make_shared<Point>(Point_2(jObj.value("startX", 0.0), jObj.value("startY", 0.0)), Constants::CURRENT_ZOOM,
@@ -1228,6 +1388,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
       auto wirePoint = [&](const json& jPt, const std::shared_ptr<Point>& pt) {
         if (!pt) return;
 
+        unsigned int ptId = pt->getID();
+        bool transformWired = false;
+
         if (jPt.contains("hostId")) {
           unsigned int hostId = jPt.value("hostId", 0u);
           auto op = std::dynamic_pointer_cast<ObjectPoint>(pt);
@@ -1255,6 +1418,8 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
         const json& t = jPt["transform"];
         std::string type = t.value("type", "");
+        double tVal = t.value("transformValue", t.value("angleDeg", t.value("factor", 0.0)));
+        pt->setTransformValue(tVal);
 
         unsigned int parentId = t.value("parentSourceID", jPt.value("parentSourceID", 0u));
         auto parent = (pointMap.count(parentId) ? pointMap[parentId] : nullptr);
@@ -1273,6 +1438,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             tv->setVectorStart(vecStart);
             parent->addDependent(tv);
             tv->update();
+            transformWired = true;
           }
         } else if (type == "RotatePoint") {
           unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
@@ -1282,6 +1448,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             rp->restoreTransformation(parent, center, TransformationType::Rotate);
             parent->addDependent(rp);
             rp->update();
+            transformWired = true;
           }
         } else if (type == "ReflectLine") {
           unsigned int lineId = t.value("lineId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
@@ -1291,6 +1458,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             rl->restoreTransformation(parent, line, TransformationType::Reflect);
             parent->addDependent(rl);
             rl->update();
+            transformWired = true;
           }
         } else if (type == "ReflectPoint") {
           unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
@@ -1300,6 +1468,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             rp->restoreTransformation(parent, center, TransformationType::ReflectPoint);
             parent->addDependent(rp);
             rp->update();
+            transformWired = true;
           }
         } else if (type == "ReflectCircle") {
           unsigned int circleId = t.value("circleId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
@@ -1309,6 +1478,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             rc->restoreTransformation(parent, circle, TransformationType::ReflectCircle);
             parent->addDependent(rc);
             rc->update();
+            transformWired = true;
           }
         } else if (type == "DilatePoint") {
           unsigned int centerId = t.value("centerId", t.value("auxObjectID", jPt.value("auxObjectID", 0u)));
@@ -1318,7 +1488,12 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             dp->restoreTransformation(parent, center, TransformationType::Dilate);
             parent->addDependent(dp);
             dp->update();
+            transformWired = true;
           }
+        }
+
+        if (transformWired && ptId != 0u) {
+          wiredTransformPointIds.insert(ptId);
         }
       };
 
@@ -1385,7 +1560,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             }
 
             auto pt = (pointMap.count(id) ? pointMap[id] : nullptr);
-            if (pt) {
+            if (pt && wiredTransformPointIds.find(id) != wiredTransformPointIds.end()) {
               pt->update();
               updated.insert(id);
               progressed = true;
@@ -1398,7 +1573,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
           if (!jPt.contains("transform") || !jPt["transform"].is_object()) continue;
           unsigned int id = jPt.value("id", 0u);
           auto pt = (pointMap.count(id) ? pointMap[id] : nullptr);
-          if (pt) pt->update();
+          if (pt && wiredTransformPointIds.find(id) != wiredTransformPointIds.end()) pt->update();
         }
       }
 
@@ -1499,7 +1674,18 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         if (zeroIdCircleFallback) {
           for (const auto& op : pendingCircleHostIdZero) {
             if (!op) continue;
-            op->relinkHost(zeroIdCircleFallback, op->getAngleOnCircle(), ObjectType::Circle);
+            double savedT = 0.0;
+            bool foundSavedT = false;
+            for (const auto& rec : loadedPointRecords) {
+              if (!rec.first || !rec.second) continue;
+              if (rec.second.get() == op.get()) {
+                savedT = rec.first->value("t", 0.0);
+                foundSavedT = rec.first->contains("t");
+                break;
+              }
+            }
+            double relinkT = foundSavedT ? savedT : op->getAngleOnCircle();
+            op->relinkHost(zeroIdCircleFallback, relinkT, ObjectType::Circle);
             zeroIdCircleFallback->addChildPoint(op);
           }
         }
@@ -1507,11 +1693,41 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
     // Tangent Lines
     if (data.contains("tangentLines")) {
+      auto findPointNear = [&](const Point_2& target, double tolSq) -> std::shared_ptr<Point> {
+        std::shared_ptr<Point> best;
+        double bestDist = tolSq;
+        for (const auto& pt : editor.points) {
+          if (!pt || !pt->isValid()) continue;
+          double d = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), target));
+          if (d <= bestDist) {
+            bestDist = d;
+            best = pt;
+          }
+        }
+        return best;
+      };
+
       for (const auto& item : data["tangentLines"]) {
         unsigned int extId = item.value("externalPointID", 0u);
         auto ext = std::dynamic_pointer_cast<Point>(getOrCreate(extId));
         if (!ext && extId == 0u && !zeroIdCircleHostedPointCandidates.empty()) {
           ext = zeroIdCircleHostedPointCandidates.front();
+        }
+        if (item.contains("externalPointX") && item.contains("externalPointY")) {
+          Point_2 extTarget(item.value("externalPointX", 0.0), item.value("externalPointY", 0.0));
+          if (!ext || CGAL::to_double(CGAL::squared_distance(ext->getCGALPosition(), extTarget)) > 1e-8) {
+            auto matched = findPointNear(extTarget, 1e-8);
+            if (matched) {
+              ext = matched;
+            } else {
+              unsigned int pid = ++maxId;
+              ext = std::make_shared<Point>(extTarget, Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, pid);
+              pointMap[pid] = ext;
+              created[pid] = ext;
+              pointAliases[pid].push_back(ext);
+              editor.points.push_back(ext);
+            }
+          }
         }
         if (!ext && item.contains("externalPointX") && item.contains("externalPointY")) {
           unsigned int pid = ++maxId;
@@ -1519,6 +1735,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                                         Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, pid);
           pointMap[pid] = ext;
           created[pid] = ext;
+          pointAliases[pid].push_back(ext);
           editor.points.push_back(ext);
         }
         unsigned int tangentCircleId = item.value("circleID", 0u);
@@ -1531,6 +1748,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                                                   Constants::CURRENT_ZOOM, Constants::POINT_DEFAULT_COLOR, centerPid);
           pointMap[centerPid] = centerPt;
           created[centerPid] = centerPt;
+          pointAliases[centerPid].push_back(centerPt);
           editor.points.push_back(centerPt);
 
           cir = std::make_shared<Circle>(centerPt.get(), nullptr, item.value("circleRadius", 1.0), sf::Color::Black);
@@ -1557,6 +1775,10 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
           tan->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
         }
         editor.lines.push_back(tan);
+        if (tan->getID() != 0u) {
+          created[tan->getID()] = tan;
+          bumpMaxId(tan->getID());
+        }
       }
     }
 
@@ -1571,141 +1793,223 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
       return parentId != 0u;
     };
 
-    auto processPolyShape = [&](const json& jShape, bool isRect) {
+    // Dedicated rectangle load path. This preserves the parametric topology:
+    // - explicit corner point references
+    // - rotatable vs axis-aligned constructor branching
+    // - transformation metadata links to parent/aux objects
+    if (data.contains("rectangles") && data["rectangles"].is_array()) {
+      for (const auto& jRect : data["rectangles"]) {
+        unsigned int id = jRect.value("id", 0u);
+        if (id == 0u) {
+          id = ++maxId;
+        } else {
+          bumpMaxId(id);
+        }
+
+        sf::Color color = hexToColor(jRect.value("color", "#000000"));
+        bool isRotatable = jRect.value("isRotatable", false);
+
+        auto c1 = std::dynamic_pointer_cast<Point>(getOrCreate(jRect.value("corner1ID", 0u)));
+        auto c2 = std::dynamic_pointer_cast<Point>(getOrCreate(jRect.value("corner2ID", 0u)));
+        auto cB = std::dynamic_pointer_cast<Point>(getOrCreate(jRect.value("cornerBID", 0u)));
+        auto cD = std::dynamic_pointer_cast<Point>(getOrCreate(jRect.value("cornerDID", 0u)));
+        if (!c1 || !c2) continue;
+
+        std::shared_ptr<Rectangle> rect;
+        if (isRotatable) {
+          if (!cB || !cD) continue;
+          rect = std::make_shared<Rectangle>(c1, c2, cB, cD, true, color, id);
+        } else {
+          rect = std::make_shared<Rectangle>(c1, c2, false, color, id);
+          // FIX S1: Replace fresh internal B/D with the saved Smart Points
+          // so the rectangle shares the exact same point objects as editor.points.
+          if (cB && cD) rect->setDependentCornerPoints(cB, cD);
+        }
+        if (!rect) continue;
+
+        rect->setThickness(jRect.value("thickness", 2.0f));
+        if (jRect.contains("lineStyle")) {
+          rect->setLineStyle(static_cast<LineStyle>(jRect.value("lineStyle", 0)));
+        }
+        rect->setLabel(jRect.value("label", ""));
+        rect->setShowLabel(jRect.value("showLabel", false));
+        if (jRect.contains("labelOffsetX") && jRect.contains("labelOffsetY")) {
+          rect->setLabelOffset(sf::Vector2f(jRect["labelOffsetX"].get<float>(), jRect["labelOffsetY"].get<float>()));
+        }
+
+        bool isDependent = jRect.value("isDependent", false);
+        unsigned int parentID = jRect.value("parentID", jRect.value("parentSourceID", 0u));
+        unsigned int auxObjectID = jRect.value("auxObjectID", 0u);
+        TransformationType transformType =
+            static_cast<TransformationType>(jRect.value("transformType", static_cast<int>(TransformationType::None)));
+
+        // Restore transform magnitude/angle and translation vector before wiring dependencies.
+        rect->setTransformValue(jRect.value("transformValue", 0.0));
+        if (jRect.contains("translationVectorX") && jRect.contains("translationVectorY")) {
+          rect->setTranslationVector(
+              Vector_2(jRect["translationVectorX"].get<double>(), jRect["translationVectorY"].get<double>()));
+        }
+
+        if (isDependent || parentID != 0u) {
+          rect->setDependent(true);
+          rect->setUseExplicitVertices(true);
+        }
+        if (parentID != 0u) {
+          rect->setParentSourceID(parentID);
+        }
+        if (auxObjectID != 0u) {
+          rect->setAuxObjectID(auxObjectID);
+        }
+        rect->setTransformType(transformType);
+
+        if (parentID != 0u) {
+          auto parent = getOrCreate(parentID);
+          auto aux = (auxObjectID != 0u) ? getOrCreate(auxObjectID) : nullptr;
+          if (parent) {
+            rect->restoreTransformation(parent, aux, transformType);
+          }
+        }
+
+        c1->addDependent(rect);
+        c2->addDependent(rect);
+        if (cB) cB->addDependent(rect);
+        if (cD) cD->addDependent(rect);
+
+        // FIX S2: Ensure all 4 corner points are in editor.points so
+        // the UI selection raycast can see them (fixes unselectable B/D).
+        auto ensureInEditorPoints = [&](const std::shared_ptr<Point>& p) {
+          if (p && std::find(editor.points.begin(), editor.points.end(), p) == editor.points.end()) {
+            editor.points.push_back(p);
+            if (!pointMap.count(p->getID())) pointMap[p->getID()] = p;
+            if (!created.count(p->getID())) created[p->getID()] = p;
+          }
+        };
+        ensureInEditorPoints(rect->getCorner1Point());
+        ensureInEditorPoints(rect->getCorner2Point());
+        ensureInEditorPoints(rect->getCornerBPoint());
+        ensureInEditorPoints(rect->getCornerDPoint());
+
+        editor.rectangles.push_back(rect);
+        created[id] = rect;
+      }
+    }
+
+    auto processPolygon = [&](const json& jShape) {
       unsigned int id = jShape.value("id", 0u);
       if (id == 0) {
         id = ++maxId;
       } else {
         bumpMaxId(id);
       }
-      
-      // 1. Collect Points
+
       if (!jShape.contains("vertexIds") || !jShape["vertexIds"].is_array()) return;
-        
+
+      auto findPointNear = [&](const Point_2& target, double tolSq) -> std::shared_ptr<Point> {
+        std::shared_ptr<Point> best;
+        double bestDist = tolSq;
+        for (const auto& pt : editor.points) {
+          if (!pt || !pt->isValid()) continue;
+          double d = CGAL::to_double(CGAL::squared_distance(pt->getCGALPosition(), target));
+          if (d <= bestDist) {
+            bestDist = d;
+            best = pt;
+          }
+        }
+        return best;
+      };
+
+      auto parseVertexPos = [&](const json& vJson, Point_2& outPos) -> bool {
+        if (vJson.is_array() && vJson.size() >= 2) {
+          outPos = Point_2(vJson[0].get<double>(), vJson[1].get<double>());
+          return true;
+        }
+        if (vJson.is_object() && vJson.contains("x") && vJson.contains("y")) {
+          outPos = Point_2(vJson.value("x", 0.0), vJson.value("y", 0.0));
+          return true;
+        }
+        return false;
+      };
+
+      const json* verticesJson = nullptr;
+      if (jShape.contains("vertices") && jShape["vertices"].is_array()) {
+        verticesJson = &jShape["vertices"];
+      }
+
       std::vector<std::shared_ptr<Point>> vPts;
-      for (const auto& vidVal : jShape["vertexIds"]) {
-        unsigned int vid = vidVal.get<unsigned int>();
-        if (vid == 0) continue; 
+      for (size_t vidx = 0; vidx < jShape["vertexIds"].size(); ++vidx) {
+        unsigned int vid = jShape["vertexIds"][vidx].get<unsigned int>();
+        if (vid == 0u) {
+          if (verticesJson && vidx < verticesJson->size()) {
+            Point_2 target;
+            if (parseVertexPos((*verticesJson)[vidx], target)) {
+              auto recovered = findPointNear(target, 1e-8);
+              if (recovered) {
+                bool already = false;
+                for (const auto& p : vPts) {
+                  if (p == recovered) {
+                    already = true;
+                    break;
+                  }
+                }
+                if (!already) vPts.push_back(recovered);
+              }
+            }
+          }
+          continue;
+        }
+
         auto it = pointMap.find(vid);
         if (it != pointMap.end() && it->second) {
-            vPts.push_back(it->second);
+          vPts.push_back(it->second);
         }
       }
 
-      // FIX 1: Allow 2 points for Rectangles (Implicit Diagonal case)
-      if (isRect) {
-          if (vPts.size() != 4 && vPts.size() != 2) return;
-      } else {
-          if (vPts.size() < 3) return;
-      }
+      if (vPts.size() < 3) return;
 
       sf::Color color = hexToColor(jShape.value("color", "#000000"));
-
-      if (isRect) {
-        bool isRot = jShape.value("isRotatable", false);
-
-        // FIX 2: Detect Hidden Rotation
-        // If the shape is dependent and has a Rotate/Reflect transform, we MUST treat it as Rotatable
-        // even if the file says "false" (because AA Rects become Rotatable when rotated).
-        if (!vPts.empty() && vPts[0]->isDependent()) {
-            TransformationType tType = vPts[0]->getTransformType();
-            if (tType == TransformationType::Rotate || tType == TransformationType::Reflect || 
-                tType == TransformationType::ReflectPoint || tType == TransformationType::ReflectCircle) {
-                isRot = true;
-            }
-        }
-
-        std::shared_ptr<Rectangle> rect;
-
-        // CASE A: 4 Points (Explicit)
-        if (vPts.size() == 4) {
-             // 1. Sort points CCW (A -> B -> C -> D)
-             // This ensures we have the perimeter order correct before passing to constructor.
-             std::vector<std::shared_ptr<Point>> ordered = vPts;
-             double cx = 0.0; double cy = 0.0;
-             for (const auto& p : ordered) {
-               Point_2 pos = p->getCGALPosition();
-               cx += CGAL::to_double(pos.x());
-               cy += CGAL::to_double(pos.y());
-             }
-             cx *= 0.25; cy *= 0.25;
-
-             std::vector<std::pair<double, std::shared_ptr<Point>>> sorted;
-             sorted.reserve(4);
-             for (const auto& p : ordered) {
-               Point_2 pos = p->getCGALPosition();
-               double dx = CGAL::to_double(pos.x()) - cx;
-               double dy = CGAL::to_double(pos.y()) - cy;
-               sorted.push_back({std::atan2(dy, dx), p});
-             }
-             std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-
-             ordered.clear();
-             for (const auto& pair : sorted) ordered.push_back(pair.second);
-             
-             // 2. CONSTRUCTOR SELECTION (CRITICAL FIX)
-             if (isRot) {
-                 // Rotatable Constructor: Expects Perimeter Order (Corner1, Side1, Side2, Side3)
-                 // We pass: A, B, C, D (Indices 0, 1, 2, 3)
-                 rect = std::make_shared<Rectangle>(
-                     ordered[0], ordered[1], ordered[2], ordered[3], 
-                     true, color, id
-                 );
-             } else {
-                 // Standard Constructor: Expects Diagonal Pair First (Corner1, OppositeCorner, ...)
-                 // We pass: A, C, B, D (Indices 0, 2, 1, 3)
-                 rect = std::make_shared<Rectangle>(
-                     ordered[0], ordered[2], ordered[1], ordered[3], 
-                     false, color, id
-                 );
-             }
-        }
-        // CASE B: 2 Points (Implicit Diagonal - Dilation/Translation of AA Rects)
-        else if (vPts.size() == 2) {
-             // 2-point constructor handles the rest.
-             rect = std::make_shared<Rectangle>(vPts[0], vPts[1], isRot, color, id);
-        }
-
-        if (rect) {
-            bool jsonDependent = jShape.value("isDependent", false);
-            if (jsonDependent || hasTransformParent(jShape)) {
-                rect->setDependent(true);
-            }
-            
-            rect->setLabel(jShape.value("label", ""));
-            rect->setShowLabel(jShape.value("showLabel", false));
-            rect->setThickness(jShape.value("thickness", 2.0f));
-            if (jShape.contains("lineStyle")) {
-              rect->setLineStyle(static_cast<LineStyle>(jShape.value("lineStyle", 0)));
-            }
-            if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
-              rect->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(),
-                                                jShape["labelOffsetY"].get<float>()));
-            }
-            editor.rectangles.push_back(rect);
-        }
-
-      } else {
-        // Polygons (Unchanged)
-        auto poly = std::make_shared<Polygon>(vPts, color, id);
-        bool jsonDependent = jShape.value("isDependent", false);
-        poly->setDependent(jsonDependent && hasTransformParent(jShape));
-        poly->setLabel(jShape.value("label", ""));
-        poly->setShowLabel(jShape.value("showLabel", false));
-        poly->setThickness(jShape.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
-        if (jShape.contains("lineStyle")) {
-          poly->setLineStyle(static_cast<LineStyle>(jShape.value("lineStyle", 0)));
-        }
-        if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
-          poly->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(),
-                                            jShape["labelOffsetY"].get<float>()));
-        }
-        editor.polygons.push_back(poly);
+      auto poly = std::make_shared<Polygon>(vPts, color, id);
+      bool jsonDependent = jShape.value("isDependent", false);
+      poly->setDependent(jsonDependent && hasTransformParent(jShape));
+      poly->setLabel(jShape.value("label", ""));
+      poly->setShowLabel(jShape.value("showLabel", false));
+      poly->setThickness(jShape.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+      if (jShape.contains("lineStyle")) {
+        poly->setLineStyle(static_cast<LineStyle>(jShape.value("lineStyle", 0)));
       }
+      if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
+        poly->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(), jShape["labelOffsetY"].get<float>()));
+      }
+      poly->update();
+      created[id] = poly;  // FIX S4: Register in master map for transform lookups
+
+      // FIX S4: Restore transformation links for dependent polygons
+      if (poly->isDependent()) {
+        unsigned int parentID = jShape.value("parentSourceID", 0u);
+        unsigned int auxID = jShape.value("auxObjectID", 0u);
+        TransformationType tType =
+            static_cast<TransformationType>(jShape.value("transformType",
+                static_cast<int>(TransformationType::None)));
+        poly->setTransformType(tType);
+        poly->setTransformValue(jShape.value("transformValue", 0.0));
+        if (jShape.contains("translationVectorX") && jShape.contains("translationVectorY")) {
+          poly->setTranslationVector(
+              Vector_2(jShape["translationVectorX"].get<double>(),
+                       jShape["translationVectorY"].get<double>()));
+        }
+        if (parentID != 0u) {
+          poly->setParentSourceID(parentID);
+          auto parent = getOrCreate(parentID);
+          auto aux = (auxID != 0u) ? getOrCreate(auxID) : nullptr;
+          if (parent) {
+            poly->restoreTransformation(parent, aux, tType);
+          }
+          if (auxID != 0u) poly->setAuxObjectID(auxID);
+        }
+      }
+      editor.polygons.push_back(poly);
     };
 
-    if (data.contains("rectangles")) for (const auto& item : data["rectangles"]) processPolyShape(item, true);
-    if (data.contains("polygons")) for (const auto& item : data["polygons"]) processPolyShape(item, false);
+    if (data.contains("polygons")) for (const auto& item : data["polygons"]) processPolygon(item);
 
     if (data.contains("triangles")) {
       for (const auto& item : data["triangles"]) {
@@ -1748,6 +2052,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
       }
     }
 
+    // [FIX] Load Regular Polygons with support for Edge Mode
     if (data.contains("regularPolygons")) {
       for (const auto& item : data["regularPolygons"]) {
         unsigned int id = item.value("id", 0u);
@@ -1756,30 +2061,73 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         } else {
           bumpMaxId(id);
         }
-        unsigned int centerId = item.value("centerPointID", 0u);
-        unsigned int v1Id = item.value("firstVertexPointID", 0u);
-        auto centerIt = pointMap.find(centerId);
-        auto v1It = pointMap.find(v1Id);
-        if (centerIt == pointMap.end() || v1It == pointMap.end()) continue;
-        auto center = centerIt->second;
-        auto v1 = v1It->second;
-        if (!center || !v1) continue;
+
+        std::string mode = item.value("creationMode", "CenterAndVertex");
         int sides = item.value("sides", 5);
         sf::Color color = hexToColor(item.value("color", "#000000"));
-        auto rp = std::make_shared<RegularPolygon>(center, v1, sides, color, id);
-        bool jsonDependent = item.value("isDependent", false);
-        rp->setDependent(jsonDependent && hasTransformParent(item));
-        rp->setThickness(item.value("thickness", 2.0));
-        if (item.contains("lineStyle")) {
-          rp->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+        std::shared_ptr<RegularPolygon> rp;
+
+        if (mode == "Edge") {
+          unsigned int e1Id = item.value("edgeStartID", 0u);
+          unsigned int e2Id = item.value("edgeEndID", 0u);
+          auto e1 = std::dynamic_pointer_cast<Point>(getOrCreate(e1Id));
+          auto e2 = std::dynamic_pointer_cast<Point>(getOrCreate(e2Id));
+          if (!e1 || !e2) continue;
+          rp = std::make_shared<RegularPolygon>(e1, e2, sides, color, id, RegularPolygon::CreationMode::Edge);
+        } else {
+          // Fallback to legacy Center/Vertex mode
+          unsigned int centerId = item.value("centerPointID", 0u);
+          unsigned int v1Id = item.value("firstVertexPointID", 0u);
+          auto center = std::dynamic_pointer_cast<Point>(getOrCreate(centerId));
+          auto v1 = std::dynamic_pointer_cast<Point>(getOrCreate(v1Id));
+          if (!center || !v1) continue;
+          rp = std::make_shared<RegularPolygon>(center, v1, sides, color, id);
         }
-        rp->setLabel(item.value("label", ""));
-        rp->setShowLabel(item.value("showLabel", false));
-        if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
-          rp->setLabelOffset(sf::Vector2f(item["labelOffsetX"].get<float>(),
-                                          item["labelOffsetY"].get<float>()));
+
+        if (rp) {
+          bool jsonDependent = item.value("isDependent", false);
+          // Ensure dependent status is synced correctly based on parent existence
+          rp->setDependent(jsonDependent || hasTransformParent(item));
+          rp->setThickness(item.value("thickness", 2.0));
+          if (item.contains("lineStyle")) {
+            rp->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+          }
+          rp->setLabel(item.value("label", ""));
+          rp->setShowLabel(item.value("showLabel", false));
+          if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
+            rp->setLabelOffset(sf::Vector2f(item["labelOffsetX"].get<float>(), item["labelOffsetY"].get<float>()));
+          }
+          editor.regularPolygons.push_back(rp);
         }
-        editor.regularPolygons.push_back(rp);
+      }
+    }
+
+    auto getFromMap = [&](unsigned int id) -> std::shared_ptr<GeometricObject> {
+      if (id == 0u) return nullptr;
+      auto it = created.find(id);
+      return (it != created.end()) ? it->second : nullptr;
+    };
+
+    auto getPointFromMap = [&](unsigned int id) -> std::shared_ptr<Point> {
+      return std::dynamic_pointer_cast<Point>(getFromMap(id));
+    };
+
+    // [FIX] Restore Intersection Constraint Loading
+    if (data.contains("intersections")) {
+      for (const auto& iJson : data["intersections"]) {
+        auto A = getFromMap(iJson.value("aId", 0u));
+        auto B = getFromMap(iJson.value("bId", 0u));
+        if (!A || !B) continue;
+
+        std::vector<std::shared_ptr<Point>> pts;
+        if (iJson.contains("points") && iJson["points"].is_array()) {
+          for (const auto& pJ : iJson["points"]) {
+            auto p = getPointFromMap(pJ.value("id", 0u));
+            if (p) pts.push_back(p);
+          }
+        }
+        // Re-establish the dynamic constraint between the two objects and the intersection point
+        if (!pts.empty()) DynamicIntersection::registerIntersectionConstraint(A, B, pts);
       }
     }
 

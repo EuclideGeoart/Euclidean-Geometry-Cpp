@@ -1,3 +1,17 @@
+/**
+ * ============================================================================
+ * FluxGeo Geometry Engine
+ * ============================================================================
+ *
+ * Created by: Mario Balit
+ * Assisted by: AI Coding Tools
+ * Year: 2026
+ *
+ * Description: An advanced, GeoGebra-style geometric construction 
+ * and transformation editor built with C++, SFML, and ImGui.
+ * ============================================================================
+ */
+
 #pragma message("--- In main.cpp: Checking CGAL preprocessor flags ---")
 
 #ifdef CGAL_HAS_THREADS

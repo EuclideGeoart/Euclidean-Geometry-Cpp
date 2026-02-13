@@ -1,3 +1,17 @@
+/**
+ * ============================================================================
+ * FluxGeo Geometry Engine
+ * ============================================================================
+ *
+ * Created by: Mario Balit
+ * Assisted by: AI Coding Tools
+ * Year: 2026
+ *
+ * Description: An advanced, GeoGebra-style geometric construction 
+ * and transformation editor built with C++, SFML, and ImGui.
+ * ============================================================================
+ */
+
 #include "GUI.h"
 
 #include <imgui-SFML.h>
@@ -1088,8 +1102,14 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       DrawToolButton("Rotated Rect", ObjectType::RectangleRotatable, "Click first corner, drag side, then drag width.");
       DrawToolButton("Triangle", ObjectType::Triangle, "Click 3 points to create a triangle.");
       DrawToolButton("Polygon", ObjectType::Polygon, "Click vertices. Press Enter to finish.");
-      DrawToolButton("Regular Polygon", ObjectType::RegularPolygon, "Click center, then drag for size/rotation.",
-                     [&]() { editor.showRegularPolygonSidesPopup = true; });
+
+      if (ImGui::TreeNodeEx("Regular Polygon", ImGuiTreeNodeFlags_DefaultOpen)) {
+        DrawToolButton("Regular Polygon (Center, Vertex)", ObjectType::RegularPolygon, "Click center, then click first vertex.",
+                       [&]() { editor.showRegularPolygonSidesPopup = true; });
+        DrawToolButton("Regular Polygon (Edge)", ObjectType::RegularPolygonEdge, "Click first edge vertex, then second edge vertex.",
+                       [&]() { editor.showRegularPolygonSidesPopup = true; });
+        ImGui::TreePop();
+      }
 
       if (editor.showRegularPolygonSidesPopup) {
         ImGui::OpenPopup("Regular Polygon Sides");
@@ -1321,6 +1341,13 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       if (ImGui::SliderFloat("Drawing Labels", &editor.drawingFontSize, 8.0f, 48.0f, "%.0f")) {
         LabelManager::instance().setFontSize(static_cast<unsigned int>(editor.drawingFontSize));
       }
+
+      ImGui::Spacing();
+      ImGui::Separator();
+      ImGui::Spacing();
+      ImGui::TextDisabled("FluxGeo v1.0");
+      ImGui::TextWrapped("Created by Mario Balit");
+      ImGui::TextDisabled("with the help of AI tools.");
     }
   }
 

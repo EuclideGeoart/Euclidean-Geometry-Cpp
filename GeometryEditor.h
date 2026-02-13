@@ -19,6 +19,7 @@
 
 // Then include standard library headers
 #include <memory>    // For std::unique_ptr, std::make_unique
+#include <map>
 #include <optional>  // For std::optional
 #include <vector>    // For std::vector
 
@@ -155,6 +156,7 @@ class GeometryEditor {
       EndpointSelection::None;  // Which endpoint of a line is being dragged
   sf::Vector2f dragStart_sfml;  // For object translation, stores the initial
                                 // mouse click position (SFML world coords)
+  std::map<unsigned int, Point_2> m_dragStartPositions;  // Point ID -> position snapshot at drag start
 
   // For general object selection
   GeometricObject *selectedObject =
@@ -280,6 +282,10 @@ class GeometryEditor {
   Point_2 regularPolygonFirstVertex;      // First vertex (defines radius)
   std::shared_ptr<Point> regularPolygonCenterPoint = nullptr;      // Shared pointer for center
   std::shared_ptr<Point> regularPolygonFirstVertexPoint = nullptr; // Shared pointer for first vertex
+  Point_2 regularPolygonEdgeStart;        // Edge mode: first edge vertex
+  Point_2 regularPolygonEdgeEnd;          // Edge mode: second edge vertex
+  std::shared_ptr<Point> regularPolygonEdgeStartPoint = nullptr;   // Edge mode start point
+  std::shared_ptr<Point> regularPolygonEdgeEndPoint = nullptr;     // Edge mode end point
   int regularPolygonNumSides = 6;         // Default to hexagon
   bool showRegularPolygonSidesPopup = false;
   std::shared_ptr<RegularPolygon> previewRegularPolygon;  // Preview during creation

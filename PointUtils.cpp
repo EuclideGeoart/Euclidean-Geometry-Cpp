@@ -1,5 +1,19 @@
 #include "CharTraitsFix.h"
 #include <string>
+/**
+ * ============================================================================
+ * FluxGeo Geometry Engine
+ * ============================================================================
+ *
+ * Created by: Mario Balit
+ * Assisted by: AI Coding Tools
+ * Year: 2026
+ *
+ * Description: An advanced, GeoGebra-style geometric construction 
+ * and transformation editor built with C++, SFML, and ImGui.
+ * ============================================================================
+ */
+
 #include "PointUtils.h"
 #include "GeometryEditor.h"
 #include "Point.h"
@@ -1050,6 +1064,66 @@ std::string LabelManager::getNextPolygonLabel(const std::vector<std::shared_ptr<
     }
     return "";
 }
+
+std::string LabelManager::getNextTransformedLabel(const std::string& parentLabel, const std::vector<std::shared_ptr<Point>>& allPoints) {
+    if (parentLabel.empty()) return "";
+
+    std::string baseName = parentLabel;
+    
+    // 1. Strip existing _N suffix if present
+    // precise regex-like behavior: look for underscore followed by digits at the end
+    size_t lastUnderscore = baseName.find_last_of('_');
+    if (lastUnderscore != std::string::npos && lastUnderscore + 1 < baseName.length()) {
+        std::string suffix = baseName.substr(lastUnderscore + 1);
+        bool isNumber = !suffix.empty() && std::all_of(suffix.begin(), suffix.end(), ::isdigit);
+        if (isNumber) {
+            baseName = baseName.substr(0, lastUnderscore);
+        }
+    }
+
+    // Normalize to root label by stripping any trailing prime marks.
+    // This keeps transformed naming in the GeoGebra-style family: A'_1, A'_2, ...
+    while (!baseName.empty() && baseName.back() == '\'') {
+      baseName.pop_back();
+    }
+
+    // 2. Append prime to the stripped name to get the "target prefix"
+    // e.g. A -> A', A' -> A', A'_1 -> A'
+    std::string targetPrefix = baseName + "'";
+
+    // 3. Search for highest N used with this prefix
+    int maxIndex = 0;
+    
+    // Check if the prefix itself is used (though our scheme uses _1, _2...)
+    // Actually, requirement says "Transform 1 on A -> A'_1". 
+    // It implies we ALWAYS append _N. 
+    // e.g. A -> Transformed -> A'_1. 
+    // What if A' exists? (maybe from old system). 
+    // The requirement says: "Direct transformations from a source get ONE prime, plus an index... E.g. A -> A'_1"
+    // It doesn't say A -> A'. It says A'_1. 
+    // Let's stick to the requirement: "Return targetPrefix + "_" + std::to_string(N+1)"
+    
+    for (const auto& p : allPoints) {
+        if (!p) continue;
+        const std::string& lbl = p->getLabel();
+        
+        // Check if label starts with targetPrefix + "_"
+        std::string pattern = targetPrefix + "_";
+        if (lbl.rfind(pattern, 0) == 0) { // starts_with
+            std::string numPart = lbl.substr(pattern.length());
+            if (!numPart.empty() && std::all_of(numPart.begin(), numPart.end(), ::isdigit)) {
+                try {
+                    int n = std::stoi(numPart);
+                    if (n > maxIndex) maxIndex = n;
+                } catch (...) {}
+            }
+        }
+    }
+
+    // 4. Return new label
+    return targetPrefix + "_" + std::to_string(maxIndex + 1);
+}
+
 
 // Helper to find font files in common locations
 static std::string SearchFont(const std::string& filename, const std::vector<std::string>& systemPaths = {}) {

@@ -8,6 +8,7 @@
 RegularPolygon::RegularPolygon(const Point_2 &center, const Point_2 &firstVertex, int numSides,
                                const sf::Color &color, unsigned int id)
     : GeometricObject(ObjectType::RegularPolygon, color, id),
+  m_creationMode(CreationMode::CenterAndVertex),
       m_centerPoint(std::make_shared<Point>(center, 1.0f)),
       m_firstVertexPoint(std::make_shared<Point>(firstVertex, 1.0f)),
       m_numSides(numSides),
@@ -29,6 +30,7 @@ RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
                                const std::shared_ptr<Point> &firstVertex, int numSides,
                                const sf::Color &color, unsigned int id)
     : GeometricObject(ObjectType::RegularPolygon, color, id),
+  m_creationMode(CreationMode::CenterAndVertex),
       m_centerPoint(center ? center : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
       m_firstVertexPoint(firstVertex ? firstVertex
                                      : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
@@ -52,8 +54,140 @@ RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &center,
   setShowLabel(true);
 }
 
+RegularPolygon::RegularPolygon(const std::shared_ptr<Point> &edgeStart,
+                               const std::shared_ptr<Point> &edgeEnd, int numSides,
+                               const sf::Color &color, unsigned int id,
+                               CreationMode mode)
+    : GeometricObject(ObjectType::RegularPolygon, color, id),
+      m_creationMode(mode),
+      m_centerPoint(std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_firstVertexPoint(std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_edgeStartPoint(edgeStart ? edgeStart : std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f)),
+      m_edgeEndPoint(edgeEnd ? edgeEnd : std::make_shared<Point>(Point_2(FT(1), FT(0)), 1.0f)),
+      m_numSides(numSides),
+      m_rotationAngle(0) {
+  if (m_creationMode != CreationMode::Edge) {
+    m_creationMode = CreationMode::CenterAndVertex;
+  }
+
+  m_color.a = 0;
+  if (m_numSides < 3) m_numSides = 3;
+
+  if (m_edgeStartPoint) m_edgeStartPoint->addDependent(m_selfHandle);
+  if (m_edgeEndPoint) m_edgeEndPoint->addDependent(m_selfHandle);
+
+  generateVertices();
+  ensureDerivedVertices();
+  syncDerivedVertices();
+  updateSFMLShape();
+  setShowLabel(true);
+}
+
+void RegularPolygon::ensureDerivedVertices() {
+  size_t required = 0;
+  if (m_creationMode == CreationMode::Edge) {
+    if (m_vertices.size() > 2) required = m_vertices.size() - 2;
+  } else {
+    if (m_vertices.size() > 1) required = m_vertices.size() - 1;
+  }
+
+  while (m_derivedVertices.size() < required) {
+    auto pt = std::make_shared<Point>(Point_2(FT(0), FT(0)), 1.0f);
+    pt->setLocked(true);
+    pt->setDependent(true);
+    pt->setShowLabel(true);
+    pt->setVisible(true);
+    m_derivedVertices.push_back(pt);
+  }
+
+  if (m_derivedVertices.size() > required) {
+    m_derivedVertices.resize(required);
+  }
+}
+
+void RegularPolygon::syncDerivedVertices() {
+  ensureDerivedVertices();
+
+  size_t offset = (m_creationMode == CreationMode::Edge) ? 2u : 1u;
+  for (size_t i = 0; i < m_derivedVertices.size(); ++i) {
+    auto& pt = m_derivedVertices[i];
+    if (!pt) continue;
+    size_t vertexIndex = offset + i;
+    if (vertexIndex >= m_vertices.size()) continue;
+    pt->setLocked(true);
+    pt->setDependent(true);
+    pt->setShowLabel(true);
+    pt->setVisible(true);
+    pt->setCGALPosition(m_vertices[vertexIndex]);
+  }
+}
+
 void RegularPolygon::generateVertices() {
     m_vertices.clear();
+
+  if (m_creationMode == CreationMode::Edge) {
+    if (!m_edgeStartPoint || !m_edgeEndPoint || m_numSides < 3) return;
+
+    Point_2 start = m_edgeStartPoint->getCGALPosition();
+    Point_2 end = m_edgeEndPoint->getCGALPosition();
+
+    double sx = CGAL::to_double(start.x());
+    double sy = CGAL::to_double(start.y());
+    double ex = CGAL::to_double(end.x());
+    double ey = CGAL::to_double(end.y());
+
+    double edgeX = ex - sx;
+    double edgeY = ey - sy;
+    double edgeLen = std::sqrt(edgeX * edgeX + edgeY * edgeY);
+    if (edgeLen < 1e-12) return;
+
+    double exterior = 2.0 * Constants::PI / static_cast<double>(m_numSides);
+    double cosA = std::cos(exterior);
+    double sinA = std::sin(exterior);
+
+    m_vertices.reserve(static_cast<size_t>(m_numSides));
+    m_vertices.push_back(start);
+    m_vertices.push_back(end);
+
+    Point_2 current = end;
+    double curEdgeX = edgeX;
+    double curEdgeY = edgeY;
+
+    for (int i = 2; i < m_numSides; ++i) {
+      double nextEdgeX = curEdgeX * cosA - curEdgeY * sinA;
+      double nextEdgeY = curEdgeX * sinA + curEdgeY * cosA;
+
+      current = Point_2(FT(CGAL::to_double(current.x()) + nextEdgeX),
+                FT(CGAL::to_double(current.y()) + nextEdgeY));
+      m_vertices.push_back(current);
+
+      curEdgeX = nextEdgeX;
+      curEdgeY = nextEdgeY;
+    }
+
+    double cx = 0.0;
+    double cy = 0.0;
+    for (const auto& v : m_vertices) {
+      cx += CGAL::to_double(v.x());
+      cy += CGAL::to_double(v.y());
+    }
+    cx /= static_cast<double>(m_vertices.size());
+    cy /= static_cast<double>(m_vertices.size());
+
+    if (m_centerPoint) {
+      m_centerPoint->setCGALPosition(Point_2(FT(cx), FT(cy)));
+    }
+    if (m_firstVertexPoint && !m_vertices.empty()) {
+      m_firstVertexPoint->setCGALPosition(m_vertices[0]);
+    }
+
+    m_radius = std::sqrt(CGAL::to_double(CGAL::squared_distance(m_vertices[0], Point_2(FT(cx), FT(cy)))));
+    m_rotationAngle = std::atan2(CGAL::to_double(m_vertices[0].y()) - cy,
+                   CGAL::to_double(m_vertices[0].x()) - cx);
+    ensureDerivedVertices();
+    syncDerivedVertices();
+    return;
+  }
     
     // 1. If we are Dependent/Transformed, we rely on the specific construction logic
     // However, RegularPolygon usually just stores Center+Vertex.
@@ -80,6 +214,9 @@ void RegularPolygon::generateVertices() {
             m_vertices.push_back(Point_2(px, py));
         }
     }
+
+      ensureDerivedVertices();
+      syncDerivedVertices();
 }
 
 void RegularPolygon::updateSFMLShape() {
@@ -194,15 +331,34 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
   }
 
   // Delegate drawing to key points
-  if (m_centerPoint) m_centerPoint->draw(window, scale, forceVisible);
-  if (m_firstVertexPoint) m_firstVertexPoint->draw(window, scale, forceVisible);
+  if (m_creationMode == CreationMode::Edge) {
+    if (m_edgeStartPoint) m_edgeStartPoint->draw(window, scale, forceVisible);
+    if (m_edgeEndPoint) m_edgeEndPoint->draw(window, scale, forceVisible);
+  } else {
+    if (m_centerPoint) m_centerPoint->draw(window, scale, forceVisible);
+    if (m_firstVertexPoint) m_firstVertexPoint->draw(window, scale, forceVisible);
+  }
 
   drawVertexHandles(window, scale);
 }
 
 // RegularPolygon-specific drawing passers for labels
 void RegularPolygon::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
-  if (!isVisible() || getLabelMode() == LabelMode::Hidden) return;
+  if (!isVisible()) return;
+
+  if (m_creationMode == CreationMode::Edge) {
+    if (m_edgeStartPoint) m_edgeStartPoint->drawLabelExplicit(window, worldView);
+    if (m_edgeEndPoint) m_edgeEndPoint->drawLabelExplicit(window, worldView);
+  } else {
+    if (m_centerPoint) m_centerPoint->drawLabelExplicit(window, worldView);
+    if (m_firstVertexPoint) m_firstVertexPoint->drawLabelExplicit(window, worldView);
+  }
+
+  for (const auto& p : m_derivedVertices) {
+    if (p && p->isValid()) p->drawLabelExplicit(window, worldView);
+  }
+
+  if (getLabelMode() == LabelMode::Hidden) return;
   
 
   // 2. Draw polygon's own label at center
@@ -258,7 +414,11 @@ void RegularPolygon::update() {
   if (isDependent()) {
     updateDependentShape();
   } else {
-    updateSFMLShape();
+    if (m_creationMode == CreationMode::Edge) {
+      updateSFMLShape();
+    } else {
+      updateSFMLShape();
+    }
     updateHostedPoints();
   }
 
@@ -354,28 +514,53 @@ void RegularPolygon::updateDependentShape() {
     }
   };
 
-  auto srcCenter = sourcePoly->getCenter();
-  auto srcFirst = sourcePoly->getFirstVertexPoint();
-  if (!srcFirst) {
-    setVisible(false);
-    return;
+  if (m_creationMode == CreationMode::Edge && sourcePoly->getCreationMode() == CreationMode::Edge) {
+    auto srcEdgeStart = sourcePoly->getEdgeStartPoint();
+    auto srcEdgeEnd = sourcePoly->getEdgeEndPoint();
+    if (!srcEdgeStart || !srcEdgeEnd) {
+      setVisible(false);
+      return;
+    }
+
+    auto newEdgeStart = transformPoint(srcEdgeStart->getCGALPosition());
+    auto newEdgeEnd = transformPoint(srcEdgeEnd->getCGALPosition());
+    if (!newEdgeStart.has_value() || !newEdgeEnd.has_value()) {
+      setVisible(false);
+      return;
+    }
+
+    if (m_edgeStartPoint) m_edgeStartPoint->setDeferConstraintUpdates(true);
+    if (m_edgeEndPoint) m_edgeEndPoint->setDeferConstraintUpdates(true);
+
+    if (m_edgeStartPoint) m_edgeStartPoint->setCGALPosition(flattenPoint(*newEdgeStart));
+    if (m_edgeEndPoint) m_edgeEndPoint->setCGALPosition(flattenPoint(*newEdgeEnd));
+
+    if (m_edgeStartPoint) m_edgeStartPoint->forceConstraintUpdate();
+    if (m_edgeEndPoint) m_edgeEndPoint->forceConstraintUpdate();
+  } else {
+    auto srcCenter = sourcePoly->getCenter();
+    auto srcFirst = sourcePoly->getFirstVertexPoint();
+    if (!srcFirst) {
+      setVisible(false);
+      return;
+    }
+
+    auto newCenter = transformPoint(srcCenter);
+    auto newFirst = transformPoint(srcFirst->getCGALPosition());
+    if (!newCenter.has_value() || !newFirst.has_value()) {
+      setVisible(false);
+      return;
+    }
+
+    if (m_centerPoint) m_centerPoint->setDeferConstraintUpdates(true);
+    if (m_firstVertexPoint) m_firstVertexPoint->setDeferConstraintUpdates(true);
+
+    if (m_centerPoint) m_centerPoint->setCGALPosition(flattenPoint(*newCenter));
+    if (m_firstVertexPoint) m_firstVertexPoint->setCGALPosition(flattenPoint(*newFirst));
+
+    if (m_centerPoint) m_centerPoint->forceConstraintUpdate();
+    if (m_firstVertexPoint) m_firstVertexPoint->forceConstraintUpdate();
   }
-
-  auto newCenter = transformPoint(srcCenter);
-  auto newFirst = transformPoint(srcFirst->getCGALPosition());
-  if (!newCenter.has_value() || !newFirst.has_value()) {
-    setVisible(false);
-    return;
-  }
-
-  if (m_centerPoint) m_centerPoint->setDeferConstraintUpdates(true);
-  if (m_firstVertexPoint) m_firstVertexPoint->setDeferConstraintUpdates(true);
-
-  if (m_centerPoint) m_centerPoint->setCGALPosition(flattenPoint(*newCenter));
-  if (m_firstVertexPoint) m_firstVertexPoint->setCGALPosition(flattenPoint(*newFirst));
-
-  if (m_centerPoint) m_centerPoint->forceConstraintUpdate();
-  if (m_firstVertexPoint) m_firstVertexPoint->forceConstraintUpdate();
 
   setVisible(true);
   updateSFMLShape();
@@ -406,15 +591,18 @@ bool RegularPolygon::isWithinDistance(const sf::Vector2f &screenPos, float toler
 }
 
 void RegularPolygon::translate(const Vector_2 &translation) {
-  if (m_centerPoint) {
-    Point_2 centerPos = m_centerPoint->getCGALPosition();
-    m_centerPoint->setCGALPosition(
-        flattenPoint(Point_2(centerPos.x() + translation.x(), centerPos.y() + translation.y())));
-  }
-  if (m_firstVertexPoint) {
-    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
-    m_firstVertexPoint->setCGALPosition(
-        flattenPoint(Point_2(firstPos.x() + translation.x(), firstPos.y() + translation.y())));
+  auto translatePoint = [&](const std::shared_ptr<Point>& p) {
+    if (!p) return;
+    Point_2 pos = p->getCGALPosition();
+    p->setCGALPosition(flattenPoint(Point_2(pos.x() + translation.x(), pos.y() + translation.y())));
+  };
+
+  if (m_creationMode == CreationMode::Edge) {
+    translatePoint(m_edgeStartPoint);
+    translatePoint(m_edgeEndPoint);
+  } else {
+    translatePoint(m_centerPoint);
+    translatePoint(m_firstVertexPoint);
   }
 
   updateSFMLShape();
@@ -464,6 +652,54 @@ std::vector<sf::Vector2f> RegularPolygon::getVerticesSFML() const {
 
 void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) const {
   const float handleRadius = m_vertexHandleSize * scale;
+
+  if (m_creationMode == CreationMode::Edge) {
+    if (m_edgeStartPoint) {
+      sf::CircleShape handle(handleRadius);
+      handle.setOrigin(handleRadius, handleRadius);
+      Point_2 p = m_edgeStartPoint->getCGALPosition();
+      handle.setPosition(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
+      sf::Color base = sf::Color(100, 100, 255);
+      if (m_activeVertex == 0) {
+        base = sf::Color(255, 140, 0);
+      } else if (m_hoveredVertex == 0) {
+        base = sf::Color::Yellow;
+      }
+      handle.setFillColor(base);
+      handle.setOutlineThickness(1.0f * scale);
+      handle.setOutlineColor(sf::Color::Black);
+      window.draw(handle);
+    }
+
+    if (m_edgeEndPoint) {
+      sf::CircleShape handle(handleRadius);
+      handle.setOrigin(handleRadius, handleRadius);
+      Point_2 p = m_edgeEndPoint->getCGALPosition();
+      handle.setPosition(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
+      sf::Color base = sf::Color(180, 180, 180);
+      if (m_activeVertex == 1) {
+        base = sf::Color(255, 140, 0);
+      } else if (m_hoveredVertex == 1) {
+        base = sf::Color::Yellow;
+      }
+      handle.setFillColor(base);
+      handle.setOutlineThickness(1.0f * scale);
+      handle.setOutlineColor(sf::Color::Black);
+      window.draw(handle);
+    }
+
+    for (size_t i = 0; i < m_vertices.size(); ++i) {
+      sf::CircleShape handle(handleRadius * 0.6f);
+      handle.setOrigin(handleRadius * 0.6f, handleRadius * 0.6f);
+      handle.setPosition(static_cast<float>(CGAL::to_double(m_vertices[i].x())),
+                         static_cast<float>(CGAL::to_double(m_vertices[i].y())));
+      handle.setFillColor(sf::Color(150, 150, 150, 128));
+      handle.setOutlineThickness(0.5f * scale);
+      handle.setOutlineColor(sf::Color(100, 100, 100));
+      window.draw(handle);
+    }
+    return;
+  }
   
   // Draw center point (creation point 0)
   {
@@ -525,23 +761,22 @@ void RegularPolygon::rotateCCW(const Point_2 &center, double angleRadians) {
   double cos_a = std::cos(angleRadians);
   double sin_a = std::sin(angleRadians);
 
-  // Rotate center
-  if (m_centerPoint) {
-    Point_2 centerPos = m_centerPoint->getCGALPosition();
-    double x = CGAL::to_double(centerPos.x()) - centerX;
-    double y = CGAL::to_double(centerPos.y()) - centerY;
+  auto rotatePointInPlace = [&](const std::shared_ptr<Point>& p) {
+    if (!p) return;
+    Point_2 pos = p->getCGALPosition();
+    double x = CGAL::to_double(pos.x()) - centerX;
+    double y = CGAL::to_double(pos.y()) - centerY;
     double newX = x * cos_a - y * sin_a + centerX;
     double newY = x * sin_a + y * cos_a + centerY;
-    m_centerPoint->setCGALPosition(Point_2(FT(newX), FT(newY)));
-  }
+    p->setCGALPosition(Point_2(FT(newX), FT(newY)));
+  };
 
-  if (m_firstVertexPoint) {
-    Point_2 firstPos = m_firstVertexPoint->getCGALPosition();
-    double x = CGAL::to_double(firstPos.x()) - centerX;
-    double y = CGAL::to_double(firstPos.y()) - centerY;
-    double newX = x * cos_a - y * sin_a + centerX;
-    double newY = x * sin_a + y * cos_a + centerY;
-    m_firstVertexPoint->setCGALPosition(Point_2(FT(newX), FT(newY)));
+  if (m_creationMode == CreationMode::Edge) {
+    rotatePointInPlace(m_edgeStartPoint);
+    rotatePointInPlace(m_edgeEndPoint);
+  } else {
+    rotatePointInPlace(m_centerPoint);
+    rotatePointInPlace(m_firstVertexPoint);
   }
 
   updateSFMLShape();
@@ -552,12 +787,16 @@ void RegularPolygon::setNumSides(int numSides) {
   if (numSides >= 3) {
     m_numSides = numSides;
     generateVertices();
+    ensureDerivedVertices();
+    syncDerivedVertices();
     updateSFMLShape();
     updateHostedPoints();
   }
 }
 
 void RegularPolygon::setRadius(double radius) {
+  if (m_creationMode == CreationMode::Edge) return;
+
   if (radius > 0) {
     m_radius = radius;
     generateVertices();
@@ -590,6 +829,18 @@ void RegularPolygon::setPosition(const sf::Vector2f &newSfmlPos) {
 std::vector<sf::Vector2f> RegularPolygon::getCreationPointsSFML() const {
   std::vector<sf::Vector2f> pts;
   pts.reserve(2);
+
+  if (m_creationMode == CreationMode::Edge) {
+    if (m_edgeStartPoint) {
+      Point_2 p = m_edgeStartPoint->getCGALPosition();
+      pts.emplace_back(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
+    }
+    if (m_edgeEndPoint) {
+      Point_2 p = m_edgeEndPoint->getCGALPosition();
+      pts.emplace_back(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
+    }
+    return pts;
+  }
   
   // Creation point 0: Center
   Point_2 centerPos = getCenter();
@@ -607,6 +858,23 @@ std::vector<sf::Vector2f> RegularPolygon::getCreationPointsSFML() const {
 }
 
 void RegularPolygon::setCreationPointPosition(size_t index, const Point_2& value) {
+  if (m_creationMode == CreationMode::Edge) {
+    if (index == 0 && m_edgeStartPoint && m_edgeEndPoint) {
+      Point_2 oldStart = m_edgeStartPoint->getCGALPosition();
+      Vector_2 delta = value - oldStart;
+      m_edgeStartPoint->setCGALPosition(value);
+      Point_2 endPos = m_edgeEndPoint->getCGALPosition();
+      m_edgeEndPoint->setCGALPosition(Point_2(endPos.x() + delta.x(), endPos.y() + delta.y()));
+    } else if (index >= 1 && m_edgeEndPoint) {
+      m_edgeEndPoint->setCGALPosition(value);
+    }
+
+    generateVertices();
+    updateSFMLShape();
+    updateHostedPoints();
+    return;
+  }
+
   if (index == 0) {
     // Translate entire shape by moving center
     Vector_2 delta = value - getCenter();
@@ -633,6 +901,18 @@ void RegularPolygon::setCreationPointPosition(size_t index, const Point_2& value
 }
 
 Point_2 RegularPolygon::getCenter() const {
+  if (m_creationMode == CreationMode::Edge && !m_vertices.empty()) {
+    double cx = 0.0;
+    double cy = 0.0;
+    for (const auto& v : m_vertices) {
+      cx += CGAL::to_double(v.x());
+      cy += CGAL::to_double(v.y());
+    }
+    cx /= static_cast<double>(m_vertices.size());
+    cy /= static_cast<double>(m_vertices.size());
+    return Point_2(FT(cx), FT(cy));
+  }
+
   if (m_centerPoint) {
     return m_centerPoint->getCGALPosition();
   }
@@ -644,11 +924,23 @@ Point_2 RegularPolygon::getCGALPosition() const {
 }
 
 std::vector<Point_2> RegularPolygon::getInteractableVertices() const {
-  // Return center + all vertices for regular polygon
+  // Return defining points + derived points for smart snapping/reference
   std::vector<Point_2> result;
-  result.reserve(m_vertices.size() + 1);
-  result.push_back(getCenter());
-  result.insert(result.end(), m_vertices.begin(), m_vertices.end());
+  if (m_creationMode == CreationMode::Edge) {
+    result.reserve(2 + m_derivedVertices.size());
+    if (m_edgeStartPoint) result.push_back(m_edgeStartPoint->getCGALPosition());
+    if (m_edgeEndPoint) result.push_back(m_edgeEndPoint->getCGALPosition());
+  } else {
+    result.reserve(2 + m_derivedVertices.size());
+    if (m_centerPoint) result.push_back(m_centerPoint->getCGALPosition());
+    if (m_firstVertexPoint) result.push_back(m_firstVertexPoint->getCGALPosition());
+  }
+
+  for (const auto& p : m_derivedVertices) {
+    if (p && p->isValid()) {
+      result.push_back(p->getCGALPosition());
+    }
+  }
   return result;
 }
 

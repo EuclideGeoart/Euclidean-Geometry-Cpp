@@ -106,6 +106,7 @@ class Rectangle : public GeometricObject {
   Point_2 getCorner1() const;
   Point_2 getCorner2() const;
   bool isRotatable() const { return m_isRotatable; }
+      void setUseExplicitVertices(bool use) { m_useExplicitVertices = use; }
   double getWidth() const { return m_width; }
   double getHeight() const { return m_height; }
   double getRotationAngle() const { return m_rotationAngle; }
