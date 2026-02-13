@@ -177,17 +177,16 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/arial.ttf
             $<TARGET_FILE_DIR:FluxGeo>/arial.ttf
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/latinmodern-math.otf
+            $<TARGET_FILE_DIR:FluxGeo>/latinmodern-math.otf
     )
 else()
     # Fallback if system font doesn't exist
     add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/fonts
-        # Try to copy local arial.ttf first if it exists, otherwise try system
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/arial.ttf
-            ${CMAKE_BINARY_DIR}/arial.ttf
-            ${CMAKE_SOURCE_DIR}/latinmodern-math.otf
-            ${CMAKE_BINARY_DIR}/latinmodern-math.otf
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/arial.ttf ${CMAKE_BINARY_DIR}/arial.ttf
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/latinmodern-math.otf ${CMAKE_BINARY_DIR}/latinmodern-math.otf
     )
 endif()
 # --- Copy MicroTeX Resources (The 'res' folder) ---

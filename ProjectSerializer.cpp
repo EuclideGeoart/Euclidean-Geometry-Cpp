@@ -17,7 +17,8 @@
 #include <iostream>
 #include <limits>
 #include "PointUtils.h"
-#include <set>
+#include "VariantUtils.h"
+#include <fstream>
 #include <unordered_set>
 #include <sstream>
 
@@ -2812,9 +2813,9 @@ static std::vector<std::pair<double, double>> getBoxIntersections(const Line_2& 
   for (int i = 0; i < 4; ++i) {
     auto result = CGAL::intersection(line, segments[i]);
     if (result) {
-      if (const Point_2* p = std::get_if<Point_2>(&*result)) {
+      if (const Point_2* p = safe_get_point<Point_2>(&*result)) {
         intersections.push_back({CGAL::to_double(p->x()), CGAL::to_double(p->y())});
-      } else if (const Segment_2* s = std::get_if<Segment_2>(&*result)) {
+      } else if (const Segment_2* s = safe_get_point<Segment_2>(&*result)) {
         intersections.push_back({CGAL::to_double(s->source().x()), CGAL::to_double(s->source().y())});
         intersections.push_back({CGAL::to_double(s->target().x()), CGAL::to_double(s->target().y())});
       }
