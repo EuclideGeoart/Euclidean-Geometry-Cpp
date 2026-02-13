@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include "PointUtils.h"
 #include <set>
 #include <unordered_set>
 #include <sstream>
@@ -268,8 +269,8 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
     json project;
     project["version"] = "1.0";
     project["objects"] = json::object();
-    project["settings"] = json::object();
     project["settings"]["axesVisible"] = editor.areAxesVisible();
+    project["settings"]["fontType"] = static_cast<int>(LabelManager::instance().getFontType());
 
     // ------------------------------------------------------------
     // PASS 1: POINTS (Deep Harvesting & Merge Strategy)
@@ -856,6 +857,16 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     }
     if (editor.getYAxisShared() && std::find(editor.lines.begin(), editor.lines.end(), editor.getYAxisShared()) == editor.lines.end()) {
       editor.lines.push_back(editor.getYAxisShared());
+    }
+
+    if (j.contains("settings")) {
+      const json& settings = j["settings"];
+      if (settings.contains("axesVisible")) {
+        editor.setAxesVisible(settings["axesVisible"].get<bool>());
+      }
+      if (settings.contains("fontType")) {
+        LabelManager::instance().setFontType(static_cast<FontType>(settings["fontType"].get<int>()));
+      }
     }
 
     const json& data = j.contains("objects") ? j["objects"] : j;

@@ -477,13 +477,12 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
 
 void Point::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
   if (!m_visible) return;
-  if (!getShowLabel() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!getShowLabel() || getLabelMode() == LabelMode::Hidden) return;
   drawLabelExplicit(window, worldView);
 }
 
 void Point::drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldView) const {
   if (!m_visible) return;
-  if (!Point::commonFont) return;
   if (!isValid()) return;
 
   std::string labelStr = "";
@@ -512,7 +511,7 @@ void Point::drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldVie
 
   // 2. Text setup
   sf::Text text;
-  text.setFont(*Point::commonFont);
+  text.setFont(LabelManager::instance().getSelectedFont());
   text.setString(m_label);
   text.setCharacterSize(LabelManager::instance().getFontSize()); // Use global font size
   text.setFillColor(Constants::AXIS_LABEL_COLOR);

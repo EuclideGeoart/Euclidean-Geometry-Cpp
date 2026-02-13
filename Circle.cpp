@@ -265,7 +265,7 @@ void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) cons
 }
 
 void Circle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-  if (!isVisible() || !getShowLabel() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isVisible() || !getShowLabel() || getLabelMode() == LabelMode::Hidden) return;
   if (!isValid()) return;
 
   Point_2 centerCgal = getCenterPoint();
@@ -302,7 +302,7 @@ void Circle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) cons
   if (labelStr.empty()) return;
 
   sf::Text text;
-  text.setFont(*Point::commonFont);
+  text.setFont(LabelManager::instance().getSelectedFont());
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize());
   

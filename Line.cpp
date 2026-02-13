@@ -906,7 +906,7 @@ void Line::draw(sf::RenderWindow& window, float scale, bool forceVisible) const 
   }
 }
 void Line::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-  if (!isVisible() || !getShowLabel() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isVisible() || !getShowLabel() || getLabelMode() == LabelMode::Hidden) return;
   if (!isValid()) return;
 
   // Calculate midpoint in world space for label placement
@@ -945,7 +945,7 @@ void Line::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const 
   if (labelStr.empty()) return;
 
   sf::Text text;
-  text.setFont(*Point::commonFont);
+  text.setFont(LabelManager::instance().getSelectedFont());
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize());
   

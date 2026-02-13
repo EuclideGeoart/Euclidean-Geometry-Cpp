@@ -256,8 +256,8 @@ void GeometricObject::drawStyledLine(sf::RenderWindow& window,
   sf::Vector2f worldP0 = window.mapPixelToCoords(sf::Vector2i(0, 0));
   sf::Vector2f worldP1_x = window.mapPixelToCoords(sf::Vector2i(1, 0));
   sf::Vector2f worldP1_y = window.mapPixelToCoords(sf::Vector2i(0, 1));
-  float worldUnitPerPixelX = std::abs(worldP1_x.x - worldP0.x);
-  float worldUnitPerPixelY = std::abs(worldP1_y.y - worldP0.y);
+  float worldUnitPerPixelX = fabsf(worldP1_x.x - worldP0.x);
+  float worldUnitPerPixelY = fabsf(worldP1_y.y - worldP0.y);
   float worldUnitPerPixel = std::max(worldUnitPerPixelX, worldUnitPerPixelY);
   
   // 2. High-Quality Rendering Patterns

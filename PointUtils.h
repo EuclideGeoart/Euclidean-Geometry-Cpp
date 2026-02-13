@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <map>
 
 // Forward declarations
 class GeometryEditor;
@@ -153,8 +154,10 @@ static std::optional<IntersectionHit> getHoveredIntersection(
     double& outRelativePos);
 };
 
+enum class FontType { Sans, Serif, Math, LaTeX };
+
 /**
- * @brief Utility for automatic label generation
+ * @brief Utility for automatic label generation and global styling
  */
 class LabelManager {
 public:
@@ -171,6 +174,11 @@ public:
     // Font size control
     void setFontSize(unsigned int size) { m_fontSize = size; }
     unsigned int getFontSize() const { return m_fontSize; }
+
+    // Font type control
+    void setFontType(FontType type) { m_currentFontType = type; }
+    FontType getFontType() const { return m_currentFontType; }
+    const sf::Font& getSelectedFont() const;
 
     /**
      * @brief Generates the next available label (A..Z, A_{1}..Z_{1}, A_{2}..Z_{2})
@@ -193,11 +201,13 @@ public:
     std::string getNextPolygonLabel(const std::vector<std::shared_ptr<GeometricObject>>& existingObjects);
 
 private:
-    LabelManager() : m_visible(true), m_fontSize(18) {}
+    LabelManager();
     ~LabelManager() = default;
     LabelManager(const LabelManager&) = delete;
     LabelManager& operator=(const LabelManager&) = delete;
 
     bool m_visible;
     unsigned int m_fontSize;
+    FontType m_currentFontType;
+    std::map<FontType, sf::Font> m_fonts;
 };

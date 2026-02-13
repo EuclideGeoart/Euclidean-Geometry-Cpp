@@ -202,7 +202,7 @@ void RegularPolygon::draw(sf::RenderWindow &window, float scale, bool forceVisib
 
 // RegularPolygon-specific drawing passers for labels
 void RegularPolygon::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
-  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden) return;
   
 
   // 2. Draw polygon's own label at center
@@ -235,7 +235,7 @@ void RegularPolygon::drawLabel(sf::RenderWindow &window, const sf::View &worldVi
   sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(center), worldView);
   
   sf::Text text;
-  text.setFont(*Point::commonFont);
+  text.setFont(LabelManager::instance().getSelectedFont());
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize());
   

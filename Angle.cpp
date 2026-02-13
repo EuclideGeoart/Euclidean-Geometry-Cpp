@@ -397,7 +397,7 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
 }
 
 void Angle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
-  if (!s_fontLoaded || !getShowLabel() || getLabelMode() == LabelMode::Hidden || !isVisible()) return;
+  if (!getShowLabel() || getLabelMode() == LabelMode::Hidden || !isVisible()) return;
 
   std::string labelStr = "";
   std::string valueStr = std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xB0";
@@ -428,7 +428,7 @@ void Angle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const
   }
 
   sf::Text text;
-  text.setFont(s_font);
+  text.setFont(LabelManager::instance().getSelectedFont());
   // Use fromUtf8 to convert standard string (if containing UTF-8 like degree symbol)
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize()); 

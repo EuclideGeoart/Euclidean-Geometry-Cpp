@@ -1402,7 +1402,7 @@ void Rectangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
 }
 
 void Rectangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden) return;
 
   // 1. Delegate label drawing to the constituent corner points
   if (m_corner1) m_corner1->drawLabelExplicit(window, worldView);
@@ -1439,7 +1439,7 @@ void Rectangle::drawLabel(sf::RenderWindow& window, const sf::View& worldView) c
   sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(m_center), worldView);
 
   sf::Text text;
-  text.setFont(*Point::commonFont);
+  text.setFont(LabelManager::instance().getSelectedFont());
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize());
 

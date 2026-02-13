@@ -174,7 +174,7 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
 }
 
 void Polygon::drawLabel(sf::RenderWindow& window, const sf::View& worldView) const {
-  if (!isVisible() || getLabelMode() == LabelMode::Hidden || !Point::commonFont) return;
+  if (!isVisible() || getLabelMode() == LabelMode::Hidden) return;
 
   // 1. Draw labels of constituent points
   for (auto& pt : m_vertices) {
@@ -222,7 +222,7 @@ void Polygon::drawLabel(sf::RenderWindow& window, const sf::View& worldView) con
   sf::Vector2i screenPos = window.mapCoordsToPixel(Point::cgalToSFML(center), worldView);
 
   sf::Text text;
-  text.setFont(*Point::commonFont);
+  text.setFont(LabelManager::instance().getSelectedFont());
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
   text.setCharacterSize(LabelManager::instance().getFontSize());
 

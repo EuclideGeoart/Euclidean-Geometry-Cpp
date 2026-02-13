@@ -2769,3 +2769,8 @@ void GeometryEditor::toggleAxes() {
 }
 
 bool GeometryEditor::areAxesVisible() const { return xAxis && xAxis->isVisible(); }
+
+void GeometryEditor::setAxesVisible(bool visible) {
+  if (xAxis) xAxis->setVisible(visible);
+  if (yAxis) yAxis->setVisible(visible);
+}

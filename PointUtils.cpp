@@ -1049,3 +1049,36 @@ std::string LabelManager::getNextPolygonLabel(const std::vector<std::shared_ptr<
     }
     return "";
 }
+LabelManager::LabelManager() : m_visible(true), m_fontSize(18), m_currentFontType(FontType::Sans) {
+    // Load default Sans font
+    if (!m_fonts[FontType::Sans].loadFromFile("arial.ttf")) {
+        std::cerr << "[LabelManager] Error: Could not load arial.ttf" << std::endl;
+    }
+    
+    // Load Math font
+    if (!m_fonts[FontType::Math].loadFromFile("latinmodern-math.otf")) {
+        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf. Falling back to Sans." << std::endl;
+        m_fonts[FontType::Math] = m_fonts[FontType::Sans];
+    }
+    
+    // Load Serif font (Specific to Windows for now as requested by user environment)
+    if (!m_fonts[FontType::Serif].loadFromFile("C:/Windows/Fonts/times.ttf")) {
+         std::cerr << "[LabelManager] Warning: Times New Roman not found. Falling back to Sans." << std::endl;
+         m_fonts[FontType::Serif] = m_fonts[FontType::Sans];
+    }
+
+    // Load LaTeX font (Aliased to Math for now, but distinct type for future flexibility)
+    if (!m_fonts[FontType::LaTeX].loadFromFile("latinmodern-math.otf")) {
+        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf for LaTeX style. Falling back to Serif." << std::endl;
+        m_fonts[FontType::LaTeX] = m_fonts[FontType::Serif];
+    }
+}
+
+const sf::Font& LabelManager::getSelectedFont() const {
+    auto it = m_fonts.find(m_currentFontType);
+    if (it != m_fonts.end()) {
+        return it->second;
+    }
+    // Fallback if something goes wrong
+    return m_fonts.at(FontType::Sans);
+}
