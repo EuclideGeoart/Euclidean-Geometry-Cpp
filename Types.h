@@ -57,3 +57,10 @@ enum class DecorationType {
     Tick1, Tick2, Tick3,    // For Equality (e.g., AB = CD)
     Arrow1, Arrow2, Arrow3  // For Parallelism (e.g., AB || CD)
 };
+
+// Line style patterns for rendering
+enum class LineStyle {
+    Solid,    // Standard continuous line
+    Dashed,   // Dash pattern (10px dash, 5px gap)
+    Dotted    // Dot pattern (3px dash, 3px gap)
+};

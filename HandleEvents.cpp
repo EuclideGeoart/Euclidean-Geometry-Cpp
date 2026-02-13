@@ -2593,14 +2593,21 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   std::shared_ptr<GeometricObject> hoveredObj = nullptr;
 
   if (editor.dragMode == DragMode::None && !editor.isDragging) {
+// 1. Helper for strict tooltip tolerance (2 pixels scaled to world)
+      // auto getTooltipTolerance = [&](const GeometryEditor& ed) {
+      //     return screenPixelsToWorldUnits(ed, Constants::TOOLTIP_SCREEN_PIXELS);
+      // };
+
       // 1. Check points (highest priority)
       for (auto& p : editor.points) {
-          if (p->isVisible() && p->contains(worldPos, getDynamicSelectionTolerance(editor))) { hoveredObj = p; break; }
+        if (p->isVisible() && p->contains(worldPos, getDynamicSelectionTolerance(editor))) { hoveredObj = p; break; }
+          //if (p->isVisible() && p->contains(worldPos, getTooltipTolerance(editor))) { hoveredObj = p; break; }
       }
       
       // 2. Check shapes
       if (!hoveredObj) {
-          float tol = getDynamicSelectionTolerance(editor);
+        float tol = getDynamicSelectionTolerance(editor);
+          //float tol = getTooltipTolerance(editor);
           // Check in reverse draw order (top to bottom)
           for (auto it = editor.rectangles.rbegin(); it != editor.rectangles.rend(); ++it) {
               if ((*it)->isVisible() && (*it)->contains(worldPos, tol)) { hoveredObj = *it; break; }

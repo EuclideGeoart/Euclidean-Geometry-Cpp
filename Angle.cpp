@@ -305,6 +305,15 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
 
   bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.1f;
 
+  // --- Styled Outline Rendering ---
+  float baseThickness = m_thickness;
+  if (isSelected()) baseThickness += 2.0f;
+  else if (isHovered()) baseThickness += 1.0f;
+  float pixelThickness = std::round(baseThickness);
+  if (pixelThickness < 1.0f) pixelThickness = 1.0f;
+
+  sf::Color drawOutlineColor = isGhost ? overrideColor : m_outlineColor;
+
   if (isRightAngle) {
       // Right Angle Square Symbol
       double dirAx = std::cos(startAngle);
@@ -312,18 +321,9 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
       double dirBx = std::cos(startAngle + sweepAngle);
       double dirBy = std::sin(startAngle + sweepAngle);
 
-      double pxA = cx + dirAx * effectiveRadius;
-      double pyA = cy + dirAy * effectiveRadius;
-      double pxB = cx + dirBx * effectiveRadius;
-      double pyB = cy + dirBy * effectiveRadius;
-      double pxCorner = cx + (dirAx + dirBx) * effectiveRadius; 
-      double pyCorner = cy + (dirAy + dirBy) * effectiveRadius;
-
-      // Outline
-      drawArc.resize(3);
-      drawArc[0] = sf::Vertex(sf::Vector2f((float)pxA, (float)pyA), isGhost ? overrideColor : m_outlineColor);
-      drawArc[1] = sf::Vertex(sf::Vector2f((float)pxCorner, (float)pyCorner), isGhost ? overrideColor : m_outlineColor);
-      drawArc[2] = sf::Vertex(sf::Vector2f((float)pxB, (float)pyB), isGhost ? overrideColor : m_outlineColor);
+      sf::Vector2f pA((float)(cx + dirAx * effectiveRadius), (float)(cy + dirAy * effectiveRadius));
+      sf::Vector2f pB((float)(cx + dirBx * effectiveRadius), (float)(cy + dirBy * effectiveRadius));
+      sf::Vector2f pCorner((float)(cx + (dirAx + dirBx) * effectiveRadius), (float)(cy + (dirAy + dirBx) * effectiveRadius));
 
       // Fill
       if (hasFill && !isGhost) {
@@ -331,52 +331,51 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
           drawFan.resize(4);
           sf::Color c = m_fillColor; c.a = 50;
           drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
-          drawFan[1] = sf::Vertex(sf::Vector2f((float)pxA, (float)pyA), c);
-          drawFan[2] = sf::Vertex(sf::Vector2f((float)pxCorner, (float)pyCorner), c);
-          drawFan[3] = sf::Vertex(sf::Vector2f((float)pxB, (float)pyB), c);
+          drawFan[1] = sf::Vertex(pA, c);
+          drawFan[2] = sf::Vertex(pCorner, c);
+          drawFan[3] = sf::Vertex(pB, c);
+          window.draw(drawFan);
       }
+
+      GeometricObject::drawStyledLine(window, pA, pCorner, m_lineStyle, pixelThickness, drawOutlineColor);
+      GeometricObject::drawStyledLine(window, pCorner, pB, m_lineStyle, pixelThickness, drawOutlineColor);
   } else {
-      // Standard Arc
+      // Standard Arc (segmented)
       constexpr double kPi = 3.14159265358979323846;
       double sweepAbs = std::abs(sweepAngle);
       int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
       
-      drawArc.resize(segments + 1);
+      sf::Vector2f prevPos((float)(cx + effectiveRadius * std::cos(startAngle)), 
+                           (float)(cy + effectiveRadius * std::sin(startAngle)));
+
       if (hasFill && !isGhost) {
           drawFan.resize(segments + 2);
           sf::Color c = m_fillColor; c.a = 50;
           drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
+          drawFan[1] = sf::Vertex(prevPos, c);
       }
 
-      for (int i = 0; i <= segments; ++i) {
-        double t = (segments == 0) ? 0.0 : (static_cast<double>(i) / segments);
+      for (int i = 1; i <= segments; ++i) {
+        double t = static_cast<double>(i) / segments;
         double ang = startAngle + sweepAngle * t;
-        float px = static_cast<float>(cx + effectiveRadius * std::cos(ang));
-        float py = static_cast<float>(cy + effectiveRadius * std::sin(ang));
-        
-        drawArc[i] = sf::Vertex(sf::Vector2f(px, py), isGhost ? overrideColor : m_outlineColor);
+        sf::Vector2f currPos((float)(cx + effectiveRadius * std::cos(ang)), 
+                             (float)(cy + effectiveRadius * std::sin(ang)));
         
         if (hasFill && !isGhost) {
-             sf::Color c = m_fillColor; c.a = 50;
-             drawFan[i + 1] = sf::Vertex(sf::Vector2f(px, py), c);
+            sf::Color c = m_fillColor; c.a = 50;
+            drawFan[i + 1] = sf::Vertex(currPos, c);
         }
+
+        GeometricObject::drawStyledLine(window, prevPos, currPos, m_lineStyle, pixelThickness, drawOutlineColor);
+        prevPos = currPos;
+      }
+
+      if (hasFill && !isGhost) {
+          window.draw(drawFan);
       }
   }
 
-  // Draw Fill
-  if (drawFan.getVertexCount() > 0 && !isGhost) {
-      if (isSelected() || isHovered()) {
-           // Simple highlight logic
-           window.draw(drawFan); // Or use custom highlight color logic
-      } else {
-           window.draw(drawFan);
-      }
-  }
-  
-  // Draw Outline
-  if (drawArc.getVertexCount() > 0) {
-      window.draw(drawArc);
-  }
+
 
   // Draw Text - MOVED TO drawLabel()
   // Label Rendering handled by global pass now

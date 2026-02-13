@@ -31,8 +31,8 @@ class Point;
 class ObjectPoint;
 class Object; // Added forward declaration for Object
 
-// Line style struct for applying styles to lines
-struct LineStyle {
+// Line render style struct for applying styles to lines
+struct LineRenderStyle {
   sf::Color color;
   float thickness;
   bool dashed;
@@ -184,8 +184,8 @@ public:
   // Label offset management inherited from GeometricObject
 
   // --- Line Style Methods ---
-  void setLineStyle(LineStyle style);
-  LineStyle getLineStyle() const;
+  void setLineRenderStyle(LineRenderStyle style);
+  LineRenderStyle getLineRenderStyle() const;
   void setDashed(bool dashed);
   bool isDashed() const;
   void setDashLength(float length);
@@ -298,7 +298,7 @@ public:
   void setDataByName(const std::string &key, const std::string &value);
 
   // --- Style Application ---
-  void applyStyle(const LineStyle &style);
+  void applyStyle(const LineRenderStyle &style);
 
   // --- Serialization Methods ---
   void loadFromStream(std::istream &is);
@@ -408,7 +408,7 @@ private:
   float m_endpointSize = 5.0f;
   bool m_showMidpoints = false;
   float m_midpointSize = 3.0f;
-  LineStyle m_lineStyle;
+  LineRenderStyle m_lineRenderStyle;
   bool m_dashed = false;
   float m_dashLength = 10.0f;
   float m_gapLength = 5.0f;

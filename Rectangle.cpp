@@ -134,6 +134,50 @@ Rectangle::Rectangle(std::shared_ptr<Point> p1,
   m_color.a = 0;  // Transparent fill
   m_vertexLabelOffsets.resize(4, sf::Vector2f(0.f, 0.f));
   m_useExplicitVertices = true;
+  
+  // CRITICAL FIX: Robustly enforce perimeter winding using spatial sort.
+  // We cannot rely on the input order (p1, p2, pb, pd) because transformations
+  // like Reflection can invert winding (CCW -> CW) or scramble indices.
+  // We must ensure the internal mapping corner1->corner2->cornerB->cornerD 
+  // forms a valid CCW convex loop.
+  
+  if (m_isRotatable && p1 && p2 && pb && pd) {
+      std::vector<std::shared_ptr<Point>> pts = {p1, p2, pb, pd};
+      
+      // 1. Calculate Centroid
+      double cx = 0, cy = 0;
+      for (const auto& p : pts) {
+          auto pos = p->getCGALPosition();
+          cx += CGAL::to_double(pos.x());
+          cy += CGAL::to_double(pos.y());
+      }
+      cx *= 0.25;
+      cy *= 0.25;
+
+      // 2. Sort by Angle (CCW)
+      std::sort(pts.begin(), pts.end(), [cx, cy](const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b) {
+          auto posA = a->getCGALPosition();
+          auto posB = b->getCGALPosition();
+          double angA = std::atan2(CGAL::to_double(posA.y()) - cy, CGAL::to_double(posA.x()) - cx);
+          double angB = std::atan2(CGAL::to_double(posB.y()) - cy, CGAL::to_double(posB.x()) - cx);
+          return angA < angB;
+      });
+
+      // 3. Align Start Point
+      // We want to keep 'p1' as m_corner1 if possible to preserve the "Anchor".
+      // Find p1 in the sorted list and rotate so it's first.
+      auto it = std::find(pts.begin(), pts.end(), p1);
+      if (it != pts.end()) {
+          std::rotate(pts.begin(), it, pts.end());
+      }
+
+      // 4. Re-assign strictly
+      m_corner1 = pts[0]; // A (p1)
+      m_corner2 = pts[1]; // B (CCW neighbor)
+      m_cornerB = pts[2]; // C (Opposite)
+      m_cornerD = pts[3]; // D (CW neighbor) 
+  }
+  
   // 1. Force Dependencies (Like Polygon)
   // This ensures that if any of these 4 points move, the Rectangle updates.
   if (m_corner1) m_corner1->addDependent(m_selfHandle);
@@ -343,22 +387,19 @@ void Rectangle::updateSFMLShape() {
   };
 
   // STRICT PERIMETER ORDER: A -> B -> C -> D
-  // Vertex assignment differs based on rectangle type:
-  // - Axis-aligned: corner1=A(diag), corner2=C(diag), cornerB=B(computed), cornerD=D(computed)
-  // - Rotatable: corner1=A(base start), corner2=B(base end), cornerB=C(computed), cornerD=D(computed)
+  // Rotatable internal mapping: corner1=A, corner2=B, cornerB=C, cornerD=D
+  // Axis-aligned internal mapping: corner1=A, cornerB=B, corner2=C, cornerD=D
   if (m_corner1 && m_cornerB && m_corner2 && m_cornerD) {
     if (m_isRotatable) {
-      // Rotatable: A(corner1) → B(corner2) → C(cornerB) → D(cornerD)
-      setPt(0, m_corner1);  // A (base start)
-      setPt(1, m_corner2);  // B (base end)
-      setPt(2, m_cornerB);  // C (perpendicular from B)
-      setPt(3, m_cornerD);  // D (perpendicular from A)
+      setPt(0, m_corner1);  // A
+      setPt(1, m_corner2);  // B
+      setPt(2, m_cornerB);  // C
+      setPt(3, m_cornerD);  // D
     } else {
-      // Axis-aligned: A(corner1) → B(cornerB) → C(corner2) → D(cornerD)
-      setPt(0, m_corner1);  // A (bottom-left)
-      setPt(1, m_cornerB);  // B (bottom-right)
-      setPt(2, m_corner2);  // C (top-right)
-      setPt(3, m_cornerD);  // D (top-left)
+      setPt(0, m_corner1);  // A
+      setPt(1, m_cornerB);  // B
+      setPt(2, m_corner2);  // C
+      setPt(3, m_cornerD);  // D
     }
   }
 }
@@ -376,8 +417,8 @@ void Rectangle::update() {
     // Only run if we have the defining points (A, B, C)
     if (m_corner1 && m_cornerB && m_corner2) {
       Point_2 p1 = m_corner1->getCGALPosition();
-      Point_2 pb = m_cornerB->getCGALPosition();
-      Point_2 p2 = m_corner2->getCGALPosition();
+      Point_2 pb = m_isRotatable ? m_corner2->getCGALPosition() : m_cornerB->getCGALPosition();
+      Point_2 p2 = m_isRotatable ? m_cornerB->getCGALPosition() : m_corner2->getCGALPosition();
 
       // CREATION GUARD: Check if geometry is complete before enforcing constraints
       // During interactive creation, edges may be degenerate (zero-length or tiny)
@@ -645,7 +686,6 @@ void Rectangle::syncDependentCorners() {
   if (m_cornerD) m_cornerD->setCGALPosition(d);
 
   if (m_cornerB) m_cornerB->setDeferConstraintUpdates(deferB);
-  if (m_cornerD) m_cornerD->setDeferConstraintUpdates(deferD);
 }
 
 void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) const {
@@ -653,7 +693,14 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
 
   // Scale the main shape's outline
   sf::ConvexShape scaledShape = m_sfmlShape;
-  scaledShape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+  
+  // If styled (dashed/dotted), we disable the SFML outline and draw manually
+  bool isStyled = (m_lineStyle != LineStyle::Solid);
+  if (isStyled) {
+      scaledShape.setOutlineThickness(0);
+  } else {
+      scaledShape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+  }
 
   // GHOST MODE: Apply transparency if hidden but forced visible
   if (!m_visible && forceVisible) {
@@ -668,6 +715,25 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
 
   window.draw(scaledShape);
 
+  // --- Styled Outline Rendering ---
+  if (isStyled) {
+      auto vertices = getVerticesSFML();
+      if (vertices.size() >= 4) {
+          sf::Color drawOutlineColor = scaledShape.getOutlineColor();
+          float baseThickness = m_thickness;
+          if (isSelected()) baseThickness += 2.0f;
+          else if (isHovered()) baseThickness += 1.0f;
+          float pixelThickness = std::round(baseThickness);
+          if (pixelThickness < 1.0f) pixelThickness = 1.0f;
+
+          for (size_t i = 0; i < vertices.size(); ++i) {
+              sf::Vector2f p1 = vertices[i];
+              sf::Vector2f p2 = vertices[(i + 1) % vertices.size()];
+              GeometricObject::drawStyledLine(window, p1, p2, m_lineStyle, pixelThickness, drawOutlineColor);
+          }
+      }
+  }
+
   // Draw selection highlight if selected
   if (isSelected()) {
     sf::ConvexShape highlight = m_sfmlShape;
@@ -676,6 +742,7 @@ void Rectangle::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
     highlight.setOutlineColor(Constants::SELECTION_COLOR);
     window.draw(highlight);
   } else if (isHovered()) {
+
     // If specific edge hovered, highlight ONLY that edge, OR highlight shape + edge
     // User requested "highlighted separately from whole shape".
     // We'll draw the whole shape with thinner/alpha cyan, and the edge with thick distinct color.
@@ -844,10 +911,19 @@ void Rectangle::updateDependentShape() {
       }
     }
 
-    if (m_corner1) m_corner1->setCGALPosition(flattenPoint(*t[0]));
-    if (m_cornerB) m_cornerB->setCGALPosition(flattenPoint(*t[1]));
-    if (m_corner2) m_corner2->setCGALPosition(flattenPoint(*t[2]));
-    if (m_cornerD) m_cornerD->setCGALPosition(flattenPoint(*t[3]));
+    if (m_isRotatable) {
+      // Rotatable explicit order is A(corner1), B(corner2), C(cornerB), D(cornerD)
+      if (m_corner1) m_corner1->setCGALPosition(flattenPoint(*t[0]));
+      if (m_corner2) m_corner2->setCGALPosition(flattenPoint(*t[1]));
+      if (m_cornerB) m_cornerB->setCGALPosition(flattenPoint(*t[2]));
+      if (m_cornerD) m_cornerD->setCGALPosition(flattenPoint(*t[3]));
+    } else {
+      // Axis-aligned explicit order is A(corner1), B(cornerB), C(corner2), D(cornerD)
+      if (m_corner1) m_corner1->setCGALPosition(flattenPoint(*t[0]));
+      if (m_cornerB) m_cornerB->setCGALPosition(flattenPoint(*t[1]));
+      if (m_corner2) m_corner2->setCGALPosition(flattenPoint(*t[2]));
+      if (m_cornerD) m_cornerD->setCGALPosition(flattenPoint(*t[3]));
+    }
 
     updateSFMLShape();
     updateHostedPoints();

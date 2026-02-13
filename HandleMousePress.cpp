@@ -1,3 +1,4 @@
+
 #include <SFML/Graphics.hpp>
 #include <algorithm>
 #include <cmath>
@@ -657,6 +658,42 @@ static std::shared_ptr<Line> getOrCreateHelperLineForEdge(GeometryEditor& editor
   return newLine;
 }
 
+// Helper to get consistent CCW ordering for 4 points (used for RotRect)
+static std::vector<std::shared_ptr<Point>> sortPointsCCW(const std::vector<std::shared_ptr<Point>>& pts) {
+  if (pts.size() != 4) return pts;
+  // Calculate centroid
+  double cx = 0, cy = 0;
+  for (const auto& p : pts) {
+    cx += CGAL::to_double(p->getCGALPosition().x());
+    cy += CGAL::to_double(p->getCGALPosition().y());
+  }
+  cx /= 4.0;
+  cy /= 4.0;
+  // Sort by angle around centroid (CCW)
+  std::vector<std::pair<double, std::shared_ptr<Point>>> sorted;
+  for (const auto& p : pts) {
+    double ang = std::atan2(CGAL::to_double(p->getCGALPosition().y()) - cy, CGAL::to_double(p->getCGALPosition().x()) - cx);
+    sorted.emplace_back(ang, p);
+  }
+  std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+  std::vector<std::shared_ptr<Point>> result;
+  for (auto& pair : sorted) result.push_back(pair.second);
+  // Find the top-left (smallest y, then x) to be index 0
+  int bestStart = 0;
+  double bestScore = 1e18;
+  for (int i = 0; i < 4; ++i) {
+    double y = CGAL::to_double(result[i]->getCGALPosition().y());
+    double x = CGAL::to_double(result[i]->getCGALPosition().x());
+    double score = y * 10000.0 + x;  // prioritize y, then x
+    if (score < bestScore) {
+      bestScore = score;
+      bestStart = i;
+    }
+  }
+  std::rotate(result.begin(), result.begin() + bestStart, result.end());
+  return result;
+}
+
 static std::shared_ptr<Point> createTransformedPoint(GeometryEditor& editor,
                                                      const std::shared_ptr<Point>& source,
                                                      ObjectType tool,
@@ -978,7 +1015,7 @@ static void registerTransformPoint(GeometryEditor& editor, const std::shared_ptr
   // 2. Ensure Visibility & Color (Purple for transformed points)
   newPoint->setVisible(true);
   newPoint->setColor(sf::Color::Magenta);  // Make them purple so you can see them!
-  newPoint->setDependent(true); // FIX: Transformed points must be dependent (locked)
+  newPoint->setDependent(true);            // FIX: Transformed points must be dependent (locked)
   editor.points.push_back(newPoint);
 
   editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(newPoint)));
@@ -1167,9 +1204,8 @@ static bool handleTranslationTool(GeometryEditor& editor,
 
       bool individualSuccess = false;
       // Edge transformation logic (only if we have exactly one source, for safety/existing behavior)
-      if (s_transformSourceCount == 1 &&
-          (sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
-           sourceShared->getType() == ObjectType::RegularPolygon)) {
+      if (s_transformSourceCount == 1 && (sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
+                                          sourceShared->getType() == ObjectType::RegularPolygon)) {
         if (tryTransformShapeEdge(editor, tempSelectedObjects, tool, sourceShared, nullptr, nullptr, nullptr, v1, v2)) {
           individualSuccess = true;
         }
@@ -1258,16 +1294,14 @@ static bool handleTranslationTool(GeometryEditor& editor,
           std::vector<std::shared_ptr<Point>> pts = {t1, t2, tb, td};
           Point_2 center(0, 0);
           for (const auto& p : pts) {
-               center = center + (p->getCGALPosition() - CGAL::ORIGIN);
+            center = center + (p->getCGALPosition() - CGAL::ORIGIN);
           }
           center = Point_2(center.x() / 4.0, center.y() / 4.0);
 
           std::sort(pts.begin(), pts.end(), [&](const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b) {
-              double angA = std::atan2(CGAL::to_double(a->getCGALPosition().y() - center.y()), 
-                                       CGAL::to_double(a->getCGALPosition().x() - center.x()));
-              double angB = std::atan2(CGAL::to_double(b->getCGALPosition().y() - center.y()), 
-                                       CGAL::to_double(b->getCGALPosition().x() - center.x()));
-              return angA < angB;
+            double angA = std::atan2(CGAL::to_double(a->getCGALPosition().y() - center.y()), CGAL::to_double(a->getCGALPosition().x() - center.x()));
+            double angB = std::atan2(CGAL::to_double(b->getCGALPosition().y() - center.y()), CGAL::to_double(b->getCGALPosition().x() - center.x()));
+            return angA < angB;
           });
 
           // Constructor expects:
@@ -1277,13 +1311,13 @@ static bool handleTranslationTool(GeometryEditor& editor,
 
           std::shared_ptr<Rectangle> newRect;
           if (rect->isRotatable()) {
-             // Rotatable: Pass (A, B, C, D) -> (0, 1, 2, 3)
-             newRect = std::make_shared<Rectangle>(pts[0], pts[1], pts[2], pts[3], rect->isRotatable(), rect->getColor(), editor.objectIdCounter++);
+            // Rotatable: Pass (A, B, C, D) -> (0, 1, 2, 3)
+            newRect = std::make_shared<Rectangle>(pts[0], pts[1], pts[2], pts[3], rect->isRotatable(), rect->getColor(), editor.objectIdCounter++);
           } else {
-             // Standard: Pass (A, C, B, D) -> (0, 2, 1, 3)
-             newRect = std::make_shared<Rectangle>(pts[0], pts[2], pts[1], pts[3], rect->isRotatable(), rect->getColor(), editor.objectIdCounter++);
+            // Standard: Pass (A, C, B, D) -> (0, 2, 1, 3)
+            newRect = std::make_shared<Rectangle>(pts[0], pts[2], pts[1], pts[3], rect->isRotatable(), rect->getColor(), editor.objectIdCounter++);
           }
-          
+
           newRect->setThickness(rect->getThickness());
           newRect->setDependent(true);
 
@@ -1614,9 +1648,8 @@ bool handleTransformationCreation(GeometryEditor& editor,
     bool individualSuccess = false;
 
     // Edge-only transformation for shapes (only if single source, for clarity)
-    if (s_transformSourceCount == 1 &&
-        (sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
-         sourceShared->getType() == ObjectType::RegularPolygon)) {
+    if (s_transformSourceCount == 1 && (sourceShared->getType() == ObjectType::Triangle || sourceShared->getType() == ObjectType::Polygon ||
+                                        sourceShared->getType() == ObjectType::RegularPolygon)) {
       if (tryTransformShapeEdge(editor, tempSelectedObjects, tool, sourceShared, pivotPoint, lineObj, circleObj, nullptr, nullptr)) {
         individualSuccess = true;
         // tryTransformShapeEdge calls clearTransformSelection, so we must exit
@@ -1729,9 +1762,9 @@ bool handleTransformationCreation(GeometryEditor& editor,
     //     center = Point_2(center.x() / 4.0, center.y() / 4.0);
 
     //     std::sort(pts.begin(), pts.end(), [&](const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b) {
-    //         double angA = std::atan2(CGAL::to_double(a->getCGALPosition().y() - center.y()), 
+    //         double angA = std::atan2(CGAL::to_double(a->getCGALPosition().y() - center.y()),
     //                                  CGAL::to_double(a->getCGALPosition().x() - center.x()));
-    //         double angB = std::atan2(CGAL::to_double(b->getCGALPosition().y() - center.y()), 
+    //         double angB = std::atan2(CGAL::to_double(b->getCGALPosition().y() - center.y()),
     //                                  CGAL::to_double(b->getCGALPosition().x() - center.x()));
     //         return angA < angB;
     //     });
@@ -1749,7 +1782,7 @@ bool handleTransformationCreation(GeometryEditor& editor,
     //         // Standard: Pass (A, C, B, D) -> (0, 2, 1, 3)
     //         newRect = std::make_shared<Rectangle>(pts[0], pts[2], pts[1], pts[3], rect->isRotatable(), rect->getColor(), editor.objectIdCounter++);
     //     }
-        
+
     //     newRect->setThickness(rect->getThickness());
     //     newRect->setDependent(true);
 
@@ -1775,81 +1808,76 @@ bool handleTransformationCreation(GeometryEditor& editor,
     // -----------------------------------------------------
     if (!individualSuccess && (sourceShared->getType() == ObjectType::Rectangle || sourceShared->getType() == ObjectType::RectangleRotatable)) {
       auto rect = std::dynamic_pointer_cast<Rectangle>(sourceShared);
-      
+
       // DECISION: Simple or Complex?
       bool useSimplePath = false;
-      
+
       // If it's a Standard Rectangle AND we are just Translating or Dilating...
       // We don't need 4 points. We just need the diagonal (A and C).
       if (!rect->isRotatable() && (tool == ObjectType::TranslateByVector || tool == ObjectType::DilateFromPoint)) {
-          useSimplePath = true;
+        useSimplePath = true;
       }
 
       if (useSimplePath) {
-          // --- PATH A: SIMPLE (2 Points) ---
-          // Just transform the Diagonal (Corner1 and Corner2)
-          auto p1 = rect->getCorner1Point(); // Bottom-Left
-          auto p2 = rect->getCorner2Point(); // Top-Right
-          
-          auto t1 = createTransformedPoint(editor, p1, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
-          auto t2 = createTransformedPoint(editor, p2, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+        // --- PATH A: SIMPLE (2 Points) ---
+        // Just transform the Diagonal (Corner1 and Corner2)
+        auto p1 = rect->getCorner1Point();  // Bottom-Left
+        auto p2 = rect->getCorner2Point();  // Top-Right
 
-          if (t1 && t2) {
-              registerTransformPoint(editor, t1);
-              registerTransformPoint(editor, t2);
-              
-              // 1. Create Rectangle using the 2-Point Constructor
-              // We explicitly pass 'rect->isRotatable()' (which should be false here) to match the signature
-              auto newRect = std::make_shared<Rectangle>(
-                  t1, 
-                  t2, 
-                  rect->isRotatable(), 
-                  rect->getColor(), 
-                  editor.objectIdCounter++
-              );
-              
-              newRect->setThickness(rect->getThickness());
-              newRect->setDependent(true);
-              
-              // 2. Metadata
-              std::shared_ptr<GeometricObject> auxObj;
-              if (tool == ObjectType::ReflectAboutLine) auxObj = lineObj;
-              else if (tool == ObjectType::ReflectAboutCircle) auxObj = circleObj;
-              else auxObj = pivotPoint;
-              
-              attachTransformMetadata(sourceShared, newRect, tool, auxObj, nullptr, nullptr);
+        auto t1 = createTransformedPoint(editor, p1, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
+        auto t2 = createTransformedPoint(editor, p2, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
 
-              // 3. CRASH FIX: Fetch the actual 4 points from the new object
-              // The constructor has already calculated the implicit corners (B and D).
-              // We pass these valid pointers instead of nullptr.
-              std::vector<std::shared_ptr<Point>> validLabelPts = {
-                  newRect->getCorner1Point(),
-                  newRect->getCornerBPoint(),
-                  newRect->getCorner2Point(),
-                  newRect->getCornerDPoint()
-              };
-              
-              applyRectangleVertexLabels(editor, newRect, validLabelPts); 
-              
-              editor.addObject(newRect);
-              editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newRect));
-              individualSuccess = true;
-          }
-      }
-      else {
-          // --- PATH B: COMPLEX (4 Points) ---
-          // Required for Rotation, Reflection, or if Source is already Rotated.
-          // FIX: No Angular Sort. Use Max-Distance to find Diagonal.
-          
+        if (t1 && t2) {
+          registerTransformPoint(editor, t1);
+          registerTransformPoint(editor, t2);
+
+          // 1. Create Rectangle using the 2-Point Constructor
+          // We explicitly pass 'rect->isRotatable()' (which should be false here) to match the signature
+          auto newRect = std::make_shared<Rectangle>(t1, t2, rect->isRotatable(), rect->getColor(), editor.objectIdCounter++);
+
+          newRect->setThickness(rect->getThickness());
+          newRect->setDependent(true);
+
+          // 2. Metadata
+          std::shared_ptr<GeometricObject> auxObj;
+          if (tool == ObjectType::ReflectAboutLine)
+            auxObj = lineObj;
+          else if (tool == ObjectType::ReflectAboutCircle)
+            auxObj = circleObj;
+          else
+            auxObj = pivotPoint;
+
+          attachTransformMetadata(sourceShared, newRect, tool, auxObj, nullptr, nullptr);
+
+          // 3. CRASH FIX: Fetch the actual 4 points from the new object
+          // The constructor has already calculated the implicit corners (B and D).
+          // We pass these valid pointers instead of nullptr.
+          std::vector<std::shared_ptr<Point>> validLabelPts = {newRect->getCorner1Point(), newRect->getCornerBPoint(), newRect->getCorner2Point(),
+                                                               newRect->getCornerDPoint()};
+
+          applyRectangleVertexLabels(editor, newRect, validLabelPts);
+
+          editor.addObject(newRect);
+          editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, newRect));
+          individualSuccess = true;
+        }
+      } else {
+          // --- PATH B: COMPLEX (4 Points + Spatial Sort) ---
+          // Emulate ProjectSerializer logic to handle Reflections/Rotations robustly.
+
           std::vector<std::shared_ptr<Point>> tPts;
+          
+          // 1. Collect Source Points (Order doesn't matter for geometry, only for labels)
           std::vector<std::shared_ptr<Point>> srcPts = {
-              rect->getCorner1Point(), rect->getCornerBPoint(), 
-              rect->getCorner2Point(), rect->getCornerDPoint()
+              rect->getCorner1Point(), // A
+              rect->getCorner2Point(), // B
+              rect->getCornerBPoint(), // C
+              rect->getCornerDPoint()  // D
           };
 
-          // 1. Transform points (Preserve Order for Label Correspondence)
+          // 2. Transform points
           for (auto& p : srcPts) {
-              if(!p) continue; 
+              if(!p) continue;
               auto t = createTransformedPoint(editor, p, tool, pivotPoint, lineObj, circleObj, nullptr, nullptr);
               if (t) tPts.push_back(t);
           }
@@ -1857,77 +1885,57 @@ bool handleTransformationCreation(GeometryEditor& editor,
           if (tPts.size() == 4) {
               for (auto& p : tPts) registerTransformPoint(editor, p);
 
-              // 2. GEOMETRIC DIAGONAL DETECTION
-              // We need to find which pair of points forms the Diagonal (Max Distance).
-              // We do NOT sort the vector, so tPts[i] corresponds to srcPts[i].
-              
-              int d1_idx = 0;
-              int d2_idx = 1;
-              double maxDistSq = -1.0;
+              // 3. SPATIAL SORT (The Serializer Strategy) 
+              // We create a copy 'orderedPts' to sort geometrically without breaking label mapping in 'tPts'.
+              std::vector<std::shared_ptr<Point>> orderedPts = tPts;
 
-              for(int i=0; i<4; ++i) {
-                  for(int j=i+1; j<4; ++j) {
-                      double d = CGAL::to_double(CGAL::squared_distance(tPts[i]->getCGALPosition(), tPts[j]->getCGALPosition()));
-                      if (d > maxDistSq) {
-                          maxDistSq = d;
-                          d1_idx = i;
-                          d2_idx = j;
-                      }
-                  }
+              // A. Calculate Centroid
+              double cx = 0.0, cy = 0.0;
+              for (const auto& p : orderedPts) {
+                  auto pos = p->getCGALPosition();
+                  cx += CGAL::to_double(pos.x());
+                  cy += CGAL::to_double(pos.y());
               }
+              cx *= 0.25; cy *= 0.25;
 
-              // Identify the other two (Adjacent) points
-              std::vector<std::shared_ptr<Point>> adjPts;
-              for(int i=0; i<4; ++i) {
-                  if (i != d1_idx && i != d2_idx) {
-                      adjPts.push_back(tPts[i]);
-                  }
-              }
+              // B. Sort by Angle (CCW)
+              // This fixes the "Bowtie" effect by forcing a valid perimeter winding 
+              std::sort(orderedPts.begin(), orderedPts.end(), [cx, cy](const std::shared_ptr<Point>& a, const std::shared_ptr<Point>& b) {
+                  auto posA = a->getCGALPosition();
+                  auto posB = b->getCGALPosition();
+                  double angA = std::atan2(CGAL::to_double(posA.y()) - cy, CGAL::to_double(posA.x()) - cx);
+                  double angB = std::atan2(CGAL::to_double(posB.y()) - cy, CGAL::to_double(posB.x()) - cx);
+                  return angA < angB;
+              });
 
-                // 3. CREATE RECTANGLE
-                // Constructor expects (Corner1, Corner2, CornerB, CornerD).
-                // For rotatable rectangles, tPts order here is [A, C, B, D]
-                // because srcPts was collected as [corner1, cornerB, corner2, cornerD].
-                std::shared_ptr<Rectangle> newRect;
-                if (rect->isRotatable()) {
-                  newRect = std::make_shared<Rectangle>(
-                    tPts[0], // A -> corner1
-                    tPts[1], // B -> corner2
-                    tPts[2], // C -> cornerB
-                    tPts[3], // D -> cornerD
-                    true,
-                    rect->getColor(),
-                    editor.objectIdCounter++
-                  );
-                } else {
-                  // Axis-aligned path: diagonal pair first (existing behavior)
-                  newRect = std::make_shared<Rectangle>(
-                    tPts[d1_idx], // Diagonal Start
-                    tPts[d2_idx], // Diagonal End
-                    adjPts[0],    // Adjacent 1
-                    adjPts[1],    // Adjacent 2
-                    false,
-                    rect->getColor(),
-                    editor.objectIdCounter++
-                  );
-                }
+              // 4. CREATE RECTANGLE using SORTED points
+              // Rotatable Constructor expects perimeter order (0->1->2->3)
+              auto newRect = std::make_shared<Rectangle>(
+                  orderedPts[0], 
+                  orderedPts[1], 
+                  orderedPts[2], 
+                  orderedPts[3], 
+                  true, // Always true for transformed shapes
+                  rect->getColor(),
+                  editor.objectIdCounter++
+              );
 
               newRect->setThickness(rect->getThickness());
               newRect->setDependent(true);
               
-              // Force Linkage
+              // Force Linkage (All points must drive the rect)
               for(auto& p : tPts) p->addDependent(newRect);
 
+              // 5. Metadata
               std::shared_ptr<GeometricObject> auxObj;
               if (tool == ObjectType::ReflectAboutLine) auxObj = lineObj;
               else if (tool == ObjectType::ReflectAboutCircle) auxObj = circleObj;
               else auxObj = pivotPoint;
 
               attachTransformMetadata(sourceShared, newRect, tool, auxObj, nullptr, nullptr);
-              
-              // 4. APPLY LABELS (Preserving Correspondence)
-              // We pass the original 'tPts' vector which matches source order.
-              // Since isTransform is true, the labeler will respect the existing labels (A', B'...)
+
+              // 6. APPLY LABELS using ORIGINAL 'tPts' (Preserves A->A' mapping)
+              // We use tPts here so that A' lands on the point derived from A, regardless of where the Sort moved it.
               applyRectangleVertexLabels(editor, newRect, tPts);
 
               editor.addObject(newRect);
@@ -2237,69 +2245,6 @@ static void assignUnifiedLabels(GeometryEditor& editor, const std::vector<std::s
   }
 }
 
-// Helper to get consistent CCW ordering for 4 points
-static std::vector<std::shared_ptr<Point>> sortPointsCCW(const std::vector<std::shared_ptr<Point>>& pts) {
-  if (pts.size() != 4) return pts;
-
-  // Calculate centroid
-  double cx = 0, cy = 0;
-  int count = 0;
-  for (const auto& p : pts) {
-    if (!p) continue;
-    Point_2 pos = p->getCGALPosition();
-    cx += CGAL::to_double(pos.x());
-    cy += CGAL::to_double(pos.y());
-    count++;
-  }
-  if (count == 0) return pts;
-  cx /= (double)count;
-  cy /= (double)count;
-
-  // Sort by angle around centroid
-  // Standard Cartesian: atan2(y, x) gives angle from Positive X axis
-  // Increasing angle = Counter-Clockwise
-  std::vector<std::pair<double, std::shared_ptr<Point>>> sorted;
-  for (const auto& p : pts) {
-    if (!p) continue;
-    Point_2 pos = p->getCGALPosition();
-    double dx = CGAL::to_double(pos.x()) - cx;
-    double dy = CGAL::to_double(pos.y()) - cy;
-    double angle = std::atan2(dy, dx);
-    sorted.push_back({angle, p});
-  }
-
-  // Sort: -PI to PI (Increasing angle = CCW)
-  std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-
-  std::vector<std::shared_ptr<Point>> result;
-  for (auto& pair : sorted) result.push_back(pair.second);
-
-  // Find "Top Left" vertex to be index 0
-  int bestStart = 0;
-  double bestScore = -1e18;
-  for (int i = 0; i < 4; ++i) {
-    Point_2 p = result[i]->getCGALPosition();
-    // TL heuristic: Max Y, Min X. (Using Y - X score)
-    double score = CGAL::to_double(p.y()) - CGAL::to_double(p.x());
-    if (score > bestScore) {
-      bestScore = score;
-      bestStart = i;
-    }
-  }
-
-  // Rotate result so bestStart (Top-Left) is at index 0
-  std::rotate(result.begin(), result.begin() + bestStart, result.end());
-
-  // CRITICAL: The angular sort (atan2 ascending) produced a specific winding.
-  // If the user sees Clockwise, we REVERSE the direction of the cycle (keeping TL at 0).
-  // TL, P1, P2, P3 -> TL, P3, P2, P1
-  if (result.size() == 4) {
-    std::swap(result[1], result[3]);
-  }
-
-  return result;
-}
-
 static void applyRectangleVertexLabels(GeometryEditor& editor,
                                        const std::shared_ptr<Rectangle>& rect,
                                        const std::vector<std::shared_ptr<Point>>& explicitPoints) {
@@ -2338,9 +2283,12 @@ static void applyRectangleVertexLabels(GeometryEditor& editor,
     };
 
     for (const auto& vPos : verts) {
-      if (CGAL::squared_distance(vPos, c1->getCGALPosition()) < 1e-6) corners.push_back(c1);
-      else if (CGAL::squared_distance(vPos, c2->getCGALPosition()) < 1e-6) corners.push_back(c2);
-      else corners.push_back(findOrCreatePoint(vPos));
+      if (CGAL::squared_distance(vPos, c1->getCGALPosition()) < 1e-6)
+        corners.push_back(c1);
+      else if (CGAL::squared_distance(vPos, c2->getCGALPosition()) < 1e-6)
+        corners.push_back(c2);
+      else
+        corners.push_back(findOrCreatePoint(vPos));
     }
   }
 
@@ -2357,7 +2305,7 @@ static void applyRectangleVertexLabels(GeometryEditor& editor,
 
   // --- LABELING LOGIC ---
   bool isTransform = (rect->getTransformType() != TransformationType::None);
-  
+
   if (isTransform) {
     // Transformation Logic (Preserve Correspondence)
     std::vector<std::string> existing;
@@ -2376,8 +2324,7 @@ static void applyRectangleVertexLabels(GeometryEditor& editor,
         }
       }
     }
-  } 
-  else {
+  } else {
     // --- FRESH RECTANGLE LOGIC ---
     auto sorted = sortPointsCCW(corners);
 
@@ -2385,19 +2332,23 @@ static void applyRectangleVertexLabels(GeometryEditor& editor,
     // Problem: The "Height Control Point" (Click 3) grabbed label "C" but is hidden/unused.
     // Solution: Find any HIDDEN points that are NOT our corners, and strip their labels.
     // This releases "C" back into the pool so our corners can become A, B, C, D.
-    
+
     // Access points directly from editor to scan for the "Ghost C"
     for (auto& p : editor.points) {
-        // If point is Hidden, has a label, and is NOT one of our new corners...
-        if (!p->isVisible() && !p->getLabel().empty()) {
-            bool isCorner = false;
-            for(auto& c : sorted) if (c == p) { isCorner = true; break; }
-            
-            if (!isCorner) {
-                // It's the ghost point! Steal its label.
-                p->setLabel(""); 
-            }
+      // If point is Hidden, has a label, and is NOT one of our new corners...
+      if (!p->isVisible() && !p->getLabel().empty()) {
+        bool isCorner = false;
+        for (auto& c : sorted)
+          if (c == p) {
+            isCorner = true;
+            break;
+          }
+
+        if (!isCorner) {
+          // It's the ghost point! Steal its label.
+          p->setLabel("");
         }
+      }
     }
     // [FIX END]
 
@@ -2412,7 +2363,7 @@ static void applyRectangleVertexLabels(GeometryEditor& editor,
     for (size_t i = 0; i < sorted.size() && i < 4 && i < labelsToUse.size(); ++i) {
       if (sorted[i]) {
         sorted[i]->setLabel(labelsToUse[i]);
-        sorted[i]->setShowLabel(false); // Or true if you want them visible by default
+        sorted[i]->setShowLabel(false);  // Or true if you want them visible by default
       }
     }
   }
@@ -4054,39 +4005,23 @@ void handleRotatableRectangleCreation(GeometryEditor& editor, const sf::Event::M
         if (cornerA && !editor.rectangleCorner1Point) cornerA->setCreatedWithShape(true);
         if (cornerB && !editor.rectangleCorner2Point) cornerB->setCreatedWithShape(true);
 
-        // 2. Calculate corners C and D (Top Edge) explicitly
-        // Normal vector (rotated 90 degrees)
-        // double nx = -uy; // UNUSED
-        // ux = -dy/L, uy = dx/L
-        // We used signedHeight = (vx*ux + vy*uy)
-        // The direction of height depends on sign.
-
-        // Let's perform the vector math robustly:
-        // Base Vector U = (dx, dy) / len
-        // Normal Vector V = (-dy, dx) / len  (90 deg CCW)
-        // Offset = V * signedHeight
-
-        // Note: ux/uy in original code seemed to be the Normal vector?
-        // ux = -dy/baseLen, uy = dx/baseLen. Yes, that is (-y, x), which is +90 deg CCW.
-
+        // Build perimeter corners from base and signed normal offset:
+        // A=baseStart, B=baseEnd, C=B+offset, D=A+offset.
+        // Keep this order stable so edges stay on the perimeter (no bow-tie).
         double offsetX = ux * signedHeight;
         double offsetY = uy * signedHeight;
-
         Point_2 posC = Point_2(baseEnd.x() + offsetX, baseEnd.y() + offsetY);
         Point_2 posD = Point_2(baseStart.x() + offsetX, baseStart.y() + offsetY);
-
         auto cornerC = editor.createPoint(posC);
         auto cornerD = editor.createPoint(posD);
-
         cornerC->setCreatedWithShape(true);
         cornerD->setCreatedWithShape(true);
 
-        // 3. Create Rectangle with fully connected constructor
-        // Order: A, B, C, D (where B is base-end, C is top-right, D is top-left)
-        // Matches Rotatable mapping: 1=A, 2=B, B=C, D=D
-        auto newRectangle = std::make_shared<Rectangle>(cornerA, cornerB, cornerC, cornerD, true, editor.getCurrentColor(), editor.objectIdCounter++);
+        auto ccwCorners = sortPointsCCW({cornerA, cornerB, cornerC, cornerD});
+        auto newRectangle = std::make_shared<Rectangle>(ccwCorners[0], ccwCorners[1], ccwCorners[2], ccwCorners[3], true, editor.getCurrentColor(),
+                                                        editor.objectIdCounter++);
 
-        applyRectangleVertexLabels(editor, newRectangle);
+        applyRectangleVertexLabels(editor, newRectangle, ccwCorners);
         newRectangle->setThickness(editor.currentThickness);
 
         // Automatic label

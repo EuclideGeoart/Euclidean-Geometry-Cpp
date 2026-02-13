@@ -197,15 +197,23 @@ void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) cons
         }
         window.draw(fan);
 
-        // 3. Draw Outline (Using Sharp Lines)
+        // 3. Draw Outline (Using Sharp Lines with Style Support)
         sf::Vector2f prevPos = fan[1].position;
         for (int i = 1; i <= segments; ++i) {
             sf::Vector2f currPos = fan[i+1].position;
-            drawSharpLine(prevPos, currPos); // Draw arc segment
+            if (m_lineStyle == LineStyle::Solid) {
+                drawSharpLine(prevPos, currPos);
+            } else {
+                GeometricObject::drawStyledLine(window, prevPos, currPos, m_lineStyle, pixelThickness, outlineColor);
+            }
             prevPos = currPos;
         }
         // Draw Diameter
-        drawSharpLine(pStart, pEnd);
+        if (m_lineStyle == LineStyle::Solid) {
+            drawSharpLine(pStart, pEnd);
+        } else {
+            GeometricObject::drawStyledLine(window, pStart, pEnd, m_lineStyle, pixelThickness, outlineColor);
+        }
     }
     // =========================================================
     // CASE 2: NORMAL CIRCLE & 3-POINT CIRCLE
@@ -218,8 +226,8 @@ void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) cons
         circleShape.setFillColor(fillColor);
         circleShape.setOutlineThickness(0); // We draw outline manually for sharpness
         window.draw(circleShape);
-
-        // 2. Draw Sharp Outline Ring
+ 
+        // 2. Draw Sharp Outline Ring with Style Support
         double dAng = 2 * M_PI / segments;
         sf::Vector2f prev(center.x + radius, center.y);
         
@@ -227,7 +235,11 @@ void Circle::draw(sf::RenderWindow &window, float scale, bool forceVisible) cons
             double ang = i * dAng;
             sf::Vector2f curr(center.x + radius * std::cos(ang), center.y + radius * std::sin(ang));
             
-            drawSharpLine(prev, curr); // Use the helper!
+            if (m_lineStyle == LineStyle::Solid) {
+                drawSharpLine(prev, curr);
+            } else {
+                GeometricObject::drawStyledLine(window, prev, curr, m_lineStyle, pixelThickness, outlineColor);
+            }
             prev = curr;
         }
     }

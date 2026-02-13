@@ -15,10 +15,11 @@ void RayObject::draw(sf::RenderWindow &window, float scale, bool forceVisible) c
   float extent = std::max(10000.0f, 1000.0f * scale);
   sf::Vector2f farPoint = p1 + dir * extent;
 
-  sf::VertexArray line(sf::Lines, 2);
-  line[0] = sf::Vertex(p1, getColor());
-  line[1] = sf::Vertex(farPoint, getColor());
-  window.draw(line);
+  float pixelThickness = std::max(1.0f, std::round(m_thickness));
+  if (isSelected()) pixelThickness += 2.0f;
+  else if (isHovered()) pixelThickness += 1.0f;
+
+  GeometricObject::drawStyledLine(window, p1, farPoint, m_lineStyle, pixelThickness, getColor());
 
   if (isSelected()) {
     sf::CircleShape marker(Constants::POINT_RADIUS_SELECTED);

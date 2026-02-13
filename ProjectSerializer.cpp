@@ -404,6 +404,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         lnJson["color"] = colorToHex(ln->getColor());
         lnJson["thickness"] = ln->getThickness();
         lnJson["decoration"] = static_cast<int>(ln->getDecoration());
+        lnJson["lineStyle"] = static_cast<int>(ln->getLineStyle());
         lnJson["lineType"] = static_cast<int>(ln->getLineType());
 
         addTransformMetadata(lnJson, ln);
@@ -464,6 +465,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         ciJson["id"] = ci->getID();
         ciJson["color"] = colorToHex(ci->getColor());
         ciJson["thickness"] = ci->getThickness();
+        ciJson["lineStyle"] = static_cast<int>(ci->getLineStyle());
 
         addTransformMetadata(ciJson, ci);
 
@@ -539,6 +541,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         rectJson["vertexIds"] = rectVertexIds;
         rectJson["color"] = colorToHex(rect->getColor());
         rectJson["thickness"] = rect->getThickness();
+        rectJson["lineStyle"] = static_cast<int>(rect->getLineStyle());
         rectJson["isRotatable"] = rect->isRotatable();
         rectJson["height"] = rect->getHeight();
         rectJson["width"] = rect->getWidth();
@@ -583,6 +586,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         polyJson["vertexIds"] = vertexIdsJson;
         polyJson["color"] = colorToHex(poly->getColor());
         polyJson["thickness"] = poly->getThickness();
+        polyJson["lineStyle"] = static_cast<int>(poly->getLineStyle());
         // FIX: Save Label Data
         polyJson["label"] = poly->getLabel();
         polyJson["showLabel"] = poly->getShowLabel();
@@ -624,6 +628,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         triJson["vertices"] = verticesJson;
         triJson["color"] = colorToHex(tri->getColor());
         triJson["thickness"] = tri->getThickness();
+        triJson["lineStyle"] = static_cast<int>(tri->getLineStyle());
         // FIX: Save Label Data
         triJson["label"] = tri->getLabel();
         triJson["showLabel"] = tri->getShowLabel();
@@ -662,6 +667,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         rpolyJson["sides"] = rpoly->getNumSides();
         rpolyJson["color"] = colorToHex(rpoly->getColor());
         rpolyJson["thickness"] = rpoly->getThickness();
+        rpolyJson["lineStyle"] = static_cast<int>(rpoly->getLineStyle());
         regularPolygonsArray.push_back(rpolyJson);
       }
     }
@@ -747,6 +753,7 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         tJson["solutionIndex"] = tangent->getSolutionIndex();
         tJson["color"] = colorToHex(tangent->getColor());
         tJson["thickness"] = tangent->getThickness();
+        tJson["lineStyle"] = static_cast<int>(tangent->getLineStyle());
         tangentsArray.push_back(tJson);
       }
     }
@@ -1054,6 +1061,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 auto pb = std::make_shared<PerpendicularBisector>(p1, p2, id, color);
                 pb->setDependent(true);
                 pb->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                if (jObj.contains("lineStyle")) {
+                  pb->setLineStyle(static_cast<LineStyle>(jObj.value("lineStyle", 0)));
+                }
                 p1->addDependent(pb);
                 p2->addDependent(pb);
                 obj = pb;
@@ -1069,6 +1079,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                   auto ab = std::make_shared<AngleBisector>(l1, l2, id, isExternal, color);
                   ab->setDependent(true);
                   ab->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                  if (jObj.contains("lineStyle")) {
+                    ab->setLineStyle(static_cast<LineStyle>(jObj.value("lineStyle", 0)));
+                  }
                   l1->addDependent(ab);
                   l2->addDependent(ab);
                   obj = ab;
@@ -1081,6 +1094,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                   auto ab = std::make_shared<AngleBisector>(v, a, b, id, isExternal, color);
                   ab->setDependent(true);
                   ab->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+                  if (jObj.contains("lineStyle")) {
+                    ab->setLineStyle(static_cast<LineStyle>(jObj.value("lineStyle", 0)));
+                  }
                   a->addDependent(ab);
                   v->addDependent(ab);
                   b->addDependent(ab);
@@ -1116,6 +1132,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                 auto ln = std::make_shared<Line>(start, end, true, color, id); 
                 ln->setLineType((Line::LineType)lType); 
           ln->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+          if (jObj.contains("lineStyle")) {
+            ln->setLineStyle(static_cast<LineStyle>(jObj.value("lineStyle", 0)));
+          }
           if (jObj.contains("decoration")) {
             ln->setDecoration(static_cast<DecorationType>(jObj.value("decoration", 0)));
           }
@@ -1150,6 +1169,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                  auto ln = std::make_shared<Line>(start, end, false, color, id);
                  ln->setLineType((Line::LineType)lType);
            ln->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+           if (jObj.contains("lineStyle")) {
+             ln->setLineStyle(static_cast<LineStyle>(jObj.value("lineStyle", 0)));
+           }
            if (jObj.contains("decoration")) {
              ln->setDecoration(static_cast<DecorationType>(jObj.value("decoration", 0)));
            }
@@ -1178,6 +1200,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
              }
              if (auto ci = std::dynamic_pointer_cast<Circle>(obj)) {
                ci->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+               if (jObj.contains("lineStyle")) {
+                 ci->setLineStyle(static_cast<LineStyle>(jObj.value("lineStyle", 0)));
+               }
              }
            }
         }
@@ -1371,6 +1396,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             auto obj = getOrCreate(item.value("id", 0u));
             if (auto ln = std::dynamic_pointer_cast<Line>(obj)) {
               ln->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+              if (item.contains("lineStyle")) {
+                ln->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+              }
               if (item.contains("decoration")) {
                 ln->setDecoration(static_cast<DecorationType>(item.value("decoration", 0)));
               }
@@ -1443,6 +1471,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
           if (ci) {
             ci->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+            if (item.contains("lineStyle")) {
+              ci->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+            }
             // Ensure circle is in editor.circles only once
             if (std::find(editor.circles.begin(), editor.circles.end(), ci) == editor.circles.end()) {
               editor.circles.push_back(ci);
@@ -1510,6 +1541,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
                                                  item.value("id", 0u),
                                                  hexToColor(item.value("color", "#00FFFF")));
         tan->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (item.contains("lineStyle")) {
+          tan->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+        }
         editor.lines.push_back(tan);
       }
     }
@@ -1629,6 +1663,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             rect->setLabel(jShape.value("label", ""));
             rect->setShowLabel(jShape.value("showLabel", false));
             rect->setThickness(jShape.value("thickness", 2.0f));
+            if (jShape.contains("lineStyle")) {
+              rect->setLineStyle(static_cast<LineStyle>(jShape.value("lineStyle", 0)));
+            }
             if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
               rect->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(),
                                                 jShape["labelOffsetY"].get<float>()));
@@ -1644,6 +1681,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         poly->setLabel(jShape.value("label", ""));
         poly->setShowLabel(jShape.value("showLabel", false));
         poly->setThickness(jShape.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (jShape.contains("lineStyle")) {
+          poly->setLineStyle(static_cast<LineStyle>(jShape.value("lineStyle", 0)));
+        }
         if (jShape.contains("labelOffsetX") && jShape.contains("labelOffsetY")) {
           poly->setLabelOffset(sf::Vector2f(jShape["labelOffsetX"].get<float>(),
                                             jShape["labelOffsetY"].get<float>()));
@@ -1685,6 +1725,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         tri->setLabel(item.value("label", ""));
         tri->setShowLabel(item.value("showLabel", false));
         tri->setThickness(item.value("thickness", 2.0));
+        if (item.contains("lineStyle")) {
+          tri->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+        }
         if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
           tri->setLabelOffset(sf::Vector2f(item["labelOffsetX"].get<float>(),
                                            item["labelOffsetY"].get<float>()));
@@ -1715,6 +1758,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         bool jsonDependent = item.value("isDependent", false);
         rp->setDependent(jsonDependent && hasTransformParent(item));
         rp->setThickness(item.value("thickness", 2.0));
+        if (item.contains("lineStyle")) {
+          rp->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+        }
         rp->setLabel(item.value("label", ""));
         rp->setShowLabel(item.value("showLabel", false));
         if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
@@ -2153,6 +2199,9 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
         auto ci = std::make_shared<Circle>(center.get(), radPt, r, color);
         ci->setID(id);
         ci->setThickness(jCi.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (jCi.contains("lineStyle")) {
+          ci->setLineStyle(static_cast<LineStyle>(jCi.value("lineStyle", 0)));
+        }
         applyTransformMetadata(jCi, ci);
         editor.circles.push_back(ci);
         registerInMap(id, ci);
@@ -2171,6 +2220,9 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
         auto ln = std::make_shared<Line>(start, end, jLn.value("isSegment", false), color, id);
         ln->registerWithEndpoints();
         ln->setThickness(jLn.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (jLn.contains("lineStyle")) {
+          ln->setLineStyle(static_cast<LineStyle>(jLn.value("lineStyle", 0)));
+        }
         ln->setLineType(static_cast<Line::LineType>(jLn.value("lineType", 1)));
         applyTransformMetadata(jLn, ln);
         editor.lines.push_back(ln);
@@ -2363,6 +2415,9 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
                 }
 
                 rect->setThickness(jRect.value("thickness", 2.0f));
+                if (jRect.contains("lineStyle")) {
+                  rect->setLineStyle(static_cast<LineStyle>(jRect.value("lineStyle", 0)));
+                }
                 finalizeExplicitRectangle(jRect, rect, vPts);
                 
                 // CRITICAL FIX: Ensure vertices are visible for Rotatable Rectangles
@@ -2455,6 +2510,9 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
         }
 
         polygon->setThickness(polyJson.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (polyJson.contains("lineStyle")) {
+          polygon->setLineStyle(static_cast<LineStyle>(polyJson.value("lineStyle", 0)));
+        }
 
         applyTransformMetadata(polyJson, polygon);
 
@@ -2484,7 +2542,9 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
           if (p1 && p2 && p3) {
             auto tri = std::make_shared<Triangle>(p1, p2, p3, colorFromJson(jTri["color"], sf::Color::Black), id);
             tri->setThickness(jTri.value("thickness", 2.0));
-            tri->setThickness(jTri.value("thickness", 2.0));
+            if (jTri.contains("lineStyle")) {
+              tri->setLineStyle(static_cast<LineStyle>(jTri.value("lineStyle", 0)));
+            }
             // FIX: Load Label Data
             if (jTri.contains("label")) tri->setLabel(jTri.value("label", ""));
             if (jTri.contains("showLabel")) tri->setShowLabel(jTri.value("showLabel", false));
@@ -2517,6 +2577,9 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
           auto rp = std::make_shared<RegularPolygon>(center, v1, sides, colorFromJson(jRp["color"], sf::Color::Black), 0);
           rp->setID(id);  // Set ID before map registration
           rp->setThickness(jRp.value("thickness", 2.0));
+          if (jRp.contains("lineStyle")) {
+            rp->setLineStyle(static_cast<LineStyle>(jRp.value("lineStyle", 0)));
+          }
           applyTransformMetadata(jRp, rp);
           editor.regularPolygons.push_back(rp);
           registerInMap(id, rp);

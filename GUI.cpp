@@ -1279,6 +1279,25 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
         }
       }
 
+      // Line Style (Universal: applies to all objects with outlines/strokes)
+      if (editor.selectedObject) {
+        auto type = editor.selectedObject->getType();
+        if (type == ObjectType::Line || type == ObjectType::LineSegment || 
+            type == ObjectType::Ray || type == ObjectType::Vector ||
+            type == ObjectType::Circle || type == ObjectType::Rectangle || 
+            type == ObjectType::RectangleRotatable || type == ObjectType::Triangle ||
+            type == ObjectType::Polygon || type == ObjectType::RegularPolygon) {
+          
+          const char* lineStyles[] = {"Solid", "Dashed", "Dotted"};
+          int currentStyle = static_cast<int>(editor.selectedObject->getLineStyle());
+          
+          if (ImGui::Combo("Line Style", &currentStyle, lineStyles, IM_ARRAYSIZE(lineStyles))) {
+            editor.selectedObject->setLineStyle(static_cast<LineStyle>(currentStyle));
+          }
+        }
+      }
+
+
       ImGui::Separator();
       ImGui::Text("Canvas");
       static float bgBuf[3] = {(float)editor.backgroundColor.r / 255.f, (float)editor.backgroundColor.g / 255.f,

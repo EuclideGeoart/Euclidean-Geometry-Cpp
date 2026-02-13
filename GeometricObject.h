@@ -112,6 +112,10 @@ class GeometricObject {
   virtual void setThickness(float thickness) { m_thickness = thickness; }
   virtual float getThickness() const { return m_thickness; }
 
+  // Line Style (Solid/Dashed/Dotted rendering)
+  virtual void setLineStyle(LineStyle style) { m_lineStyle = style; }
+  virtual LineStyle getLineStyle() const { return m_lineStyle; }
+
   // Vertex handle size (used by shapes with draggable vertices)
   virtual void setVertexHandleSize(float size) { m_vertexHandleSize = size; }
   virtual float getVertexHandleSize() const { return m_vertexHandleSize; }
@@ -180,6 +184,15 @@ class GeometricObject {
   // Generic Halo Helper
   virtual void drawHalo(sf::RenderTarget& target, float radius) const;
 
+  // Line Style Rendering Helper (static utility function)
+  static void drawStyledLine(sf::RenderWindow& window, 
+                              const sf::Vector2f& start, 
+                              const sf::Vector2f& end,
+                              LineStyle style, 
+                              float thickness, 
+                              const sf::Color& color);
+
+
   // Hosted ObjectPoint management (Generic for all shapes)
   virtual void addChildPoint(std::shared_ptr<ObjectPoint> point);
   virtual void removeChildPoint(ObjectPoint* point);
@@ -215,6 +228,7 @@ class GeometricObject {
   float m_thickness = Constants::LINE_THICKNESS_DEFAULT;
   float m_vertexHandleSize = 4.0f;
   DecorationType m_decoration = DecorationType::None;
+  LineStyle m_lineStyle = LineStyle::Solid;  // Default to solid lines
 
   std::vector<std::weak_ptr<GeometricObject>> m_dependents;
   std::shared_ptr<GeometricObject> m_selfHandle;

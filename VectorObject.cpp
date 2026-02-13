@@ -8,10 +8,11 @@ void VectorObject::draw(sf::RenderWindow &window, float scale, bool forceVisible
   sf::Vector2f p1 = getStartPointObjectShared() ? getStartPointObjectShared()->getSFMLPosition() : sf::Vector2f();
   sf::Vector2f p2 = getEndPointObjectShared() ? getEndPointObjectShared()->getSFMLPosition() : sf::Vector2f();
 
-  sf::VertexArray line(sf::Lines, 2);
-  line[0] = sf::Vertex(p1, getColor());
-  line[1] = sf::Vertex(p2, getColor());
-  window.draw(line);
+  float pixelThickness = std::max(1.0f, std::round(m_thickness));
+  if (isSelected()) pixelThickness += 2.0f;
+  else if (isHovered()) pixelThickness += 1.0f;
+
+  GeometricObject::drawStyledLine(window, p1, p2, m_lineStyle, pixelThickness, getColor());
 
   sf::Vector2f dir = p2 - p1;
   float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);

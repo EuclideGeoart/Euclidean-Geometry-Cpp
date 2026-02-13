@@ -78,7 +78,14 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
   if ((!isVisible() && !forceVisible) || m_vertices.size() < 3) return;
 
   sf::ConvexShape shape = m_sfmlShape;
-  shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+  
+  // If styled (dashed/dotted), we disable the SFML outline and draw manually
+  bool isStyled = (m_lineStyle != LineStyle::Solid);
+  if (isStyled) {
+      shape.setOutlineThickness(0);
+  } else {
+      shape.setOutlineThickness(m_sfmlShape.getOutlineThickness() * scale);
+  }
 
   // GHOST MODE: Apply transparency if hidden but forced visible
   if (!isVisible() && forceVisible) {
@@ -92,6 +99,25 @@ void Polygon::draw(sf::RenderWindow &window, float scale, bool forceVisible) con
   }
 
   window.draw(shape);
+
+  // --- Styled Outline Rendering ---
+  if (isStyled) {
+      auto sfmlVerts = getVerticesSFML();
+      if (sfmlVerts.size() >= 3) {
+          sf::Color drawOutlineColor = m_sfmlShape.getOutlineColor();
+          float baseThickness = m_thickness;
+          if (isSelected()) baseThickness += 2.0f;
+          else if (isHovered()) baseThickness += 1.0f;
+          float pixelThickness = std::round(baseThickness);
+          if (pixelThickness < 1.0f) pixelThickness = 1.0f;
+
+          for (size_t i = 0; i < sfmlVerts.size(); ++i) {
+              sf::Vector2f p1 = sfmlVerts[i];
+              sf::Vector2f p2 = sfmlVerts[(i + 1) % sfmlVerts.size()];
+              GeometricObject::drawStyledLine(window, p1, p2, m_lineStyle, pixelThickness, drawOutlineColor);
+          }
+      }
+  }
 
   // Delegate drawing to the constituent points
   for (auto& pt : m_vertices) {

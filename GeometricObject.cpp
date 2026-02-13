@@ -3,6 +3,7 @@
 #include <CGAL/squared_distance_2.h>
 #include <algorithm>
 #include <iostream>
+#include <cmath>
 
 // Constructor for generic shapes
 GeometricObject::GeometricObject(ObjectType type, const sf::Color &color, unsigned int id)
@@ -221,3 +222,111 @@ bool GeometricObject::getClosestPointOnPerimeter(const Point_2 &query, Point_2 &
 
   return hasBest;
 }
+
+// --- Line Style Rendering Helper ---
+void GeometricObject::drawStyledLine(sf::RenderWindow& window, 
+                                      const sf::Vector2f& start, 
+                                      const sf::Vector2f& end,
+                                      LineStyle style, 
+                                      float thickness, 
+                                      const sf::Color& color) {
+  // Solid lines use default rendering
+  if (style == LineStyle::Solid) {
+    sf::Vertex line[] = {sf::Vertex(start, color), sf::Vertex(end, color)};
+    window.draw(line, 2, sf::Lines);
+    return;
+  }
+  
+  // 1. Map world start/end to screen pixels for dash calculation
+  sf::Vector2i sPx_i = window.mapCoordsToPixel(start);
+  sf::Vector2i ePx_i = window.mapCoordsToPixel(end);
+  sf::Vector2f sPx(static_cast<float>(sPx_i.x), static_cast<float>(sPx_i.y));
+  sf::Vector2f ePx(static_cast<float>(ePx_i.x), static_cast<float>(ePx_i.y));
+  
+  sf::Vector2f deltaPx = ePx - sPx;
+  float lenPx = std::sqrt(deltaPx.x * deltaPx.x + deltaPx.y * deltaPx.y);
+  
+  if (lenPx < 1.0f) return; // Too small on screen
+  
+  sf::Vector2f dirPx = deltaPx / lenPx;
+  sf::Vector2f normPx(-dirPx.y, dirPx.x);
+
+  // 1.1 Calculate World-to-Pixel scale for normalization
+  // We need to know how large one screen pixel is in world units to set the correct radii
+  sf::Vector2f worldP0 = window.mapPixelToCoords(sf::Vector2i(0, 0));
+  sf::Vector2f worldP1_x = window.mapPixelToCoords(sf::Vector2i(1, 0));
+  sf::Vector2f worldP1_y = window.mapPixelToCoords(sf::Vector2i(0, 1));
+  float worldUnitPerPixelX = std::abs(worldP1_x.x - worldP0.x);
+  float worldUnitPerPixelY = std::abs(worldP1_y.y - worldP0.y);
+  float worldUnitPerPixel = std::max(worldUnitPerPixelX, worldUnitPerPixelY);
+  
+  // 2. High-Quality Rendering Patterns
+  if (style == LineStyle::Dotted) {
+    // Premium Dotted: Circular dots
+    float radiusPx = thickness * 0.6f; 
+    float radiusWorld = radiusPx * worldUnitPerPixel;
+    float spacingPx = std::max(radiusPx * 4.0f, 6.0f);
+    
+    sf::CircleShape dot(radiusWorld);
+    dot.setOrigin(radiusWorld, radiusWorld);
+    dot.setFillColor(color);
+    
+    for (float d = 0; d <= lenPx; d += spacingPx) {
+      sf::Vector2f posPx = sPx + dirPx * d;
+      dot.setPosition(window.mapPixelToCoords(sf::Vector2i(std::round(posPx.x), std::round(posPx.y))));
+      window.draw(dot);
+    }
+  } 
+  else if (style == LineStyle::Dashed) {
+    // Premium Dashed: Pill-shaped dashes (quad + 2 rounded caps)
+    float dashLenPx = 16.0f;
+    float gapLenPx = 10.0f;
+    float cycleLenPx = dashLenPx + gapLenPx;
+    
+    float radiusPx = thickness * 0.5f;
+    float radiusWorld = radiusPx * worldUnitPerPixel;
+    sf::CircleShape cap(radiusWorld);
+    cap.setOrigin(radiusWorld, radiusWorld);
+    cap.setFillColor(color);
+    
+    std::vector<sf::Vertex> vertices;
+    vertices.reserve(static_cast<size_t>((lenPx / cycleLenPx) * 4 + 4));
+    
+    for (float d = 0; d < lenPx; d += cycleLenPx) {
+      float endD = std::min(d + dashLenPx, lenPx);
+      if (endD <= d) break;
+      
+      sf::Vector2f p1Px = sPx + dirPx * d;
+      sf::Vector2f p2Px = sPx + dirPx * endD;
+      
+      // Map pixel positions to world for the quad
+      sf::Vector2f p1World = window.mapPixelToCoords(sf::Vector2i(std::round(p1Px.x), std::round(p1Px.y)));
+      sf::Vector2f p2World = window.mapPixelToCoords(sf::Vector2i(std::round(p2Px.x), std::round(p2Px.y)));
+      
+      // Get world-space direction for the quad offsets
+      sf::Vector2f dirWorld = p2World - p1World;
+      float lenWorld = std::sqrt(dirWorld.x * dirWorld.x + dirWorld.y * dirWorld.y);
+      if (lenWorld < 1e-6f) continue;
+      dirWorld /= lenWorld;
+      sf::Vector2f normWorld(-dirWorld.y, dirWorld.x);
+      
+      sf::Vector2f halfNormWorld = normWorld * radiusWorld;
+      
+      vertices.push_back(sf::Vertex(p1World + halfNormWorld, color));
+      vertices.push_back(sf::Vertex(p2World + halfNormWorld, color));
+      vertices.push_back(sf::Vertex(p2World - halfNormWorld, color));
+      vertices.push_back(sf::Vertex(p1World - halfNormWorld, color));
+      
+      // Draw Round Caps
+      cap.setPosition(p1World);
+      window.draw(cap);
+      cap.setPosition(p2World);
+      window.draw(cap);
+    }
+    
+    if (!vertices.empty()) {
+      window.draw(vertices.data(), vertices.size(), sf::Quads);
+    }
+  }
+}
+

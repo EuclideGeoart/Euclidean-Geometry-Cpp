@@ -775,17 +775,24 @@ void Line::draw(sf::RenderWindow& window, float scale, bool forceVisible) const 
     sf::Vector2f v3Screen = sf::Vector2f(screenP2) - offsetScreen;
     sf::Vector2f v4Screen = sf::Vector2f(screenP1) - offsetScreen;
 
-    // 7. Map Back to World Space for Drawing
-    // We map the calculated pixel corners back to world coordinates
-    // so we can draw them without changing the SFML View.
-    sf::VertexArray quad(sf::Quads, 4);
-    quad[0].position = window.mapPixelToCoords(sf::Vector2i(v1Screen));
-    quad[1].position = window.mapPixelToCoords(sf::Vector2i(v2Screen));
-    quad[2].position = window.mapPixelToCoords(sf::Vector2i(v3Screen));
-    quad[3].position = window.mapPixelToCoords(sf::Vector2i(v4Screen));
+    // 7. Render Line with Style Support
+    // For Dashed/Dotted: Use styled helper; For Solid: Use pixel-perfect quad rendering
+    if (m_lineStyle == LineStyle::Dashed || m_lineStyle == LineStyle::Dotted) {
+      // Use styled line rendering for non-solid patterns (pass pixel units)
+      GeometricObject::drawStyledLine(window, worldP1, worldP2, m_lineStyle, pixelThickness, drawColor);
+    } else {
+      // 7a. Solid Line: Map Back to World Space for Pixel-Perfect Rendering
+      // We map the calculated pixel corners back to world coordinates
+      // so we can draw them without changing the SFML View.
+      sf::VertexArray quad(sf::Quads, 4);
+      quad[0].position = window.mapPixelToCoords(sf::Vector2i(v1Screen));
+      quad[1].position = window.mapPixelToCoords(sf::Vector2i(v2Screen));
+      quad[2].position = window.mapPixelToCoords(sf::Vector2i(v3Screen));
+      quad[3].position = window.mapPixelToCoords(sf::Vector2i(v4Screen));
 
-    for (int i = 0; i < 4; ++i) quad[i].color = drawColor;
-    window.draw(quad);
+      for (int i = 0; i < 4; ++i) quad[i].color = drawColor;
+      window.draw(quad);
+    }
 
     // 8. Vector Arrowhead (Also Sharp)
     if (type == ObjectType::Vector) {
