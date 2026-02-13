@@ -18,6 +18,7 @@
 #include <iostream>
 #include <algorithm>
 #include <unordered_set>
+#include <filesystem>
 
 std::shared_ptr<Point> PointUtils::findAnchorPoint(
     GeometryEditor& editor,
@@ -1049,29 +1050,94 @@ std::string LabelManager::getNextPolygonLabel(const std::vector<std::shared_ptr<
     }
     return "";
 }
-LabelManager::LabelManager() : m_visible(true), m_fontSize(18), m_currentFontType(FontType::Sans) {
-    // Load default Sans font
-    if (!m_fonts[FontType::Sans].loadFromFile("arial.ttf")) {
-        std::cerr << "[LabelManager] Error: Could not load arial.ttf" << std::endl;
-    }
+
+// Helper to find font files in common locations
+static std::string SearchFont(const std::string& filename, const std::vector<std::string>& systemPaths = {}) {
+    namespace fs = std::filesystem;
     
-    // Load Math font
-    if (!m_fonts[FontType::Math].loadFromFile("latinmodern-math.otf")) {
-        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf. Falling back to Sans." << std::endl;
-        m_fonts[FontType::Math] = m_fonts[FontType::Sans];
-    }
-    
-    // Load Serif font (Specific to Windows for now as requested by user environment)
-    if (!m_fonts[FontType::Serif].loadFromFile("C:/Windows/Fonts/times.ttf")) {
-         std::cerr << "[LabelManager] Warning: Times New Roman not found. Falling back to Sans." << std::endl;
-         m_fonts[FontType::Serif] = m_fonts[FontType::Sans];
+    // 1. Check local project directories (relative to CWD)
+    std::vector<fs::path> localPaths = {
+        fs::path(filename),
+        fs::path("assets") / filename,
+        fs::path("res") / filename,
+        fs::path("..") / filename,
+        fs::path("..") / "assets" / filename,
+        fs::path("../..") / filename
+    };  
+
+    for (const auto& p : localPaths) {
+        if (fs::exists(p)) {
+            std::cout << "[LabelManager] Found font: " << fs::absolute(p) << std::endl;
+            return p.string();
+        }
     }
 
-    // Load LaTeX font (Aliased to Math for now, but distinct type for future flexibility)
-    if (!m_fonts[FontType::LaTeX].loadFromFile("latinmodern-math.otf")) {
-        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf for LaTeX style. Falling back to Serif." << std::endl;
-        m_fonts[FontType::LaTeX] = m_fonts[FontType::Serif];
+    // 2. Check system paths
+    for (const auto& path : systemPaths) {
+        fs::path p = fs::path(path) / filename;
+        if (fs::exists(p)) {
+             std::cout << "[LabelManager] Found system font: " << p << std::endl;
+             return p.string();
+        }
     }
+    
+    return ""; // Not found
+}
+
+LabelManager::LabelManager() : m_visible(true), m_fontSize(18), m_currentFontType(FontType::Sans) {
+    // Standard Windows fonts
+    std::vector<std::string> winFonts = {"C:/Windows/Fonts"};
+    // Standard Linux fonts
+    std::vector<std::string> linuxFonts = {"/usr/share/fonts", "/usr/share/fonts/truetype", "/usr/share/fonts/TTF", "/usr/local/share/fonts"};
+
+    // 1. Sans (Arial)
+    std::string sansPath = SearchFont("arial.ttf", winFonts);
+    // Linux Fallback for Arial
+    if (sansPath.empty()) sansPath = SearchFont("LiberationSans-Regular.ttf", linuxFonts);
+    if (sansPath.empty()) sansPath = SearchFont("DejaVuSans.ttf", linuxFonts);
+    
+    if (sansPath.empty() || !m_fonts[FontType::Sans].loadFromFile(sansPath)) {
+        std::cerr << "[LabelManager] Error: Could not load Sans font (arial.ttf/LiberationSans)" << std::endl;
+    }
+    
+    // 2. Serif (Times)
+    std::string serifPath = SearchFont("times.ttf", winFonts);
+    // Linux Fallback for Times
+    if (serifPath.empty()) serifPath = SearchFont("LiberationSerif-Regular.ttf", linuxFonts);
+    if (serifPath.empty()) serifPath = SearchFont("DejaVuSerif.ttf", linuxFonts);
+
+    if (serifPath.empty() || !m_fonts[FontType::Serif].loadFromFile(serifPath)) {
+         std::cerr << "[LabelManager] Warning: Serif font not found. Falling back to Sans." << std::endl;
+         m_fonts[FontType::Serif] = m_fonts[FontType::Sans];
+    }
+    
+    // 3. Math / LaTeX (Latin Modern) - Prioritize local file
+    std::string latexPath = SearchFont("latinmodern-math.otf"); // Check local first
+    
+    // Support standard TeX Live paths on Linux if local fails
+    if (latexPath.empty()) {
+        std::vector<std::string> texPaths = {
+            "/usr/share/texlive/texmf-dist/fonts/opentype/public/lm-math",
+            "/usr/share/fonts/OTF"
+        };
+        latexPath = SearchFont("latinmodern-math.otf", texPaths);
+    }
+    // 4. Cambria Math
+    std::string cambriaPath = SearchFont("cambria.ttc", winFonts);
+    if (cambriaPath.empty()) cambriaPath = SearchFont("STIXTwoMath-Regular.otf", linuxFonts);
+    if (cambriaPath.empty()) cambriaPath = SearchFont("STIXMath-Regular.otf", linuxFonts);
+    
+    if (cambriaPath.empty() || !m_fonts[FontType::Cambria].loadFromFile(cambriaPath)) {
+        std::cerr << "[LabelManager] Error: Could not load Cambria Math (cambria.ttc/STIXMath). Falling back to Serif." << std::endl;
+        m_fonts[FontType::Cambria] = m_fonts[FontType::Serif];
+    }
+    if (latexPath.empty() || !m_fonts[FontType::Math].loadFromFile(latexPath)) {
+        std::cerr << "[LabelManager] Error: Could not load latinmodern-math.otf. Falling back to Serif." << std::endl;
+        m_fonts[FontType::Math] = m_fonts[FontType::Serif];
+    }
+
+    // Alias LaTeX to Math (they use the same font)
+    m_fonts[FontType::LaTeX] = m_fonts[FontType::Math];
 }
 
 const sf::Font& LabelManager::getSelectedFont() const {

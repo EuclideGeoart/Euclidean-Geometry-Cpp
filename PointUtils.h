@@ -154,7 +154,7 @@ static std::optional<IntersectionHit> getHoveredIntersection(
     double& outRelativePos);
 };
 
-enum class FontType { Sans, Serif, Math, LaTeX };
+enum class FontType { Sans, Serif, Math, LaTeX, Cambria };
 
 /**
  * @brief Utility for automatic label generation and global styling

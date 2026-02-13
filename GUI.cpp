@@ -1298,7 +1298,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       }
  
       // Font Style (Global: applies to all labels)
-      const char* fontTypes[] = {"Sans", "Serif", "Math", "LaTeX"};
+      const char* fontTypes[] = {"Sans", "Serif", "Math", "LaTeX", "Cambria"};
       int currentFont = static_cast<int>(LabelManager::instance().getFontType());
       if (ImGui::Combo("Font Style", &currentFont, fontTypes, IM_ARRAYSIZE(fontTypes))) {
         LabelManager::instance().setFontType(static_cast<FontType>(currentFont));
