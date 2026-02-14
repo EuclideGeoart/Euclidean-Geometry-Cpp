@@ -111,12 +111,25 @@ int main() {
 
     // 1. Base Font
     ImFontConfig baseConfig;
-    ImFont *baseFont = io.Fonts->AddFontFromFileTTF(
-        "C:\\Windows\\Fonts\\segoeui.ttf", 20.0f, &baseConfig);
+    ImFont *baseFont = nullptr;
+#if defined(_WIN32) || defined(_WIN64)
+    baseFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 20.0f, &baseConfig);
     if (!baseFont) {
-      baseFont =
-          io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 18.0f);
+      baseFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 18.0f);
     }
+#else
+    // Try common Linux font paths
+    if (std::filesystem::exists("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")) {
+      baseFont = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18.0f, &baseConfig);
+    }
+    if (!baseFont && std::filesystem::exists("/usr/share/fonts/truetype/freefont/FreeSans.ttf")) {
+      baseFont = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 18.0f, &baseConfig);
+    }
+    if (!baseFont) {
+      std::cerr << "Warning: Could not load a system font. Using ImGui default font." << std::endl;
+      baseFont = io.Fonts->AddFontDefault();
+    }
+#endif
 
     // 2. Symbol Font
     ImFontConfig symbolConfig;

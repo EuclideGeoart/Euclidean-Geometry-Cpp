@@ -1017,7 +1017,10 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
       sf::Color color = hexToColor(jPt.value("color", "#000000"));
 
       if (jPt.value("isIntersectionPoint", false)) {
-        auto ip = std::make_shared<IntersectionPoint>(nullptr, nullptr, Point_2(x, y), color, id);
+        // Keep loaded intersections as generic Point instances with intersection flag.
+        // IntersectionPoint::update() requires valid parent lines and would hide points loaded from file.
+        auto ip = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+        ip->setIntersectionPoint(true);
         ip->setDependent(true);
         return ip;
       }
@@ -2476,7 +2479,10 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
            pt->setDependent(true); 
 
         } else if (jPt.value("isIntersectionPoint", false)) {
-          pt = std::make_shared<IntersectionPoint>(nullptr, nullptr, Point_2(x, y), color, id);
+          // Keep loaded intersections as generic Point instances with intersection flag.
+          // Parent-less IntersectionPoint instances can auto-hide on update.
+          pt = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
+          pt->setIntersectionPoint(true);
           pt->setDependent(true); // Intersections are dependent
         } else {
           pt = std::make_shared<Point>(Point_2(x, y), Constants::CURRENT_ZOOM, color, id);
@@ -2530,6 +2536,15 @@ bool ProjectSerializer::loadProject_OLD(GeometryEditor& editor, const std::strin
     if (data.contains("objectPoints")) {
       for (const auto& jOp : data["objectPoints"]) {
         unsigned int id = jOp.value("id", 0u);
+        // Avoid duplicating ObjectPoints already instantiated from unified "points" array.
+        if (id != 0u) {
+          auto existing = std::dynamic_pointer_cast<ObjectPoint>(getFromMap(id));
+          if (existing) {
+            applyCommonPointFields(jOp, existing);
+            applyTransformMetadata(jOp, existing);
+            continue;
+          }
+        }
         sf::Color color = colorFromJson(jOp.contains("color") ? jOp["color"] : json(nullptr), sf::Color::Yellow);
         auto op = std::make_shared<ObjectPoint>(Point_2(0, 0), Constants::CURRENT_ZOOM, color, id);
         applyCommonPointFields(jOp, op);

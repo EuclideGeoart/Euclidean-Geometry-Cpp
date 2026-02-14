@@ -493,6 +493,7 @@ std::vector<sf::Vector2f> Triangle::getVerticesSFML() const {
 
 void Triangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
     const float handleRadius = m_vertexHandleSize * scale;
+    sf::Color defaultHandleColor(m_color.r, m_color.g, m_color.b, 255);
     
     for (size_t i = 0; i < m_vertices.size(); ++i) {
         sf::CircleShape handle(handleRadius);
@@ -509,7 +510,7 @@ void Triangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
         } else if (static_cast<int>(i) == m_hoveredVertex) {
             base = sf::Color::Yellow;
         } else {
-            base = sf::Color(180, 180, 180);
+            base = defaultHandleColor;
         }
         
         handle.setFillColor(base);

@@ -6108,6 +6108,7 @@ skipAngleArcHandle:
     std::cout << "Looking for object at (" << worldPos_sfml.x << ", " << worldPos_sfml.y << ") with tolerance " << tolerance << std::endl;
 
     GeometricObject* closestObject = findClosestObject(editor, worldPos_sfml, tolerance);
+    GeometricObject* directPointCandidate = findClosestPointCandidate(editor, worldPos_sfml, tolerance);
     // --- Label for goto ---
 
     if (closestObject && !potentialSelection) {
@@ -6255,6 +6256,7 @@ skipAngleArcHandle:
           return;
         }
       };
+      captureImmediateForClicked(directPointCandidate);
       captureImmediateForClicked(potentialSelection);
 
       bool isCtrlHeld = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) || sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
@@ -6351,15 +6353,10 @@ skipAngleArcHandle:
             case ObjectType::Rectangle:
             case ObjectType::RectangleRotatable: {
               auto* rect = static_cast<Rectangle*>(obj);
-              if (vertexIndex == 0) {
-                capturePoint(rect->getCorner1Point());
-              } else if (vertexIndex == 1) {
-                capturePoint(rect->getCornerBPoint());
-              } else if (vertexIndex == 2) {
-                capturePoint(rect->getCorner2Point());
-              } else if (vertexIndex == 3) {
-                capturePoint(rect->getCornerDPoint());
-              }
+              capturePoint(rect->getCorner1Point());
+              capturePoint(rect->getCorner2Point());
+              capturePoint(rect->getCornerBPoint());
+              capturePoint(rect->getCornerDPoint());
               break;
             }
             case ObjectType::Polygon: {

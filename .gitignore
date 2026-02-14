@@ -11,6 +11,10 @@
 *.vcxproj
 *.vcxproj.filters
 *.vcxproj.user
+*.gz
+*.7z
+.json
+.gitignore
 
 # CMake build folders
 build/
@@ -25,14 +29,13 @@ x86/
 Debug/
 Release/
 
+
 # OS junk
 .DS_Store
 Thumbs.db.cache/
 build*/
 .cache
 .vscode
-.github
-.agent
 FluxGeo_v1.0/
 FluxGeo*/
 Geometry_Tool_2/

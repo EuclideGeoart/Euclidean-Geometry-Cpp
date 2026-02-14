@@ -569,7 +569,9 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
       for (const auto& obj : container) {
         if (!obj || !obj->isSelected()) continue;
         if ((GeometricObject*)obj.get() == (GeometricObject*)xAxisPtr || (GeometricObject*)obj.get() == (GeometricObject*)yAxisPtr) continue;
-        if (!obj->isLocked() || obj->isDependent()) {
+        const ObjectType type = obj->getType();
+        const bool pointLike = (type == ObjectType::Point || type == ObjectType::ObjectPoint || type == ObjectType::IntersectionPoint);
+        if (pointLike || !obj->isLocked() || obj->isDependent()) {
           objectsToDelete.push_back(obj);
         }
       }
@@ -616,6 +618,12 @@ void handleKeyPress(GeometryEditor& editor, const sf::Event::KeyEvent& keyEvent)
         if (d && d->isDependent()) addToDelete(std::static_pointer_cast<GeometricObject>(d));
         if (a && a->isCreatedWithShape()) addToDelete(std::static_pointer_cast<GeometricObject>(a));
         if (c && c->isCreatedWithShape()) addToDelete(std::static_pointer_cast<GeometricObject>(c));
+      }
+      auto reg = std::dynamic_pointer_cast<RegularPolygon>(obj);
+      if (reg) {
+        for (const auto& v : reg->getDerivedVertices()) {
+          if (v) addToDelete(std::static_pointer_cast<GeometricObject>(v));
+        }
       }
     }
     // Append dependents
@@ -3016,6 +3024,8 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
   if (editor.isDragging && mouseEvent.button == sf::Mouse::Left) {
     // ✅ CRITICAL FIX: Defer constraint updates DURING the cleanup phase
     std::cout << "PREPARING FOR COORDINATED UPDATE" << std::endl;
+    GeometricObject* draggedObject = editor.selectedObject;
+    DragMode previousDragMode = editor.dragMode;
 
     // Keep constraint updates deferred while we clean up visual deferring
     if (editor.selectedObject && editor.selectedObject->getType() == ObjectType::Point) {
@@ -3033,6 +3043,39 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
         if (linePtr && linePtr->isValid()) {
           linePtr->setDeferSFMLUpdates(false);
           linePtr->updateSFMLShape();  // Single final update
+        }
+      }
+
+      // Record move command for point drag operations using point ID snapshots
+      if (previousDragMode == DragMode::MoveFreePoint || previousDragMode == DragMode::DragObjectPoint) {
+        std::map<unsigned int, Point_2> endPositions;
+        for (const auto& entry : editor.m_dragStartPositions) {
+          unsigned int pointId = entry.first;
+          for (const auto& point : editor.getAllPoints()) {
+            if (point && point->getID() == pointId) {
+              endPositions[pointId] = point->getCGALPosition();
+              break;
+            }
+          }
+        }
+
+        const double epsilonSq = 1e-16;
+        bool moved = false;
+        for (const auto& oldEntry : editor.m_dragStartPositions) {
+          auto endIt = endPositions.find(oldEntry.first);
+          if (endIt == endPositions.end()) {
+            continue;
+          }
+          double distSq = CGAL::to_double(CGAL::squared_distance(oldEntry.second, endIt->second));
+          if (distSq > epsilonSq) {
+            moved = true;
+            break;
+          }
+        }
+
+        if (moved && !editor.m_dragStartPositions.empty()) {
+          editor.commandManager.pushHistoryOnly(
+              std::make_shared<MoveCommand>(editor, editor.m_dragStartPositions, std::move(endPositions)));
         }
       }
     } else {
@@ -3077,9 +3120,6 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
           // Don't call updateSFMLShape yet - let constraint update handle it
         }
       }
-
-      GeometricObject* draggedObject = editor.selectedObject;
-      DragMode previousDragMode = editor.dragMode;
 
       // Topological merge on snap release
       // Check Ctrl key state explicitly if m_wasSnapped is unreliable?
@@ -3232,8 +3272,9 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
         }
       }
 
-      editor.m_dragStartPositions.clear();
     }
+
+    editor.m_dragStartPositions.clear();
 
     // Reset general drag interaction state
     editor.isDragging = false;

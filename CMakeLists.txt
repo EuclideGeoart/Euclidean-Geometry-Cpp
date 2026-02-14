@@ -29,6 +29,9 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic)
     # Optimizations for Release
     add_compile_options($<$<CONFIG:Release>:-O3>)
+    if(NOT MSVC)
+        add_link_options($<$<CONFIG:Release>:-s>)
+    endif()
 endif()
 
 # --- Dependencies ---
@@ -118,10 +121,10 @@ set(SOURCES
     ConstraintUtils.cpp
     PointUtils.cpp
     ProjectSerializer.cpp
-    # Deserializer.cpp  # TEMPORARILY EXCLUDED - has pre-existing compilation errors
     RayObject.cpp
     VectorObject.cpp
     Benchmark.cpp
+    # Deserializer.cpp
     libs/imgui/imgui.cpp
     libs/imgui/imgui_draw.cpp
     libs/imgui/imgui_tables.cpp
@@ -158,7 +161,7 @@ if(WIN32)
     target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32 
     )
-    target_link_options(FluxGeo PRIVATE "") #-mwindows
+    target_link_options(FluxGeo PRIVATE "-mwindows")
 else()
     target_link_libraries(FluxGeo PRIVATE 
         sfml-graphics sfml-window sfml-system CGAL::CGAL 

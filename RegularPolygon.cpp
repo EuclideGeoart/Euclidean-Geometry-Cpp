@@ -652,6 +652,7 @@ std::vector<sf::Vector2f> RegularPolygon::getVerticesSFML() const {
 
 void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) const {
   const float handleRadius = m_vertexHandleSize * scale;
+  sf::Color defaultHandleColor(m_color.r, m_color.g, m_color.b, 255);
 
   if (m_creationMode == CreationMode::Edge) {
     if (m_edgeStartPoint) {
@@ -659,7 +660,7 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
       handle.setOrigin(handleRadius, handleRadius);
       Point_2 p = m_edgeStartPoint->getCGALPosition();
       handle.setPosition(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
-      sf::Color base = sf::Color(100, 100, 255);
+      sf::Color base = defaultHandleColor;
       if (m_activeVertex == 0) {
         base = sf::Color(255, 140, 0);
       } else if (m_hoveredVertex == 0) {
@@ -676,7 +677,7 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
       handle.setOrigin(handleRadius, handleRadius);
       Point_2 p = m_edgeEndPoint->getCGALPosition();
       handle.setPosition(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
-      sf::Color base = sf::Color(180, 180, 180);
+      sf::Color base = defaultHandleColor;
       if (m_activeVertex == 1) {
         base = sf::Color(255, 140, 0);
       } else if (m_hoveredVertex == 1) {
@@ -693,7 +694,7 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
       handle.setOrigin(handleRadius * 0.6f, handleRadius * 0.6f);
       handle.setPosition(static_cast<float>(CGAL::to_double(m_vertices[i].x())),
                          static_cast<float>(CGAL::to_double(m_vertices[i].y())));
-      handle.setFillColor(sf::Color(150, 150, 150, 128));
+      handle.setFillColor(sf::Color(defaultHandleColor.r, defaultHandleColor.g, defaultHandleColor.b, 128));
       handle.setOutlineThickness(0.5f * scale);
       handle.setOutlineColor(sf::Color(100, 100, 100));
       window.draw(handle);
@@ -710,7 +711,7 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
     float y = static_cast<float>(CGAL::to_double(centerPos.y()));
     handle.setPosition(x, y);
     
-    sf::Color base = sf::Color(100, 100, 255);  // Blue for center
+    sf::Color base = defaultHandleColor;
     if (m_activeVertex == 0) {
       base = sf::Color(255, 140, 0);  // Orange for active
     } else if (m_hoveredVertex == 0) {
@@ -730,7 +731,7 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
     float y = static_cast<float>(CGAL::to_double(m_vertices[0].y()));
     handle.setPosition(x, y);
     
-    sf::Color base = sf::Color(180, 180, 180);
+    sf::Color base = defaultHandleColor;
     if (m_activeVertex == 1) {
       base = sf::Color(255, 140, 0);
     } else if (m_hoveredVertex == 1) {
@@ -748,7 +749,7 @@ void RegularPolygon::drawVertexHandles(sf::RenderWindow &window, float scale) co
     handle.setOrigin(handleRadius * 0.6f, handleRadius * 0.6f);
     handle.setPosition(static_cast<float>(CGAL::to_double(m_vertices[i].x())),
                        static_cast<float>(CGAL::to_double(m_vertices[i].y())));
-    handle.setFillColor(sf::Color(150, 150, 150, 128));  // Semi-transparent
+    handle.setFillColor(sf::Color(defaultHandleColor.r, defaultHandleColor.g, defaultHandleColor.b, 128));
     handle.setOutlineThickness(0.5f * scale);
     handle.setOutlineColor(sf::Color(100, 100, 100));
     window.draw(handle);

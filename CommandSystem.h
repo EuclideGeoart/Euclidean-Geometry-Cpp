@@ -502,6 +502,7 @@ class DeleteCommandT : public Command {
     }
     if (auto objPointPtr = std::dynamic_pointer_cast<ObjectPoint>(ptr)) {
       removePtr(m_editor.ObjectPoints, objPointPtr);
+      removePtr(m_editor.points, std::static_pointer_cast<Point>(objPointPtr));
       return;
     }
     if (auto pointPtr = std::dynamic_pointer_cast<Point>(ptr)) {
@@ -510,6 +511,8 @@ class DeleteCommandT : public Command {
           DynamicIntersection::removeIntersectionPoint(pointPtr, m_editor);
         } catch (...) {
         }
+        // Fallback removal: loaded intersections may exist without active runtime constraints.
+        removePtr(m_editor.points, pointPtr);
         return;
       }
       removePtr(m_editor.points, pointPtr);

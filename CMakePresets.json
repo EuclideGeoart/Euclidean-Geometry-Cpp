@@ -2,26 +2,30 @@
     "version": 8,
     "configurePresets": [
         {
-            "name": "GCC 15.2.0 x86_64-w64-mingw32 (ucrt64)",
-            "displayName": "GCC 15.2.0 x86_64-w64-mingw32 (ucrt64)",
-            "description": "Using compilers: C = C:\\msys64\\ucrt64\\bin\\gcc.exe, CXX = C:\\msys64\\ucrt64\\bin\\g++.exe",
-            "generator": "MinGW Makefiles",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "CMAKE_C_COMPILER": "C:/msys64/ucrt64/bin/gcc.exe",
-                "CMAKE_CXX_COMPILER": "C:/msys64/ucrt64/bin/g++.exe",
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
-        },
-        {
       "name": "linux-debug",
       "displayName": "Linux Debug",
+      "cmakeExecutable": "/bin/cmake",
       "description": "Targeting Linux with build-linux directory",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build-linux",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release",
+      "cmakeExecutable": "/bin/cmake",
+      "description": "Targeting Linux with build-linux directory",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
       },
       "condition": {
         "type": "equals",
@@ -37,6 +41,21 @@
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows Release",
+      "description": "Targeting Windows with default build directory",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
       },
       "condition": {
         "type": "equals",

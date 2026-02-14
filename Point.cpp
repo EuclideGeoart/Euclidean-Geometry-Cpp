@@ -4,22 +4,25 @@
 #endif
 
 #include "Point.h"
+
 #include "CGALSafeUtils.h"
 #include "Constants.h"
 #include "Line.h"
-#include "PointUtils.h" // Added PointUtils.h
+#include "PointUtils.h"  // Added PointUtils.h
 #include "QuickProfiler.h"
-#include "Transforms.h"                                        // For toSFMLVector, toCGALPoint
-//#include "LabelManager.h"                                // For font size
+#include "Transforms.h"  // For toSFMLVector, toCGALPoint
+
+// #include "LabelManager.h"                                // For font size
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // For Point_2
 #include <CGAL/number_utils.h>                                 // For CGAL::to_double
-#include <cmath>                                               // For std::sqr
+
+#include <cmath>  // For std::sqr
 #include <iostream>
 
 using namespace CGALSafeUtils;
 
 // Definiing Static Font Member
-const sf::Font* Point::commonFont = nullptr;
+const sf::Font *Point::commonFont = nullptr;
 
 // void debug_cgal_point(const Point_2 &pt, const std::string &point_name,
 //                       const std::string &context);
@@ -39,8 +42,7 @@ Point::Point(float initialZoomFactor)
 }
 
 // ctor from CGAL
-Point::Point(const Point_2 &cgalPos, float initialZoomFactor, const sf::Color &fillColor,
-             const sf::Color &outlineColor)
+Point::Point(const Point_2 &cgalPos, float initialZoomFactor, const sf::Color &fillColor, const sf::Color &outlineColor)
     : GeometricObject(ObjectType::Point, fillColor),
       m_cgalPosition(cgalPos),
       m_fillColor(fillColor),
@@ -55,8 +57,7 @@ Point::Point(const Point_2 &cgalPos, float initialZoomFactor, const sf::Color &f
 }
 
 // ctor from SFML
-Point::Point(const sf::Vector2f &sfmlPos, float initialZoomFactor, const sf::Color &fillColor,
-             const sf::Color &outlineColor)
+Point::Point(const sf::Vector2f &sfmlPos, float initialZoomFactor, const sf::Color &fillColor, const sf::Color &outlineColor)
     : GeometricObject(ObjectType::Point, fillColor),
       m_cgalPosition(sfmlToCGAL(sfmlPos)),
       m_fillColor(fillColor),
@@ -71,8 +72,7 @@ Point::Point(const sf::Vector2f &sfmlPos, float initialZoomFactor, const sf::Col
 }
 
 // NEW Constructor with CGAL point, color, and ID
-Point::Point(const Point_2 &cgal_point, float initialZoomFactor, const sf::Color &fillColor,
-             unsigned int id, const sf::Color &outlineColor)
+Point::Point(const Point_2 &cgal_point, float initialZoomFactor, const sf::Color &fillColor, unsigned int id, const sf::Color &outlineColor)
     : GeometricObject(ObjectType::Point, fillColor, cgal_point, id),
       m_cgalPosition(cgal_point),
       m_fillColor(fillColor),
@@ -91,27 +91,23 @@ Point::Point(const Point_2 &cgal_point, float initialZoomFactor, const sf::Color
   }
   initializeShape();
   if (Constants::DEBUG_POINT_DRAWING) {
-    std::cout << "Point Constructor (Point_2, Color, ID): ID " << getID() << " at ("
-              << CGAL::to_double(m_cgalPosition.x()) << ", " << CGAL::to_double(m_cgalPosition.y())
-              << ")" << std::endl;
+    std::cout << "Point Constructor (Point_2, Color, ID): ID " << getID() << " at (" << CGAL::to_double(m_cgalPosition.x()) << ", "
+              << CGAL::to_double(m_cgalPosition.y()) << ")" << std::endl;
   }
 }
 // Implement a safe destructor for Point
 Point::~Point() {
   if (Constants::LIFECYCLE) {
-    std::cout << "Point::~Point: Destroying point " << this << " with ID " << getID()
-              << std::endl;
+    std::cout << "Point::~Point: Destroying point " << this << " with ID " << getID() << std::endl;
   }
   try {
-    std::cerr << "Point::~Point: Starting destruction of point " << this << " with ID " << getID()
-              << std::endl;
+    std::cerr << "Point::~Point: Starting destruction of point " << this << " with ID " << getID() << std::endl;
 
     // CRITICAL: Just clear the list without notifying lines
     // Any attempt to access or notify the connected lines during destruction
     // could lead to circular destruction and crashes
     if (!m_connectedLines.empty()) {
-      std::cerr << "Point::~Point: Clearing " << m_connectedLines.size()
-                << " connected lines without notification" << std::endl;
+      std::cerr << "Point::~Point: Clearing " << m_connectedLines.size() << " connected lines without notification" << std::endl;
       m_connectedLines.clear();
     }
 
@@ -128,8 +124,7 @@ void Point::initializeShape() {
                         this->m_radius);        // Use the calculated m_radius
   m_sfmlShape.setFillColor(this->m_fillColor);  // Use m_fillColor for consistency
   m_sfmlShape.setOutlineThickness(Constants::POINT_OUTLINE_THICKNESS);
-  m_sfmlShape.setOutlineColor(isLocked() ? Constants::LOCKED_COLOR
-                                         : Constants::POINT_DEFAULT_COLOR);
+  m_sfmlShape.setOutlineColor(isLocked() ? Constants::LOCKED_COLOR : Constants::POINT_DEFAULT_COLOR);
   // Consider if updateSFMLShape() should be called here to ensure all states
   // are immediately reflected, though it might be redundant if constructors set
   // states that updateSFMLShape also handles. For now, ensuring m_fillColor is
@@ -171,27 +166,22 @@ sf::Color Point::getOutlineColor() const { return m_outlineColor; }
 // --- SFML and CGAL Conversions ---
 // --- Utility Conversions ---
 // Static, so they can be called as Point::cgalToSFML(...)
-sf::Vector2f Point::cgalToSFML(
-    const Point_2 &p) {  // Removed const from function signature, as it's static
-  return sf::Vector2f(static_cast<float>(CGAL::to_double(p.x())),
-                      static_cast<float>(CGAL::to_double(p.y())));
+sf::Vector2f Point::cgalToSFML(const Point_2 &p) {  // Removed const from function signature, as it's static
+  return sf::Vector2f(static_cast<float>(CGAL::to_double(p.x())), static_cast<float>(CGAL::to_double(p.y())));
 }
 
 // Static, so they can be called as Point::sfmlToCGAL(...)
-Point_2 Point::sfmlToCGAL(
-    const sf::Vector2f &p_sfml) {  // Removed const from function signature, as it's static
-  return Point_2(FT(p_sfml.x), FT(p_sfml.y));  // Use FT for construction
+Point_2 Point::sfmlToCGAL(const sf::Vector2f &p_sfml) {  // Removed const from function signature, as it's static
+  return Point_2(FT(p_sfml.x), FT(p_sfml.y));            // Use FT for construction
 }
 
 void Point::setCGALPosition(const Point_2 &newPos) {
   QUICK_PROFILE("Point::setCGALPosition");
-  
+
   try {
     if (Constants::DEBUG_POINT_UPDATE) {
-      std::cout << "Point " << this << " setCGALPosition: New CGAL Pos: ("
-                << CGAL::to_double(newPos.x()) << ", " << CGAL::to_double(newPos.y())
-                << "), Finite: " << (CGAL::is_finite(newPos.x()) && CGAL::is_finite(newPos.y()))
-                << std::endl;
+      std::cout << "Point " << this << " setCGALPosition: New CGAL Pos: (" << CGAL::to_double(newPos.x()) << ", " << CGAL::to_double(newPos.y())
+                << "), Finite: " << (CGAL::is_finite(newPos.x()) && CGAL::is_finite(newPos.y())) << std::endl;
     }
 
     if (!CGAL::is_finite(newPos.x()) || !CGAL::is_finite(newPos.y())) {
@@ -213,9 +203,9 @@ void Point::setCGALPosition(const Point_2 &newPos) {
     if (!m_deferConstraintUpdates) {
       QUICK_PROFILE("Point::updateConnectedLines");
       updateConnectedLines();
-      updateHostedPoints(); // Notify hosted points and general dependents
+      updateHostedPoints();  // Notify hosted points and general dependents
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     std::cerr << "Point::setCGALPosition - Exception: " << e.what() << std::endl;
     m_isValid = false;
   } catch (...) {
@@ -225,11 +215,9 @@ void Point::setCGALPosition(const Point_2 &newPos) {
 }
 void Point::updateSFMLShape() {
   if (Constants::DEBUG_POINT_UPDATE) {
-    std::cout << "Point " << this << " updateSFMLShape: m_isValid=" << m_isValid
-              << " m_radius=" << m_radius;
+    std::cout << "Point " << this << " updateSFMLShape: m_isValid=" << m_isValid << " m_radius=" << m_radius;
     if (m_isValid) {
-      std::cout << ", Current CGAL Pos: (" << CGAL::to_double(m_cgalPosition.x()) << ", "
-                << CGAL::to_double(m_cgalPosition.y()) << ")";
+      std::cout << ", Current CGAL Pos: (" << CGAL::to_double(m_cgalPosition.x()) << ", " << CGAL::to_double(m_cgalPosition.y()) << ")";
     }
     std::cout << std::endl;
   }
@@ -247,10 +235,8 @@ void Point::updateSFMLShape() {
 
   try {
     sf::Vector2f sfmlPos = cgalToSFML(m_cgalPosition);
-    if (std::isnan(sfmlPos.x) || std::isinf(sfmlPos.x) || std::isnan(sfmlPos.y) ||
-        std::isinf(sfmlPos.y)) {
-      std::cerr << "Point " << this
-                << " updateSFMLShape: Non-finite SFML position. Marking invalid." << std::endl;
+    if (std::isnan(sfmlPos.x) || std::isinf(sfmlPos.x) || std::isnan(sfmlPos.y) || std::isinf(sfmlPos.y)) {
+      std::cerr << "Point " << this << " updateSFMLShape: Non-finite SFML position. Marking invalid." << std::endl;
       m_isValid = false;  // Mark as invalid if conversion results in non-finite
       // Call recursively to set invalid appearance
       updateSFMLShape();
@@ -289,8 +275,7 @@ void Point::updateSFMLShape() {
     m_sfmlShape.setOutlineThickness(m_outlineThickness);
 
   } catch (const std::exception &e) {
-    std::cerr << "Point " << this << " updateSFMLShape: Exception: " << e.what()
-              << ". Marking point invalid." << std::endl;
+    std::cerr << "Point " << this << " updateSFMLShape: Exception: " << e.what() << ". Marking point invalid." << std::endl;
     m_isValid = false;
     // Call recursively to set invalid appearance
     updateSFMLShape();
@@ -412,8 +397,7 @@ void Point::translate(const Vector_2 &offset) {
     updateSFMLShape();  // <— unified
     updateConnectedLines();
   } catch (const CGAL::Uncertain_conversion_exception &e) {
-    std::cerr << "Point::translate: Uncertain conversion during translation: " << e.what()
-              << std::endl;
+    std::cerr << "Point::translate: Uncertain conversion during translation: " << e.what() << std::endl;
   } catch (const std::exception &e) {
     std::cerr << "Point::translate: Exception during translation: " << e.what() << std::endl;
   }
@@ -427,17 +411,15 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
   if (!isValid()) return;  // Don't draw if invalid
 
   if (Constants::DEBUG_POINT_DRAWING) {
-    std::cout << "Point::draw: ID " << getID() << " CGAL Pos=("
-              << CGAL::to_double(m_cgalPosition.x()) << "," << CGAL::to_double(m_cgalPosition.y())
-              << ")"
-              << " World Radius: " << m_radius << " IsHovered: " << isHovered() << std::endl;
+    std::cout << "Point::draw: ID " << getID() << " CGAL Pos=(" << CGAL::to_double(m_cgalPosition.x()) << "," << CGAL::to_double(m_cgalPosition.y())
+              << ")" << " World Radius: " << m_radius << " IsHovered: " << isHovered() << std::endl;
   }
 
   // m_sfmlShape should already have its correct colors and base properties
   sf::CircleShape pointToDraw = m_sfmlShape;  // Make a copy to modify for drawing
 
   pointToDraw.setPosition(cgalToSFML(m_cgalPosition));
-  
+
   // Apply visual invariance: scale screen pixels to world units
   float currentRadius = m_desiredScreenRadius * scale;
   pointToDraw.setRadius(currentRadius);
@@ -456,23 +438,21 @@ void Point::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
 
   // GHOST MODE: Apply transparency if hidden but forced visible
   if (!isVisible() && forceVisible) {
-      sf::Color ghostFill = pointToDraw.getFillColor();
-      ghostFill.a = 50; // Faint alpha
-      pointToDraw.setFillColor(ghostFill);
-      
-      sf::Color ghostOutline = pointToDraw.getOutlineColor();
-      ghostOutline.a = 50;
-      pointToDraw.setOutlineColor(ghostOutline);
+    sf::Color ghostFill = pointToDraw.getFillColor();
+    ghostFill.a = 50;  // Faint alpha
+    pointToDraw.setFillColor(ghostFill);
+
+    sf::Color ghostOutline = pointToDraw.getOutlineColor();
+    ghostOutline.a = 50;
+    pointToDraw.setOutlineColor(ghostOutline);
   }
 
   // Selection Halo (Selection PRIORITY: Only show when selected)
   if (isSelected()) {
-      drawHalo(window, 10.0f);
+    drawHalo(window, 10.0f);
   }
 
   window.draw(pointToDraw);
-
-
 }
 
 void Point::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const {
@@ -487,20 +467,26 @@ void Point::drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldVie
 
   std::string labelStr = "";
   switch (getLabelMode()) {
-      case LabelMode::Name: labelStr = getLabel(); break;
-      case LabelMode::Value: {
-          // Coordinates - Use precision? Fixed to int for now to match angle
-          labelStr = "(" + std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.x())))) + ", " + 
-                           std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.y())))) + ")";
-          break;
-      }
-      case LabelMode::NameAndValue: {
-           labelStr = getLabel() + (getLabel().empty() ? "" : " = ") + "(" + std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.x())))) + ", " + 
-                           std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.y())))) + ")";
-           break;
-      }
-      case LabelMode::Caption: labelStr = getCaption(); break;
-      default: break;
+    case LabelMode::Name:
+      labelStr = getLabel();
+      break;
+    case LabelMode::Value: {
+      // Coordinates - Use precision? Fixed to int for now to match angle
+      labelStr = "(" + std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.x())))) + ", " +
+                 std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.y())))) + ")";
+      break;
+    }
+    case LabelMode::NameAndValue: {
+      labelStr = getLabel() + (getLabel().empty() ? "" : " = ") + "(" +
+                 std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.x())))) + ", " +
+                 std::to_string(static_cast<int>(std::round(CGAL::to_double(m_cgalPosition.y())))) + ")";
+      break;
+    }
+    case LabelMode::Caption:
+      labelStr = getCaption();
+      break;
+    default:
+      break;
   }
 
   if (labelStr.empty()) return;
@@ -512,23 +498,23 @@ void Point::drawLabelExplicit(sf::RenderWindow &window, const sf::View &worldVie
   // 2. Text setup
   sf::Text text;
   text.setFont(LabelManager::instance().getSelectedFont());
-  text.setString(m_label);
-  text.setCharacterSize(LabelManager::instance().getFontSize()); // Use global font size
+  text.setString(labelStr);                                       // Use the computed label string
+  text.setCharacterSize(LabelManager::instance().getFontSize());  // Use global font size
   text.setFillColor(Constants::AXIS_LABEL_COLOR);
-  
+
   // 3. Position (Screen Space)
   sf::Vector2f finalPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
-  
+
   // Apply visual offset (m_labelOffset is treated as screen pixels)
   // Default offset is usually (10, -10)
-  finalPos += m_labelOffset; 
-  
+  finalPos += m_labelOffset;
+
   // 4. Pixel Snapping for sharpness
   finalPos.x = std::round(finalPos.x);
   finalPos.y = std::round(finalPos.y);
-  
+
   text.setPosition(finalPos);
-  
+
   // 5. Draw (Caller ensures view is DefaultView)
   window.draw(text);
 }
@@ -563,17 +549,15 @@ void Point::setHovered(bool hover) {
 }
 
 void Point::setLocked(bool lockStatus) {
-    GeometricObject::setLocked(lockStatus);
-    updateSFMLShape();
+  GeometricObject::setLocked(lockStatus);
+  updateSFMLShape();
 }
 
-bool Point::isLocked() const {
-    return GeometricObject::isLocked();
-}
+bool Point::isLocked() const { return GeometricObject::isLocked(); }
 
 void Point::setVisible(bool v) {
-    GeometricObject::setVisible(v);
-    updateSFMLShape();
+  GeometricObject::setVisible(v);
+  updateSFMLShape();
 }
 
 // --- Position Management ---
@@ -656,9 +640,7 @@ void Point::removeConnectedLine(Line *line) {
                          m_connectedLines.end());
 }
 
-const std::vector<std::weak_ptr<Line>> &Point::getConnectedLines() const {
-  return m_connectedLines;
-}
+const std::vector<std::weak_ptr<Line>> &Point::getConnectedLines() const { return m_connectedLines; }
 
 void Point::updateConnectedLines() {
   if (!m_isInitialized) return;
@@ -679,8 +661,7 @@ void Point::updateConnectedLines() {
 
 void Point::notifyConnectedLines() {
   // Clean expired weak_ptrs first
-  m_connectedLines.erase(std::remove_if(m_connectedLines.begin(), m_connectedLines.end(),
-                                        [](const std::weak_ptr<Line> &wp) { return wp.expired(); }),
+  m_connectedLines.erase(std::remove_if(m_connectedLines.begin(), m_connectedLines.end(), [](const std::weak_ptr<Line> &wp) { return wp.expired(); }),
                          m_connectedLines.end());
 
   for (const auto &weakLine : m_connectedLines) {
@@ -754,9 +735,9 @@ void Point::setRadius(float screenRadius) {
   // Update m_radius based on current zoom (if accessible) or just let updateZoomFactor handle it later?
   // Ideally we want immediate feedback.
   if (Constants::CURRENT_ZOOM > 0) {
-      m_radius = m_desiredScreenRadius / Constants::CURRENT_ZOOM;
+    m_radius = m_desiredScreenRadius / Constants::CURRENT_ZOOM;
   } else {
-      m_radius = m_desiredScreenRadius; 
+    m_radius = m_desiredScreenRadius;
   }
   updateSFMLShape();
 }

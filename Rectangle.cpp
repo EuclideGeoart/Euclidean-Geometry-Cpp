@@ -1380,6 +1380,7 @@ void Rectangle::setPosition(const sf::Vector2f& newSfmlPos) {
 void Rectangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
   const float handleRadius = m_vertexHandleSize * scale;
   auto verts = getVertices();
+  sf::Color defaultHandleColor(m_color.r, m_color.g, m_color.b, 255);
 
   for (size_t i = 0; i < verts.size(); ++i) {
     sf::CircleShape handle(handleRadius);
@@ -1388,7 +1389,7 @@ void Rectangle::drawVertexHandles(sf::RenderWindow& window, float scale) const {
     float y = static_cast<float>(CGAL::to_double(verts[i].y()));
     handle.setPosition(x, y);
 
-    sf::Color base = sf::Color(180, 180, 180);
+    sf::Color base = defaultHandleColor;
     if (static_cast<int>(i) == m_activeVertex) {
       base = sf::Color(255, 140, 0);
     } else if (static_cast<int>(i) == m_hoveredVertex) {
