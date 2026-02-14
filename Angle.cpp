@@ -1,24 +1,26 @@
 #include "Angle.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include "PointUtils.h" // For LabelManager
+
+#include "PointUtils.h"  // For LabelManager
+
 
 sf::Font Angle::s_font;
 bool Angle::s_fontLoaded = false;
 
-Angle::Angle(const std::shared_ptr<Point> &a, const std::shared_ptr<Point> &vertex,
-             const std::shared_ptr<Point> &b, bool reflex, const sf::Color &color)
-    : GeometricObject(ObjectType::Angle, color),
-      m_pointA(a),
-      m_vertex(vertex),
-      m_pointB(b),
-      m_isReflex(reflex) {
+Angle::Angle(const std::shared_ptr<Point> &a,
+             const std::shared_ptr<Point> &vertex,
+             const std::shared_ptr<Point> &b,
+             bool reflex,
+             const sf::Color &color)
+    : GeometricObject(ObjectType::Angle, color), m_pointA(a), m_vertex(vertex), m_pointB(b), m_isReflex(reflex) {
   // Init colors
   m_fillColor = color;
   m_outlineColor = color;
   m_outlineColor.a = 255;
-      
+
   if (!s_fontLoaded) {
     s_fontLoaded = s_font.loadFromFile(Constants::DEFAULT_FONT_PATH);
     if (!s_fontLoaded) {
@@ -32,9 +34,40 @@ Angle::Angle(const std::shared_ptr<Point> &a, const std::shared_ptr<Point> &vert
   m_text.setFillColor(sf::Color::Black);
   m_visualRadius = 40.0;
   m_arcRadius = m_visualRadius;
+  if (auto v = m_vertex.lock()) v->addDependent(m_selfHandle);
+  if (auto pA = m_pointA.lock()) pA->addDependent(m_selfHandle);
+  if (auto pB = m_pointB.lock()) pB->addDependent(m_selfHandle);
   updateSFMLShape();
 }
 
+Angle::Angle(const std::shared_ptr<Point> &a, const Point_2 &virtualVertex, const std::shared_ptr<Point> &b, bool reflex, const sf::Color &color)
+    : GeometricObject(ObjectType::Angle, color),
+      m_pointA(a),
+      m_pointB(b),
+      m_hasVirtualVertex(true),
+      m_virtualVertex(virtualVertex),
+      m_isReflex(reflex) {
+  m_fillColor = color;
+  m_outlineColor = color;
+  m_outlineColor.a = 255;
+
+  if (!s_fontLoaded) {
+    s_fontLoaded = s_font.loadFromFile(Constants::DEFAULT_FONT_PATH);
+    if (!s_fontLoaded) {
+      std::cerr << "Angle: Failed to load font from " << Constants::DEFAULT_FONT_PATH << std::endl;
+    }
+  }
+  if (s_fontLoaded) {
+    m_text.setFont(s_font);
+  }
+  m_text.setCharacterSize(Constants::BUTTON_TEXT_SIZE);
+  m_text.setFillColor(sf::Color::Black);
+  m_visualRadius = 40.0;
+  m_arcRadius = m_visualRadius;
+  if (auto pA = m_pointA.lock()) pA->addDependent(m_selfHandle);
+  if (auto pB = m_pointB.lock()) pB->addDependent(m_selfHandle);
+  updateSFMLShape();
+}
 
 void Angle::setReflex(bool reflex) {
   if (m_isReflex != reflex) {
@@ -47,13 +80,51 @@ bool Angle::resolvePoints(Point_2 &a, Point_2 &v, Point_2 &b) const {
   auto spA = m_pointA.lock();
   auto spV = m_vertex.lock();
   auto spB = m_pointB.lock();
-  if (!spA || !spV || !spB) return false;
-  if (!spA->isValid() || !spV->isValid() || !spB->isValid()) return false;
-  if (!spA->isVisible() || !spV->isVisible() || !spB->isVisible()) return false;
+  if (!spA || !spB) return false;
+  if (!spA->isValid() || !spB->isValid()) return false;
   a = spA->getCGALPosition();
-  v = spV->getCGALPosition();
+  if (spV && spV->isValid()) {
+    v = spV->getCGALPosition();
+  } else if (m_hasVirtualVertex) {
+    v = m_virtualVertex;
+  } else {
+    return false;
+  }
   b = spB->getCGALPosition();
   return true;
+}
+
+void Angle::setVirtualVertex(const Point_2 &vertex) {
+  m_virtualVertex = vertex;
+  m_hasVirtualVertex = true;
+  m_vertex.reset();
+  updateSFMLShape();
+}
+
+void Angle::clearVirtualVertex() { m_hasVirtualVertex = false; }
+
+void Angle::setFallbackDirections(const Vector_2 &dirA, const Vector_2 &dirB) {
+  constexpr double kEpsLen = 1e-12;
+
+  double lenA = std::sqrt(CGAL::to_double(dirA.squared_length()));
+  if (lenA > kEpsLen) {
+    m_fallbackDirAx = CGAL::to_double(dirA.x()) / lenA;
+    m_fallbackDirAy = CGAL::to_double(dirA.y()) / lenA;
+    m_hasFallbackDirA = true;
+  } else {
+    m_hasFallbackDirA = false;
+  }
+
+  double lenB = std::sqrt(CGAL::to_double(dirB.squared_length()));
+  if (lenB > kEpsLen) {
+    m_fallbackDirBx = CGAL::to_double(dirB.x()) / lenB;
+    m_fallbackDirBy = CGAL::to_double(dirB.y()) / lenB;
+    m_hasFallbackDirB = true;
+  } else {
+    m_hasFallbackDirB = false;
+  }
+
+  updateSFMLShape();
 }
 
 double Angle::normalizeSignedPi(double angleRad) {
@@ -100,6 +171,17 @@ void Angle::updateSFMLShape() {
 
   double lenA = std::sqrt(vax * vax + vay * vay);
   double lenB = std::sqrt(vbx * vbx + vby * vby);
+  constexpr double kEpsLen = 1e-9;
+  if (lenA < kEpsLen && m_hasFallbackDirA) {
+    vax = m_fallbackDirAx;
+    vay = m_fallbackDirAy;
+    lenA = 1.0;
+  }
+  if (lenB < kEpsLen && m_hasFallbackDirB) {
+    vbx = m_fallbackDirBx;
+    vby = m_fallbackDirBy;
+    lenB = 1.0;
+  }
   if (lenA < 1e-6 || lenB < 1e-6) {
     m_arc.clear();
     m_fillFan.clear();
@@ -123,122 +205,99 @@ void Angle::updateSFMLShape() {
   m_currentDegrees = static_cast<float>(sweepAbs * 180.0 / kPi);
 
   // --- VISUALIZATION SETUP ---
-  bool hasFill = (m_color.a > 0); // Only generate fill geometry if alpha > 0
+  bool hasFill = (m_color.a > 0);  // Only generate fill geometry if alpha > 0
   double cx = vx;
   double cy = vy;
 
   // --- RIGHT ANGLE VISUALIZATION ---
-  bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.1f;
-  
+  bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.5f;
+
   if (isRightAngle) {
-    // Render Square Symbol
+    double ux = std::cos(m_startAngle);
+    double uy = std::sin(m_startAngle);
+    double vxDir = std::cos(m_startAngle + m_sweepAngle);
+    double vyDir = std::sin(m_startAngle + m_sweepAngle);
+    double maxMarker = std::max(2.0, m_arcRadius * 0.9);
+    double rightMarkerSize = std::clamp(m_markerSize, 2.0, maxMarker);
+
+    double p1x = cx + (rightMarkerSize * ux);
+    double p1y = cy + (rightMarkerSize * uy);
+    double p2x = cx + (rightMarkerSize * vxDir);
+    double p2y = cy + (rightMarkerSize * vyDir);
+    double cornerX = cx + (rightMarkerSize * ux) + (rightMarkerSize * vxDir);
+    double cornerY = cy + (rightMarkerSize * uy) + (rightMarkerSize * vyDir);
+
     m_arc.clear();
     m_arc.setPrimitiveType(sf::LineStrip);
-    m_arc.resize(5); // V -> P1 -> P2 -> P3 -> V (Closed loop or just open?)
-                 // Typically right angle symbol is just the two internal lines.
-                 // Let's do: Start(on A side) -> Corner -> End(on B side)
-                 // But typically it's a square.
-                 // Points: P_A = V + dirA * R
-                 //         P_Corner = V + dirA * R + dirB * R
-                 //         P_B = V + dirB * R
-                 // Path: P_A -> P_Corner -> P_B
-    
-    double dirAx = std::cos(m_startAngle);
-    double dirAy = std::sin(m_startAngle);
-    double dirBx = std::cos(m_startAngle + m_sweepAngle); // dirB
-    double dirBy = std::sin(m_startAngle + m_sweepAngle);
-
-    // If reflex, we might need to be careful, but 90 degrees usually isn't reflex in this context unless explicit.
-    // The sweep handles direction naturally.
-
-    double pxA = cx + dirAx * m_arcRadius;
-    double pyA = cy + dirAy * m_arcRadius;
-
-    double pxB = cx + dirBx * m_arcRadius;
-    double pyB = cy + dirBy * m_arcRadius;
-
-    double pxCorner = cx + (dirAx + dirBx) * m_arcRadius; 
-    // Actually exact square corner is V + dA*R + dB*R
-    // Check math: If A is X-axis, B is Y-axis. V=0.
-    // dirA=(1,0), dirB=(0,1). P_A=(R,0), P_B=(0,R).
-    // P_Corner = (R, R). Correct.
-    
-    double pyCorner = cy + (dirAy + dirBy) * m_arcRadius;
-
-    // We can draw the full square or just the L-bracket. 
-    // Standard is L-bracket from the sides.
-    // Let's draw: P_A -> P_Corner -> P_B.
-    
     m_arc.resize(3);
-    m_arc[0].position = sf::Vector2f(static_cast<float>(pxA), static_cast<float>(pyA));
-    m_arc[1].position = sf::Vector2f(static_cast<float>(pxCorner), static_cast<float>(pyCorner));
-    m_arc[2].position = sf::Vector2f(static_cast<float>(pxB), static_cast<float>(pyB));
+    m_arc[0].position = sf::Vector2f(static_cast<float>(p1x), static_cast<float>(p1y));
+    m_arc[1].position = sf::Vector2f(static_cast<float>(cornerX), static_cast<float>(cornerY));
+    m_arc[2].position = sf::Vector2f(static_cast<float>(p2x), static_cast<float>(p2y));
+    for (int i = 0; i < 3; ++i) m_arc[i].color = m_outlineColor;
 
-    for(int i=0; i<3; ++i) m_arc[i].color = m_outlineColor;
-
-    // Fill for Right Angle (Square sector)
     if (hasFill) {
       m_fillFan.clear();
-      m_fillFan.setPrimitiveType(sf::Quads); // Just a quad
+      m_fillFan.setPrimitiveType(sf::TriangleFan);
       m_fillFan.resize(4);
-      m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy)); // V
-      m_fillFan[1].position = sf::Vector2f(static_cast<float>(pxA), static_cast<float>(pyA));
-      m_fillFan[2].position = sf::Vector2f(static_cast<float>(pxCorner), static_cast<float>(pyCorner));
-      m_fillFan[3].position = sf::Vector2f(static_cast<float>(pxB), static_cast<float>(pyB));
-      
+      m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy));
+      m_fillFan[1].position = sf::Vector2f(static_cast<float>(p1x), static_cast<float>(p1y));
+      m_fillFan[2].position = sf::Vector2f(static_cast<float>(cornerX), static_cast<float>(cornerY));
+      m_fillFan[3].position = sf::Vector2f(static_cast<float>(p2x), static_cast<float>(p2y));
+
       sf::Color transparentFill = m_fillColor;
       transparentFill.a = 50;
-      for(int i=0; i<4; ++i) m_fillFan[i].color = transparentFill;
+      for (int i = 0; i < 4; ++i) m_fillFan[i].color = transparentFill;
+    } else {
+      m_fillFan.clear();
     }
 
   } else {
-      // --- STANDARD ARC VISUALIZATION ---
-      int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
-      
-      // Update Outline (Arc)
-      m_arc.clear();
-      m_arc.setPrimitiveType(sf::LineStrip);
-      m_arc.resize(static_cast<size_t>(segments + 1));
+    // --- STANDARD ARC VISUALIZATION ---
+    int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
 
-      // Update Fill (Sector)
-      m_fillFan.clear();
-      m_fillFan.setPrimitiveType(sf::TriangleFan);
+    // Update Outline (Arc)
+    m_arc.clear();
+    m_arc.setPrimitiveType(sf::LineStrip);
+    m_arc.resize(static_cast<size_t>(segments + 1));
+
+    // Update Fill (Sector)
+    m_fillFan.clear();
+    m_fillFan.setPrimitiveType(sf::TriangleFan);
+    if (hasFill) {
+      m_fillFan.resize(static_cast<size_t>(segments + 2));  // Center + arc points
+      m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy));
+      sf::Color transparentFill = m_fillColor;
+      transparentFill.a = 50;
+      m_fillFan[0].color = transparentFill;
+    }
+
+    for (int i = 0; i <= segments; ++i) {
+      double t = (segments == 0) ? 0.0 : (static_cast<double>(i) / segments);
+      double ang = m_startAngle + m_sweepAngle * t;
+      float px = static_cast<float>(cx + m_arcRadius * std::cos(ang));
+      float py = static_cast<float>(cy + m_arcRadius * std::sin(ang));
+
+      // Outline point
+      m_arc[static_cast<size_t>(i)].position = sf::Vector2f(px, py);
+      m_arc[static_cast<size_t>(i)].color = m_outlineColor;
+
+      // Fill point
       if (hasFill) {
-          m_fillFan.resize(static_cast<size_t>(segments + 2)); // Center + arc points
-          m_fillFan[0].position = sf::Vector2f(static_cast<float>(vx), static_cast<float>(vy));
-         sf::Color transparentFill = m_fillColor;
-          transparentFill.a = 50;
-          m_fillFan[0].color = transparentFill;
+        m_fillFan[static_cast<size_t>(i + 1)].position = sf::Vector2f(px, py);
+        sf::Color transparentFill = m_fillColor;
+        transparentFill.a = 50;
+        m_fillFan[static_cast<size_t>(i + 1)].color = transparentFill;
       }
-
-      for (int i = 0; i <= segments; ++i) {
-        double t = (segments == 0) ? 0.0 : (static_cast<double>(i) / segments);
-        double ang = m_startAngle + m_sweepAngle * t;
-        float px = static_cast<float>(cx + m_arcRadius * std::cos(ang));
-        float py = static_cast<float>(cy + m_arcRadius * std::sin(ang));
-        
-        // Outline point
-        m_arc[static_cast<size_t>(i)].position = sf::Vector2f(px, py);
-        m_arc[static_cast<size_t>(i)].color = m_outlineColor;
-
-        // Fill point
-        if (hasFill) {
-            m_fillFan[static_cast<size_t>(i+1)].position = sf::Vector2f(px, py);
-            sf::Color transparentFill = m_fillColor;
-            transparentFill.a = 50;
-            m_fillFan[static_cast<size_t>(i+1)].color = transparentFill;
-        }
-      }
+    }
   }
 
   float midAngle = static_cast<float>(m_startAngle + m_sweepAngle * 0.5);
   float textRadius = static_cast<float>(m_arcRadius + 12.0);
-  sf::Vector2f textPos(static_cast<float>(cx) + textRadius * std::cos(midAngle),
-                       static_cast<float>(cy) + textRadius * std::sin(midAngle));
-  
+  sf::Vector2f textPos(static_cast<float>(cx) + textRadius * std::cos(midAngle), static_cast<float>(cy) + textRadius * std::sin(midAngle));
+
   // Apply label offset (already in base)
   textPos += GeometricObject::getLabelOffset();
-  
+
   m_text.setString(std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xC2\xB0");
   m_text.setPosition(textPos);
   m_text.setScale(1.0f, -1.0f);
@@ -263,10 +322,10 @@ void Angle::updateSFMLShape() {
     float maxY = minY;
     // Include center for sector bounds
     if (hasFill) {
-        minX = std::min(minX, (float)cx);
-        minY = std::min(minY, (float)cy);
-        maxX = std::max(maxX, (float)cx);
-        maxY = std::max(maxY, (float)cy);
+      minX = std::min(minX, (float)cx);
+      minY = std::min(minY, (float)cy);
+      maxX = std::max(maxX, (float)cx);
+      maxY = std::max(maxY, (float)cy);
     }
     for (size_t i = 1; i < m_arc.getVertexCount(); ++i) {
       minX = std::min(minX, m_arc[i].position.x);
@@ -287,112 +346,128 @@ void Angle::draw(sf::RenderWindow &window, float scale, bool forceVisible) const
   sf::Color overrideColor = m_color;
   bool isGhost = (!isVisible() && forceVisible);
   if (isGhost) {
-      overrideColor.a = 50;
+    overrideColor.a = 50;
   }
 
   // --- ADAPTIVE RADIUS CALCULATION ---
-    float effectiveRadius = static_cast<float>(m_visualRadius);
+  float effectiveRadius = static_cast<float>(m_visualRadius);
 
   // --- REGENERATE GEOMETRY (Local for View-Dependent Rendering) ---
   sf::VertexArray drawArc(sf::LineStrip);
   sf::VertexArray drawFan(sf::TriangleFan);
   bool hasFill = (m_color.a > 0);
-  
+
   double cx = CGAL::to_double(m_vertexPoint.x());
   double cy = CGAL::to_double(m_vertexPoint.y());
   double startAngle = m_startAngle;
   double sweepAngle = m_sweepAngle;
 
-  bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.1f;
+  bool isRightAngle = std::abs(m_currentDegrees - 90.0f) < 0.5f;
 
   // --- Styled Outline Rendering ---
   float baseThickness = m_thickness;
-  if (isSelected()) baseThickness += 2.0f;
-  else if (isHovered()) baseThickness += 1.0f;
+  if (isSelected())
+    baseThickness += 2.0f;
+  else if (isHovered())
+    baseThickness += 1.0f;
   float pixelThickness = std::round(baseThickness);
   if (pixelThickness < 1.0f) pixelThickness = 1.0f;
 
   sf::Color drawOutlineColor = isGhost ? overrideColor : m_outlineColor;
 
+  // Store where the blue handle should be drawn
+  sf::Vector2f resizeHandlePos;
+
   if (isRightAngle) {
-      // Right Angle Square Symbol
-      double dirAx = std::cos(startAngle);
-      double dirAy = std::sin(startAngle);
-      double dirBx = std::cos(startAngle + sweepAngle);
-      double dirBy = std::sin(startAngle + sweepAngle);
+    // --- RIGHT ANGLE FIX ---
 
-      sf::Vector2f pA((float)(cx + dirAx * effectiveRadius), (float)(cy + dirAy * effectiveRadius));
-      sf::Vector2f pB((float)(cx + dirBx * effectiveRadius), (float)(cy + dirBy * effectiveRadius));
-      sf::Vector2f pCorner((float)(cx + (dirAx + dirBx) * effectiveRadius), (float)(cy + (dirAy + dirBx) * effectiveRadius));
+    // 1. Use effectiveRadius directly so dragging works!
+    // (Optional: multiply by 0.707 if you want the corner to be exactly at radius distance,
+    // but using full radius usually looks better for the symbol itself)
+    double rightMarkerSize = effectiveRadius;
 
-      // Fill
-      if (hasFill && !isGhost) {
-          drawFan.setPrimitiveType(sf::Quads);
-          drawFan.resize(4);
-          sf::Color c = m_fillColor; c.a = 50;
-          drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
-          drawFan[1] = sf::Vertex(pA, c);
-          drawFan[2] = sf::Vertex(pCorner, c);
-          drawFan[3] = sf::Vertex(pB, c);
-          window.draw(drawFan);
-      }
+    double ux = std::cos(startAngle);
+    double uy = std::sin(startAngle);
+    double vxDir = std::cos(startAngle + sweepAngle);
+    double vyDir = std::sin(startAngle + sweepAngle);
 
-      GeometricObject::drawStyledLine(window, pA, pCorner, m_lineStyle, pixelThickness, drawOutlineColor);
-      GeometricObject::drawStyledLine(window, pCorner, pB, m_lineStyle, pixelThickness, drawOutlineColor);
+    sf::Vector2f p1((float)(cx + rightMarkerSize * ux), (float)(cy + rightMarkerSize * uy));
+    sf::Vector2f p2((float)(cx + rightMarkerSize * vxDir), (float)(cy + rightMarkerSize * vyDir));
+
+    // Calculate the CORNER position
+    sf::Vector2f corner((float)(cx + rightMarkerSize * ux + rightMarkerSize * vxDir), (float)(cy + rightMarkerSize * uy + rightMarkerSize * vyDir));
+
+    if (hasFill && !isGhost) {
+      drawFan.setPrimitiveType(sf::TriangleFan);
+      drawFan.resize(4);
+      sf::Color c = m_fillColor;
+      c.a = 50;
+      drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
+      drawFan[1] = sf::Vertex(p1, c);
+      drawFan[2] = sf::Vertex(corner, c);
+      drawFan[3] = sf::Vertex(p2, c);
+      window.draw(drawFan);
+    }
+
+    GeometricObject::drawStyledLine(window, p1, corner, m_lineStyle, pixelThickness, drawOutlineColor);
+    GeometricObject::drawStyledLine(window, corner, p2, m_lineStyle, pixelThickness, drawOutlineColor);
+
+    // 2. Set the handle position to the CORNER
+    resizeHandlePos = corner;
+
   } else {
-      // Standard Arc (segmented)
-      constexpr double kPi = 3.14159265358979323846;
-      double sweepAbs = std::abs(sweepAngle);
-      int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
-      
-      sf::Vector2f prevPos((float)(cx + effectiveRadius * std::cos(startAngle)), 
-                           (float)(cy + effectiveRadius * std::sin(startAngle)));
+    // --- STANDARD ARC VISUALIZATION ---
+    constexpr double kPi = 3.14159265358979323846;
+    double sweepAbs = std::abs(sweepAngle);
+    int segments = std::max(12, static_cast<int>(sweepAbs / (kPi / 18.0)));
+
+    sf::Vector2f prevPos((float)(cx + effectiveRadius * std::cos(startAngle)), (float)(cy + effectiveRadius * std::sin(startAngle)));
+
+    if (hasFill && !isGhost) {
+      drawFan.resize(segments + 2);
+      sf::Color c = m_fillColor;
+      c.a = 50;
+      drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
+      drawFan[1] = sf::Vertex(prevPos, c);
+    }
+
+    for (int i = 1; i <= segments; ++i) {
+      double t = static_cast<double>(i) / segments;
+      double ang = startAngle + sweepAngle * t;
+      sf::Vector2f currPos((float)(cx + effectiveRadius * std::cos(ang)), (float)(cy + effectiveRadius * std::sin(ang)));
 
       if (hasFill && !isGhost) {
-          drawFan.resize(segments + 2);
-          sf::Color c = m_fillColor; c.a = 50;
-          drawFan[0] = sf::Vertex(sf::Vector2f((float)cx, (float)cy), c);
-          drawFan[1] = sf::Vertex(prevPos, c);
+        sf::Color c = m_fillColor;
+        c.a = 50;
+        drawFan[i + 1] = sf::Vertex(currPos, c);
       }
 
-      for (int i = 1; i <= segments; ++i) {
-        double t = static_cast<double>(i) / segments;
-        double ang = startAngle + sweepAngle * t;
-        sf::Vector2f currPos((float)(cx + effectiveRadius * std::cos(ang)), 
-                             (float)(cy + effectiveRadius * std::sin(ang)));
-        
-        if (hasFill && !isGhost) {
-            sf::Color c = m_fillColor; c.a = 50;
-            drawFan[i + 1] = sf::Vertex(currPos, c);
-        }
+      GeometricObject::drawStyledLine(window, prevPos, currPos, m_lineStyle, pixelThickness, drawOutlineColor);
+      prevPos = currPos;
+    }
 
-        GeometricObject::drawStyledLine(window, prevPos, currPos, m_lineStyle, pixelThickness, drawOutlineColor);
-        prevPos = currPos;
-      }
+    if (hasFill && !isGhost) {
+      window.draw(drawFan);
+    }
 
-      if (hasFill && !isGhost) {
-          window.draw(drawFan);
-      }
+    // Standard Handle Position (Middle of Arc)
+    float midAngle = static_cast<float>(startAngle + sweepAngle * 0.5);
+    resizeHandlePos =
+        sf::Vector2f(static_cast<float>(cx + effectiveRadius * std::cos(midAngle)), static_cast<float>(cy + effectiveRadius * std::sin(midAngle)));
   }
-
-
-
-  // Draw Text - MOVED TO drawLabel()
-  // Label Rendering handled by global pass now
 
   // Draw Vertex Handle (Resize handle) - only if selected/hovered
   if (isSelected() || isHovered()) {
-      float midAngle = static_cast<float>(startAngle + sweepAngle * 0.5);
-      float hx = static_cast<float>(cx + effectiveRadius * std::cos(midAngle));
-      float hy = static_cast<float>(cy + effectiveRadius * std::sin(midAngle));
-      
-      sf::CircleShape handle(4.0f * scale);
-      handle.setOrigin(4.0f * scale, 4.0f * scale);
-      handle.setPosition(hx, hy);
-      handle.setFillColor(sf::Color(100, 100, 255, 200));
-      handle.setOutlineColor(sf::Color::Black);
-      handle.setOutlineThickness(1.0f * scale);
-      window.draw(handle);
+    sf::CircleShape handle(4.0f * scale);
+    handle.setOrigin(4.0f * scale, 4.0f * scale);
+
+    // 3. Use the unified calculated position
+    handle.setPosition(resizeHandlePos);
+
+    handle.setFillColor(sf::Color(100, 100, 255, 200));
+    handle.setOutlineColor(sf::Color::Black);
+    handle.setOutlineThickness(1.0f * scale);
+    window.draw(handle);
   }
 }
 
@@ -401,45 +476,54 @@ void Angle::drawLabel(sf::RenderWindow &window, const sf::View &worldView) const
 
   std::string labelStr = "";
   std::string valueStr = std::to_string(static_cast<int>(std::round(m_currentDegrees))) + "\xB0";
-  
+
   switch (getLabelMode()) {
-      case LabelMode::Name: labelStr = getLabel(); break;
-      case LabelMode::Value: labelStr = valueStr; break;
-      case LabelMode::NameAndValue: labelStr = getLabel() + (getLabel().empty() ? "" : " = ") + valueStr; break;
-      case LabelMode::Caption: labelStr = getCaption(); break;
-      default: break;
+    case LabelMode::Name:
+      labelStr = getLabel();
+      break;
+    case LabelMode::Value:
+      labelStr = valueStr;
+      break;
+    case LabelMode::NameAndValue:
+      labelStr = getLabel() + (getLabel().empty() ? "" : " = ") + valueStr;
+      break;
+    case LabelMode::Caption:
+      labelStr = getCaption();
+      break;
+    default:
+      break;
   }
 
   if (labelStr.empty()) return;
 
   sf::Vector2f anchor = getLabelAnchor(worldView);
   sf::Vector2i screenPos = window.mapCoordsToPixel(anchor, worldView);
-  
+
   // Use GUI view coordinates (pixel-perfect text)
   sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
-  
+
   // Add stored label offset (in screen pixels)
-  labelPos += getLabelOffset(); 
-  
+  labelPos += getLabelOffset();
+
   // Apply a small default padding if offset is zero? No, user can drag.
   // But initial placement should be reasonable.
   if (getLabelOffset() == sf::Vector2f(0.f, 0.f)) {
-      labelPos += sf::Vector2f(10.f, -10.f); 
+    labelPos += sf::Vector2f(10.f, -10.f);
   }
 
   sf::Text text;
   text.setFont(LabelManager::instance().getSelectedFont());
   // Use fromUtf8 to convert standard string (if containing UTF-8 like degree symbol)
   text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
-  text.setCharacterSize(LabelManager::instance().getFontSize()); 
-  
+  text.setCharacterSize(LabelManager::instance().getFontSize());
+
   sf::Color textColor = m_fillColor;
   // Fallback for very bright colors on white background could be useful here too
   if (textColor.r > 200 && textColor.g > 200 && textColor.b > 200) textColor = sf::Color::Black;
   text.setFillColor(textColor);
-  
+
   text.setPosition(labelPos);
-  
+
   sf::FloatRect bounds = text.getLocalBounds();
   text.setOrigin(bounds.width / 2.0f, bounds.height / 2.0f);
 
@@ -451,16 +535,21 @@ sf::Vector2f Angle::getLabelAnchor(const sf::View &view) const {
   double cx = CGAL::to_double(m_vertexPoint.x());
   double cy = CGAL::to_double(m_vertexPoint.y());
   double midAngle = m_startAngle + m_sweepAngle * 0.5;
-  
+
   double rx = cx + m_visualRadius * std::cos(midAngle);
   double ry = cy + m_visualRadius * std::sin(midAngle);
-  
+
   return sf::Vector2f(static_cast<float>(rx), static_cast<float>(ry));
 }
 
 void Angle::setRadius(double radius) {
   m_visualRadius = radius;
   m_arcRadius = m_visualRadius;
+  updateSFMLShape();
+}
+
+void Angle::setRightAngleMarkerSize(double size) {
+  m_markerSize = std::max(2.0, size);
   updateSFMLShape();
 }
 
@@ -503,7 +592,7 @@ bool Angle::isMouseOverArc(const sf::Vector2f &worldPos, float tolerance) const 
   double dx = worldPos.x - cx;
   double dy = worldPos.y - cy;
   double dist = std::sqrt(dx * dx + dy * dy);
-  
+
   // Specific check for arc radius alignment
   if (std::abs(dist - m_arcRadius) > tolerance) return false;
 
@@ -526,15 +615,15 @@ bool Angle::isMouseOverArc(const sf::Vector2f &worldPos, float tolerance) const 
   return target <= start || target >= end;
 }
 
-void Angle::setColor(const sf::Color& c) {
-    GeometricObject::setColor(c); // Update base m_color
+void Angle::setColor(const sf::Color &c) {
+  GeometricObject::setColor(c);  // Update base m_color
 
-    // Update visual components
-    m_fillColor = c;
+  // Update visual components
+  m_fillColor = c;
 
-    m_outlineColor = c;
-    m_outlineColor.a = 255; // Full alpha for the arc line
+  m_outlineColor = c;
+  m_outlineColor.a = 255;  // Full alpha for the arc line
 
-    // Rebuild or update the VertexArray colors immediately
-    updateSFMLShape();
+  // Rebuild or update the VertexArray colors immediately
+  updateSFMLShape();
 }

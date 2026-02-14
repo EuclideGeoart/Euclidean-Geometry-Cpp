@@ -871,6 +871,112 @@ void GeometryEditor::render() {
       obj->drawLabel(window, drawingView);  // Pass original World View for mapping
     };
 
+    auto computeLabelHitBounds = [&](GeometricObject* obj, sf::FloatRect& outBounds) -> bool {
+      if (!obj) return false;
+      if (!obj->isVisible()) return false;
+      if (!obj->getShowLabel()) return false;
+      if (obj->getLabelMode() == LabelMode::Hidden) return false;
+
+      std::string labelStr;
+      std::string valueStr;
+      std::string label = obj->getLabel();
+
+      if (obj->getType() == ObjectType::Angle) {
+        if (auto* ang = dynamic_cast<Angle*>(obj)) {
+          valueStr = std::to_string(static_cast<int>(std::round(ang->getCurrentDegrees()))) + "\xB0";
+        }
+      }
+
+      switch (obj->getLabelMode()) {
+        case LabelMode::Name:
+          labelStr = label;
+          break;
+        case LabelMode::Value:
+          labelStr = valueStr;
+          break;
+        case LabelMode::NameAndValue:
+          labelStr = label + (label.empty() ? "" : " = ") + valueStr;
+          break;
+        case LabelMode::Caption:
+          labelStr = obj->getCaption();
+          break;
+        default:
+          break;
+      }
+
+      if (labelStr.empty()) return false;
+
+      const sf::Font* labelFont = Point::commonFont ? Point::commonFont : (Button::getFontLoaded() ? &Button::getFont() : nullptr);
+      if (!labelFont) return false;
+
+      sf::Vector2f anchor = obj->getLabelAnchor(drawingView);
+      sf::Vector2i screenPos = window.mapCoordsToPixel(anchor, drawingView);
+      sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+      labelPos += obj->getLabelOffset();
+
+      if (obj->getType() == ObjectType::Angle && obj->getLabelOffset() == sf::Vector2f(0.f, 0.f)) {
+        labelPos += sf::Vector2f(10.f, -10.f);
+      }
+
+      labelPos.x = std::round(labelPos.x);
+      labelPos.y = std::round(labelPos.y);
+
+      sf::Text text;
+      text.setFont(*labelFont);
+      text.setString(sf::String::fromUtf8(labelStr.begin(), labelStr.end()));
+      text.setCharacterSize(LabelManager::instance().getFontSize());
+      text.setPosition(labelPos);
+
+      sf::FloatRect local = text.getLocalBounds();
+      text.setOrigin(local.width / 2.0f, local.height / 2.0f);
+
+      outBounds = text.getGlobalBounds();
+      constexpr float labelHitPaddingPx = 10.0f;
+      outBounds.left -= labelHitPaddingPx;
+      outBounds.top -= labelHitPaddingPx;
+      outBounds.width += labelHitPaddingPx * 2.0f;
+      outBounds.height += labelHitPaddingPx * 2.0f;
+      return true;
+    };
+
+    auto drawDashedRect = [&](const sf::FloatRect& rect, const sf::Color& color) {
+      constexpr float dashLength = 6.0f;
+      constexpr float gapLength = 4.0f;
+      const float left = rect.left;
+      const float top = rect.top;
+      const float right = rect.left + rect.width;
+      const float bottom = rect.top + rect.height;
+
+      sf::VertexArray dashed(sf::Lines);
+
+      auto addDashedHorizontal = [&](float y, float x1, float x2) {
+        float x = x1;
+        while (x < x2) {
+          float segEnd = std::min(x + dashLength, x2);
+          dashed.append(sf::Vertex(sf::Vector2f(x, y), color));
+          dashed.append(sf::Vertex(sf::Vector2f(segEnd, y), color));
+          x = segEnd + gapLength;
+        }
+      };
+
+      auto addDashedVertical = [&](float x, float y1, float y2) {
+        float y = y1;
+        while (y < y2) {
+          float segEnd = std::min(y + dashLength, y2);
+          dashed.append(sf::Vertex(sf::Vector2f(x, y), color));
+          dashed.append(sf::Vertex(sf::Vector2f(x, segEnd), color));
+          y = segEnd + gapLength;
+        }
+      };
+
+      addDashedHorizontal(top, left, right);
+      addDashedHorizontal(bottom, left, right);
+      addDashedVertical(left, top, bottom);
+      addDashedVertical(right, top, bottom);
+
+      window.draw(dashed);
+    };
+
     for (const auto& pt : points) drawLabel(pt);
     for (const auto& op : ObjectPoints) drawLabel(op);
     for (const auto& line : lines) drawLabel(line);
@@ -880,6 +986,50 @@ void GeometryEditor::render() {
     for (const auto& reg : regularPolygons) drawLabel(reg);
     for (const auto& tri : triangles) drawLabel(tri);
     for (const auto& poly : polygons) drawLabel(poly);
+
+    const sf::Color selectedLabelHitboxColor(0, 174, 239);
+
+    if (isDraggingLabel && labelDragObject && labelDragVertexIndex >= 0) {
+      if (auto* rect = dynamic_cast<Rectangle*>(labelDragObject)) {
+        auto verts = rect->getVerticesSFML();
+        if (labelDragVertexIndex < static_cast<int>(verts.size()) && Button::getFontLoaded()) {
+          const char* labels[] = {"A", "B", "C", "D"};
+          sf::Vector2f worldPos = verts[static_cast<size_t>(labelDragVertexIndex)];
+          sf::Vector2i screenPos = window.mapCoordsToPixel(worldPos, drawingView);
+          sf::Vector2f labelPos(static_cast<float>(screenPos.x), static_cast<float>(screenPos.y));
+          labelPos += rect->getVertexLabelOffset(static_cast<size_t>(labelDragVertexIndex));
+
+          sf::Text text;
+          text.setFont(Button::getFont());
+          text.setString(labels[labelDragVertexIndex]);
+          text.setCharacterSize(LabelManager::instance().getFontSize());
+          text.setPosition(labelPos);
+
+          sf::FloatRect bounds = text.getGlobalBounds();
+          constexpr float labelHitPaddingPx = 10.0f;
+          bounds.left -= labelHitPaddingPx;
+          bounds.top -= labelHitPaddingPx;
+          bounds.width += labelHitPaddingPx * 2.0f;
+          bounds.height += labelHitPaddingPx * 2.0f;
+          drawDashedRect(bounds, selectedLabelHitboxColor);
+        }
+      }
+    }
+
+    auto drawSelectedLabelHitbox = [&](GeometricObject* obj) {
+      sf::FloatRect labelBounds;
+      if (computeLabelHitBounds(obj, labelBounds)) {
+        drawDashedRect(labelBounds, selectedLabelHitboxColor);
+      }
+    };
+
+    if (selectedObjects.empty()) {
+      drawSelectedLabelHitbox(selectedObject);
+    } else {
+      for (GeometricObject* obj : selectedObjects) {
+        drawSelectedLabelHitbox(obj);
+      }
+    }
 
     // hover message
     if (showHoverMessage) {

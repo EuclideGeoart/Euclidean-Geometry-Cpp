@@ -113,9 +113,21 @@ int main() {
     ImFontConfig baseConfig;
     ImFont *baseFont = nullptr;
 #if defined(_WIN32) || defined(_WIN64)
-    baseFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 20.0f, &baseConfig);
+    try {
+      if (std::filesystem::exists("C:/Windows/Fonts/segoeui.ttf")) {
+        baseFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 20.0f, &baseConfig);
+      }
+    } catch (...) {
+      baseFont = nullptr;
+    }
     if (!baseFont) {
-      baseFont = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 18.0f);
+      try {
+        if (std::filesystem::exists("C:/Windows/Fonts/arial.ttf")) {
+          baseFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/arial.ttf", 18.0f);
+        }
+      } catch (...) {
+        baseFont = nullptr;
+      }
     }
 #else
     // Try common Linux font paths
@@ -152,17 +164,38 @@ int main() {
         0,
     };
 
-    if (std::filesystem::exists("C:\\Windows\\Fonts\\seguisym.ttf")) {
-      io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguisym.ttf", 20.0f,
-                                   &symbolConfig, icon_ranges);
-      std::cout << "Loaded Segoe UI Symbol for robust character support."
-                << std::endl;
-    } else {
-      std::cout
-          << "Segoe UI Symbol not found, falling back to Arial for symbols."
-          << std::endl;
-      io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 18.0f,
-                                   &symbolConfig, icon_ranges);
+    // Try a list of candidate symbol fonts depending on platform. Only call
+    // AddFontFromFileTTF for paths that actually exist to avoid ImGui asserts
+    // when the file cannot be opened.
+    std::vector<std::string> symbolCandidates;
+#if defined(_WIN32) || defined(_WIN64)
+    symbolCandidates = {"C:\\Windows\\Fonts\\seguisym.ttf", "C:\\Windows\\Fonts\\arial.ttf"};
+#else
+    symbolCandidates = {
+        "/usr/share/fonts/truetype/seguisym/seguisym.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",
+    };
+#endif
+
+    bool loadedSymbol = false;
+    for (const auto &path : symbolCandidates) {
+      try {
+        if (!std::filesystem::exists(path)) continue;
+      } catch (...) {
+        continue;
+      }
+      ImFont *sym = io.Fonts->AddFontFromFileTTF(path.c_str(), 18.0f, &symbolConfig, icon_ranges);
+      if (sym) {
+        std::cout << "Loaded symbol font for robust character support: " << path << std::endl;
+        loadedSymbol = true;
+        break;
+      }
+    }
+    if (!loadedSymbol) {
+      std::cout << "No symbol font found; skipping symbol merge." << std::endl;
     }
 
     ImGui::SFML::UpdateFontTexture();

@@ -35,7 +35,9 @@ Release/
 Thumbs.db.cache/
 build*/
 .cache
-.vscode
+.vscode/
+.agent/
+.github/
 FluxGeo_v1.0/
 FluxGeo*/
 Geometry_Tool_2/

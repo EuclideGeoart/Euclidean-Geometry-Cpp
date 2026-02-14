@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Platform-specific compiler flags
 if(WIN32)
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld")
@@ -19,7 +19,7 @@ else()
     # Linux/Unix Flags
     # Removed -fuse-ld=ld (let cmake decide default)
     # Added -static-libgcc -static-libstdc++ to bake runtimes into the binary
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -U CGAL_USE_SSE2 -static-libgcc -static-libstdc++") 
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -U CGAL_USE_SSE2 -static-libgcc -static-libstdc++")
 endif()
 
 # Compiler warnings
@@ -38,11 +38,11 @@ endif()
 
 # SFML
 if(WIN32)
-    if (NOT DEFINED SFML_ROOT)
-        if (EXISTS "C:/msys64/ucrt64")
+    if(NOT DEFINED SFML_ROOT)
+        if(EXISTS "C:/msys64/ucrt64")
             set(SFML_ROOT "C:/msys64/ucrt64")
-        # elseif (EXISTS "C:/msys64/clang64")
-        #     set(SFML_ROOT "C:/msys64/clang64")
+            # elseif (EXISTS "C:/msys64/clang64")
+            #     set(SFML_ROOT "C:/msys64/clang64")
         endif()
     endif()
     find_package(SFML COMPONENTS graphics window system REQUIRED PATHS ${SFML_ROOT} NO_DEFAULT_PATH)
@@ -53,10 +53,10 @@ endif()
 
 # CGAL
 if(WIN32)
-    if (EXISTS "C:/msys64/ucrt64")
+    if(EXISTS "C:/msys64/ucrt64")
         set(CGAL_ROOT_HINT "C:/msys64/ucrt64")
-    # elseif (EXISTS "C:/msys64/clang64")
-    #     set(CGAL_ROOT_HINT "C:/msys64/clang64")
+        # elseif (EXISTS "C:/msys64/clang64")
+        #     set(CGAL_ROOT_HINT "C:/msys64/clang64")
     endif()
     find_package(CGAL REQUIRED PATHS ${CGAL_ROOT_HINT} NO_DEFAULT_PATH)
 else()
@@ -68,6 +68,12 @@ if(NOT WIN32)
     find_package(GMP REQUIRED)
     find_package(MPFR REQUIRED)
 endif()
+
+# OpenGL (for Linux)
+# if(NOT WIN32)
+#     set(OpenGL_GL_PREFERENCE GLVND)
+#     find_package(OpenGL REQUIRED)
+# endif()
 
 # Compile Definitions
 set(BASE_COMPILE_DEFINITIONS CGAL_USE_GMPXX=1 SFML_USE_CHAR32_STRING CGAL_HAS_THREADS)
@@ -149,7 +155,7 @@ if(WIN32)
 else()
     # On Linux, if you don't have a file dialog impl, we might need a stub
     # For now, let's include it, but if it fails, you'll need to wrap Windows code in #ifdef _WIN32
-    list(APPEND SOURCES FileDialogs.cpp) 
+    list(APPEND SOURCES FileDialogs.cpp)
 endif()
 
 # Main Executable
@@ -157,20 +163,21 @@ add_executable(FluxGeo ${SOURCES})
 
 # Linking
 if(WIN32)
-#
-    target_link_libraries(FluxGeo PRIVATE 
-        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32 
+    #
+    target_link_libraries(FluxGeo PRIVATE
+        sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32
     )
     target_link_options(FluxGeo PRIVATE "-mwindows")
 else()
-    target_link_libraries(FluxGeo PRIVATE 
-        sfml-graphics sfml-window sfml-system CGAL::CGAL 
-        ${GMP_LIBRARIES} ${MPFR_LIBRARIES} GL
+    target_link_libraries(FluxGeo PRIVATE
+        sfml-graphics sfml-window sfml-system CGAL::CGAL
+        ${GMP_LIBRARIES} ${MPFR_LIBRARIES}
+        "/usr/lib/x86_64-linux-gnu/libGL.so.1"
     )
 endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
 endif()
 
 target_compile_definitions(FluxGeo PRIVATE ${BASE_COMPILE_DEFINITIONS})
@@ -179,11 +186,11 @@ target_compile_definitions(FluxGeo PRIVATE ${BASE_COMPILE_DEFINITIONS})
 if(WIN32)
     add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/arial.ttf
-            $<TARGET_FILE_DIR:FluxGeo>/arial.ttf
+        ${CMAKE_SOURCE_DIR}/arial.ttf
+        $<TARGET_FILE_DIR:FluxGeo>/arial.ttf
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/latinmodern-math.otf
-            $<TARGET_FILE_DIR:FluxGeo>/latinmodern-math.otf
+        ${CMAKE_SOURCE_DIR}/latinmodern-math.otf
+        $<TARGET_FILE_DIR:FluxGeo>/latinmodern-math.otf
     )
 else()
     # Fallback if system font doesn't exist
@@ -197,14 +204,14 @@ endif()
 if(WIN32)
     add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/libs/MicroTeX/res
-            $<TARGET_FILE_DIR:FluxGeo>/res
+        ${CMAKE_SOURCE_DIR}/libs/MicroTeX/res
+        $<TARGET_FILE_DIR:FluxGeo>/res
     )
 else()
     add_custom_command(TARGET FluxGeo POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/libs/MicroTeX/res
-            ${CMAKE_BINARY_DIR}/res
+        ${CMAKE_SOURCE_DIR}/libs/MicroTeX/res
+        ${CMAKE_BINARY_DIR}/res
     )
 endif()
 
@@ -225,7 +232,7 @@ if(BUILD_TESTS)
             Point.cpp Line.cpp GeometricObject.cpp ObjectPoint.cpp Circle.cpp
         )
         target_compile_definitions(LineDebuggingTest PRIVATE ${BASE_COMPILE_DEFINITIONS})
-        
+
         if(WIN32)
             target_link_libraries(LineDebuggingTest PRIVATE gtest gtest_main sfml-graphics CGAL::CGAL)
         else()

@@ -1025,6 +1025,11 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
           if (ImGui::Checkbox("Show Reflex Angle (0-360\xC2\xB0)", &reflex)) {
             angle->setReflex(reflex);
           }
+
+          float markerSize = static_cast<float>(angle->getRightAngleMarkerSize());
+          if (ImGui::SliderFloat("Right Marker Size", &markerSize, 4.0f, 30.0f, "%.1f")) {
+            angle->setRightAngleMarkerSize(markerSize);
+          }
         }
       }
     }

@@ -872,7 +872,9 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
   // Update preview every mouse move for overlay-based tools (GeoGebra-like)
   // Fallback to minimal gating for other modes
   bool shouldUpdatePreview = (moveDistance > 5.0f) || (timeSinceLastPreview > 16);
-  if (editor.m_currentToolType == ObjectType::ParallelLine || editor.m_currentToolType == ObjectType::PerpendicularLine) {
+  if (editor.m_currentToolType == ObjectType::ParallelLine || editor.m_currentToolType == ObjectType::PerpendicularLine ||
+      editor.m_currentToolType == ObjectType::Line || editor.m_currentToolType == ObjectType::LineSegment ||
+      editor.m_currentToolType == ObjectType::Ray || editor.m_currentToolType == ObjectType::Vector) {
     shouldUpdatePreview = true;
   }
 
@@ -1881,6 +1883,10 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
              editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
           Line* selectedLine = static_cast<Line*>(editor.selectedObject);
 
+          if (selectedLine->isParallelLine() || selectedLine->isPerpendicularLine()) {
+            return;
+          }
+
           Point* startPoint = selectedLine->getStartPointObject();
           Point* endPoint = selectedLine->getEndPointObject();
 
@@ -1928,6 +1934,10 @@ void handleMouseMove(GeometryEditor& editor, const sf::Event::MouseMoveEvent& mo
             (editor.selectedObject->getType() == ObjectType::Line || editor.selectedObject->getType() == ObjectType::LineSegment ||
              editor.selectedObject->getType() == ObjectType::Ray || editor.selectedObject->getType() == ObjectType::Vector)) {
           Line* selectedLine = static_cast<Line*>(editor.selectedObject);
+
+          if (selectedLine->isParallelLine() || selectedLine->isPerpendicularLine()) {
+            return;
+          }
 
           if (editor.dragMode == DragMode::MoveLineEndpointStart) {
             Point* startPoint = selectedLine->getStartPointObject();
@@ -2797,6 +2807,7 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
   if (mouseEvent.button == sf::Mouse::Left && editor.isDraggingLabel) {
     editor.isDraggingLabel = false;
     editor.labelDragObject = nullptr;
+    editor.labelDragVertexIndex = -1;
     return;
   }
 

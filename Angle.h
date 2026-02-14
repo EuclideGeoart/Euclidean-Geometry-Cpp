@@ -14,6 +14,9 @@ class Angle : public GeometricObject {
   Angle(const std::shared_ptr<Point> &a, const std::shared_ptr<Point> &vertex,
         const std::shared_ptr<Point> &b, bool reflex = false,
         const sf::Color &color = sf::Color(255, 200, 0));
+  Angle(const std::shared_ptr<Point> &a, const Point_2 &virtualVertex,
+    const std::shared_ptr<Point> &b, bool reflex = false,
+    const sf::Color &color = sf::Color(255, 200, 0));
 
   ObjectType getType() const override { return ObjectType::Angle; }
   void draw(sf::RenderWindow &window, float scale, bool forceVisible = false) const override;
@@ -35,6 +38,12 @@ class Angle : public GeometricObject {
   float getCurrentDegrees() const { return m_currentDegrees; }
   void setRadius(double radius);
   double getRadius() const { return m_arcRadius; }
+  void setRightAngleMarkerSize(double size);
+  double getRightAngleMarkerSize() const { return m_markerSize; }
+  void setVirtualVertex(const Point_2& vertex);
+  bool hasVirtualVertex() const { return m_hasVirtualVertex; }
+  void clearVirtualVertex();
+  void setFallbackDirections(const Vector_2& dirA, const Vector_2& dirB);
   void drawVertexHandles(sf::RenderWindow &window, float scale) const;
   
   // Label overrides
@@ -45,6 +54,7 @@ class Angle : public GeometricObject {
     m_vertex = std::dynamic_pointer_cast<Point>(p1);
     m_pointA = std::dynamic_pointer_cast<Point>(p2);
     m_pointB = std::dynamic_pointer_cast<Point>(p3);
+    clearVirtualVertex();
     if (auto v = m_vertex.lock()) v->addDependent(m_selfHandle);
     if (auto a = m_pointA.lock()) a->addDependent(m_selfHandle);
     if (auto b = m_pointB.lock()) b->addDependent(m_selfHandle);
@@ -67,6 +77,8 @@ class Angle : public GeometricObject {
   std::weak_ptr<Point> m_pointA;
   std::weak_ptr<Point> m_vertex;
   std::weak_ptr<Point> m_pointB;
+  bool m_hasVirtualVertex = false;
+  Point_2 m_virtualVertex = Point_2(0, 0);
 
   bool m_isReflex = false;
   float m_currentDegrees = 0.0f;
@@ -78,8 +90,15 @@ class Angle : public GeometricObject {
   Point_2 m_vertexPoint = Point_2(0, 0);
   double m_arcRadius = 20.0;
   double m_visualRadius = 40.0;
+  double m_markerSize = 12.0;
   double m_startAngle = 0.0;
   double m_sweepAngle = 0.0;
+  bool m_hasFallbackDirA = false;
+  bool m_hasFallbackDirB = false;
+  double m_fallbackDirAx = 0.0;
+  double m_fallbackDirAy = 0.0;
+  double m_fallbackDirBx = 0.0;
+  double m_fallbackDirBy = 0.0;
   
   sf::Color m_fillColor;
   sf::Color m_outlineColor;

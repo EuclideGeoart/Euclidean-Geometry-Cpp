@@ -331,6 +331,14 @@ static GeometricObject* findClosestObject(GeometryEditor& editor, const sf::Vect
   // If we found any point, return it immediately (points have absolute priority)
   if (closest) return closest;
 
+  // PASS 1.5: Label objects (after points, before all geometry)
+  for (auto& textPtr : editor.textLabels) {
+    if (!textPtr || !textPtr->isValid() || !textPtr->isVisible() || textPtr->isLocked()) continue;
+    if (textPtr->contains(worldPos_sfml, tolerance)) {
+      return textPtr.get();
+    }
+  }
+
   // PASS 2: MEDIUM PRIORITY - Lines and Circles
   for (auto& linePtr : editor.lines) {
     if (!linePtr || !linePtr->isValid() || !linePtr->isVisible() || linePtr->isLocked()) continue;
@@ -426,12 +434,18 @@ static GeometricObject* findClosestObject(GeometryEditor& editor, const sf::Vect
     }
   }
 
-  for (auto& textPtr : editor.textLabels) {
-    if (!textPtr || !textPtr->isValid() || !textPtr->isVisible() || textPtr->isLocked()) continue;
-    if (textPtr->contains(worldPos_sfml, tolerance)) {
-      closest = textPtr.get();
-      bestDistSq = 0.0;
-      return closest;  // Top-most text label wins immediately
+  if (closest) return closest;
+
+  // PASS 4: Angles (lowest priority) - keep full arc-section selection support
+  for (auto& anglePtr : editor.angles) {
+    if (!anglePtr || !anglePtr->isValid() || !anglePtr->isVisible() || anglePtr->isLocked()) continue;
+    if (!anglePtr->contains(worldPos_sfml, tolerance)) continue;
+
+    Point_2 vertexPos = anglePtr->getCGALPosition();
+    double distSq = CGAL::to_double(CGAL::squared_distance(vertexPos, cgalPos));
+    if (distSq <= bestDistSq) {
+      bestDistSq = distSq;
+      closest = anglePtr.get();
     }
   }
 
@@ -4533,15 +4547,24 @@ static void handleAngleCreation(GeometryEditor& editor, const sf::Vector2f& worl
           }
 
           if (intersectionPt) {
-            auto vertex = PointUtils::createSmartPoint(editor, editor.toSFMLVector(*intersectionPt), tolerance);
+            auto findExistingPointNear = [&](const Point_2& target) -> std::shared_ptr<Point> {
+              const double eps = std::max(1e-8, static_cast<double>(tolerance) * 0.25);
+              const double epsSq = eps * eps;
+              for (auto& p : editor.points) {
+                if (!p || !p->isValid()) continue;
+                double dSq = CGAL::to_double(CGAL::squared_distance(p->getCGALPosition(), target));
+                if (dSq <= epsSq) return p;
+              }
+              for (auto& p : editor.ObjectPoints) {
+                if (!p || !p->isValid()) continue;
+                double dSq = CGAL::to_double(CGAL::squared_distance(p->getCGALPosition(), target));
+                if (dSq <= epsSq) return p;
+              }
+              return nullptr;
+            };
 
-            if (std::find(editor.points.begin(), editor.points.end(), vertex) == editor.points.end() &&
-                std::find(editor.ObjectPoints.begin(), editor.ObjectPoints.end(), vertex) == editor.ObjectPoints.end()) {
-              vertex->setVisible(true);
-              editor.points.push_back(vertex);
-            }
-
-            Point_2 vPos = vertex->getCGALPosition();
+            auto vertex = findExistingPointNear(*intersectionPt);
+            Point_2 vPos = *intersectionPt;
 
             Point_2 p1_cgal;
             double d1_start = CGAL::to_double(CGAL::squared_distance(vPos, editor.angleLine1->getStartPoint()));
@@ -4571,24 +4594,25 @@ static void handleAngleCreation(GeometryEditor& editor, const sf::Vector2f& worl
               return;
             }
 
-            auto ensureArmPoint = [&](const Point_2& target) -> std::shared_ptr<Point> {
-              for (auto& p : editor.points) {
-                if (p && p->isValid() && p->getCGALPosition() == target) return p;
-              }
-              for (auto& p : editor.ObjectPoints) {
-                if (p && p->isValid() && p->getCGALPosition() == target) return p;
-              }
-              auto newP = std::make_shared<Point>(target, 1.0f, sf::Color::Transparent);
-              newP->setVisible(false);
-              editor.points.push_back(newP);
-              return newP;
-            };
+            auto l1Start = editor.angleLine1->getStartPointObjectShared();
+            auto l1End = editor.angleLine1->getEndPointObjectShared();
+            auto l2Start = editor.angleLine2->getStartPointObjectShared();
+            auto l2End = editor.angleLine2->getEndPointObjectShared();
 
-            auto p1 = ensureArmPoint(p1_cgal);
-            auto p2 = ensureArmPoint(p2_cgal);
+            std::shared_ptr<Point> p1 = (d1_start > d1_end) ? l1Start : l1End;
+            std::shared_ptr<Point> p2 = (d2_start > d2_end) ? l2Start : l2End;
 
-            if (p1 && vertex && p2) {
-              auto angle = std::make_shared<Angle>(p1, vertex, p2, false, editor.getCurrentColor());
+            if (p1 && p2) {
+              std::shared_ptr<Angle> angle;
+              if (vertex) {
+                angle = std::make_shared<Angle>(p1, vertex, p2, false, editor.getCurrentColor());
+              } else {
+                angle = std::make_shared<Angle>(p1, *intersectionPt, p2, false, editor.getCurrentColor());
+              }
+
+              angle->setFallbackDirections(editor.angleLine1->getCGALLine().direction().to_vector(),
+                                           editor.angleLine2->getCGALLine().direction().to_vector());
+
               sf::Vector2u winSize = editor.window.getSize();
               sf::Vector2f viewSize = editor.drawingView.getSize();
               float zoomScale = (winSize.x > 0) ? (viewSize.x / static_cast<float>(winSize.x)) : 1.0f;
@@ -4607,6 +4631,8 @@ static void handleAngleCreation(GeometryEditor& editor, const sf::Vector2f& worl
               angle->setVisible(true);
               angle->update();
               editor.addObject(angle);
+              editor.angleLine1->addDependent(angle);
+              editor.angleLine2->addDependent(angle);
               editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(angle)));
               std::cout << "Angle created via 2 lines." << std::endl;
               editor.setGUIMessage("Angle created.");
@@ -5107,11 +5133,11 @@ skipAngleArcHandle:
       // Recalculate global bounds after origin set
 
       bounds = text.getGlobalBounds();
-      float dynamicTol = getDynamicSelectionTolerance(editor);
-      bounds.left -= dynamicTol;
-      bounds.top -= dynamicTol;
-      bounds.width += dynamicTol * 2.0f;
-      bounds.height += dynamicTol * 2.0f;
+      constexpr float labelHitPaddingPx = 10.0f;
+      bounds.left -= labelHitPaddingPx;
+      bounds.top -= labelHitPaddingPx;
+      bounds.width += labelHitPaddingPx * 2.0f;
+      bounds.height += labelHitPaddingPx * 2.0f;
 
       if (bounds.contains(mouseScreenPos)) {
         outLabelPos = labelPos;
@@ -5133,6 +5159,7 @@ skipAngleArcHandle:
 
           editor.isDraggingLabel = true;
           editor.labelDragObject = obj.get();
+          editor.labelDragVertexIndex = -1;
           editor.labelDragGrabOffset = mouseScreenPos - labelPos;
           editor.isDragging = false;
           editor.dragMode = DragMode::None;
@@ -5173,11 +5200,11 @@ skipAngleArcHandle:
           text.setPosition(labelPos);
 
           sf::FloatRect bounds = text.getGlobalBounds();
-          float dynamicTol = getDynamicSelectionTolerance(editor);
-          bounds.left -= dynamicTol;
-          bounds.top -= dynamicTol;
-          bounds.width += dynamicTol * 2.0f;
-          bounds.height += dynamicTol * 2.0f;
+          constexpr float labelHitPaddingPx = 10.0f;
+          bounds.left -= labelHitPaddingPx;
+          bounds.top -= labelHitPaddingPx;
+          bounds.width += labelHitPaddingPx * 2.0f;
+          bounds.height += labelHitPaddingPx * 2.0f;
           if (bounds.contains(mouseScreenPos)) {
             deselectAllAndClearInteractionState(editor);
             editor.selectedObject = rect.get();
@@ -5258,11 +5285,11 @@ skipAngleArcHandle:
         text.setPosition(labelPos);
 
         sf::FloatRect bounds = text.getGlobalBounds();
-        float dynamicTol = getDynamicSelectionTolerance(editor);
-        bounds.left -= dynamicTol;
-        bounds.top -= dynamicTol;
-        bounds.width += dynamicTol * 2.0f;
-        bounds.height += dynamicTol * 2.0f;
+        constexpr float labelHitPaddingPx = 10.0f;
+        bounds.left -= labelHitPaddingPx;
+        bounds.top -= labelHitPaddingPx;
+        bounds.width += labelHitPaddingPx * 2.0f;
+        bounds.height += labelHitPaddingPx * 2.0f;
         if (bounds.contains(mouseScreenPos)) {
           deselectAllAndClearInteractionState(editor);
           editor.selectedObject = angle.get();
@@ -6121,6 +6148,9 @@ skipAngleArcHandle:
         potentialDragMode = closestObject->isLocked() ? DragMode::None : DragMode::DragObjectPoint;
       } else if (type == ObjectType::Line || type == ObjectType::LineSegment || type == ObjectType::Ray || type == ObjectType::Vector) {
         auto* line = static_cast<Line*>(closestObject);
+        if (line->isParallelLine() || line->isPerpendicularLine()) {
+          potentialDragMode = DragMode::None;
+        } else {
         // check for constrained endpoints to decide if we can translate
         Point* startPt = line->getStartPointObject();
         Point* endPt = line->getEndPointObject();
@@ -6130,6 +6160,7 @@ skipAngleArcHandle:
           potentialDragMode = DragMode::None;
         } else {
           potentialDragMode = DragMode::TranslateLine;
+        }
         }
       } else if (type == ObjectType::Circle || type == ObjectType::Semicircle) {
         potentialDragMode = DragMode::InteractWithCircle;
@@ -6167,6 +6198,14 @@ skipAngleArcHandle:
       };
 
       int vIdx = checkVertexHit(closestObject);
+      if (vIdx != -1 &&
+          (closestObject->getType() == ObjectType::Line || closestObject->getType() == ObjectType::LineSegment ||
+           closestObject->getType() == ObjectType::Ray || closestObject->getType() == ObjectType::Vector)) {
+        auto* line = static_cast<Line*>(closestObject);
+        if (line->isParallelLine() || line->isPerpendicularLine()) {
+          vIdx = -1;
+        }
+      }
       if (vIdx != -1) {
         potentialDragMode = DragMode::MoveShapeVertex;
         potentialVertexIndex = vIdx;
