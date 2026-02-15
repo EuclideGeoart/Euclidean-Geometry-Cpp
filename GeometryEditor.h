@@ -46,6 +46,7 @@
 #include "Angle.h"           // Angle measurement
 #include "PointUtils.h"      // For EdgeHitResult and anchor point detection
 #include "TextLabel.h"
+#include "TextObject.h"
 #include "SymbolPalette.h"
 #include "TextEditorDialog.h"
 
@@ -66,8 +67,19 @@
  * @param allowedTypes A list of ObjectTypes to consider. If empty, all relevant
  * types are checked.
  * @return GeometricObject* Pointer to the found object, or nullptr if no object
- * is found.
  */
+// for a found object, or nullptr if no object
+// is found.
+// --- Editor Modes ---
+enum class Mode {
+    Select,
+    Point,
+    Line,
+    Circle,
+    Text,
+    // Add other modes as needed
+};
+
 class GeometryEditor {
   // Generic object insertion
   
@@ -103,6 +115,7 @@ class GeometryEditor {
   std::vector<std::shared_ptr<Triangle>> triangles;              // General triangles
   std::vector<std::shared_ptr<Angle>> angles;                    // Angle measurements
   std::vector<std::shared_ptr<TextLabel>> textLabels;            // Text/LaTeX labels
+  std::vector<std::shared_ptr<TextObject>> textObjects;          // Independent text objects
 
 
   // ---Color Management---
@@ -115,7 +128,7 @@ class GeometryEditor {
 
   float currentThickness = Constants::LINE_THICKNESS_DEFAULT;
   float currentPointSize = 4.0f;
-  float guiFontSize = 13.0f;        // Font size for ImGui interface
+  float guiFontSize = 15.0f;        // Font size for ImGui interface
   float drawingFontSize = 18.0f;    // Font size for drawable object labels
   
   GUI& getGUI() { return gui; }
@@ -128,6 +141,8 @@ class GeometryEditor {
   sf::Vector2f lastMousePos_sfml;                   // Last known mouse position in SFML world
                                                     // coordinates (drawingView)
   ObjectType m_currentToolType = ObjectType::None;  
+  Mode m_activeMode = Mode::Select;
+  Point_2 m_pendingTextPosition;
   DragMode dragMode = DragMode::None;               // Current dragging operation type
   bool isDragging = false;  // General flag indicating an active drag operation
   int activeVertexIndex = -1;  // For shape vertex dragging
@@ -166,6 +181,9 @@ class GeometryEditor {
   GeometricObject *hoveredObject = nullptr;  // Object currently under mouse for hover feedback
     int hoveredVertexIndex = -1;
     GeometricObject *hoveredVertexShape = nullptr;
+    // Selected shape/vertex for vertex-editing tools
+    GeometricObject *selectedShape = nullptr; // Shape owning the currently selected vertex (if any)
+    GeometricObject *selectedVertex = nullptr; // Currently selected vertex (as a GeometricObject pointer)
 
   // Label UI state
   bool showGlobalLabels = true;
@@ -178,6 +196,7 @@ class GeometryEditor {
   bool isTextEditing = false;
   bool isEditingExistingText = false; // Flag for TextEditorDialog saves
   std::shared_ptr<TextLabel> textEditingLabel = nullptr;
+  std::shared_ptr<TextObject> m_textEditingObject = nullptr; // For independent text objects
   std::string textEditBuffer;
   bool textEditIsRich = false;
   float textEditFontSize = 18.0f;
@@ -392,6 +411,8 @@ class GeometryEditor {
   void handleWindowEvents(
       const sf::Event &event);  // Handles window-specific events (close, resize)
   void handleMousePress(const sf::Event::MouseButtonEvent &mouseButtonEvent);
+  void handleMouseDoubleClick(const Point_2 &worldPos);
+  void handleMouseDoubleClick(const sf::Vector2f &worldPos);
   void handleMouseRelease(const sf::Event::MouseButtonEvent &mouseButtonEvent);
   void handleMouseMove(const sf::Event::MouseMoveEvent &mouseMoveEvent);
   void handleMouseWheel(const sf::Event::MouseWheelScrollEvent &mouseWheelEvent);

@@ -19,6 +19,7 @@
 #include "Triangle.h"
 #include "Angle.h"
 #include "TextLabel.h"
+#include "TextObject.h"
 #include "ObjectType.h"
 #include "Types.h"
 
@@ -164,6 +165,11 @@ class CreateCommandT : public Command {
         pushUnique(editor.textLabels, casted);
         break;
       }
+      case ObjectType::TextObject: {
+        auto casted = std::dynamic_pointer_cast<TextObject>(obj);
+        pushUnique(editor.textObjects, casted);
+        break;
+      }
       default:
         break;
     }
@@ -288,10 +294,60 @@ class CreateCommandT : public Command {
         removePtr(editor.textLabels, casted);
         break;
       }
+      case ObjectType::TextObject: {
+        auto casted = std::dynamic_pointer_cast<TextObject>(obj);
+        removePtr(editor.textObjects, casted);
+        break;
+      }
       default:
         break;
     }
   }
+};
+
+class ModifyTextObjectCommand : public Command {
+ public:
+  ModifyTextObjectCommand(const std::shared_ptr<TextObject>& target,
+                          std::string oldText,
+                          bool oldIsLatex,
+                          float oldFontSize,
+                          std::string newText,
+                          bool newIsLatex,
+                          float newFontSize)
+      : m_target(target),
+        m_oldText(std::move(oldText)),
+        m_oldIsLatex(oldIsLatex),
+        m_oldFontSize(oldFontSize),
+        m_newText(std::move(newText)),
+        m_newIsLatex(newIsLatex),
+        m_newFontSize(newFontSize) {}
+
+  void execute() override {
+    if (auto target = m_target.lock()) {
+      target->setRawContent(m_newText, m_newIsLatex);
+      target->setFontSize(m_newFontSize);
+      target->update();
+    }
+  }
+
+  void undo() override {
+    if (auto target = m_target.lock()) {
+      target->setRawContent(m_oldText, m_oldIsLatex);
+      target->setFontSize(m_oldFontSize);
+      target->update();
+    }
+  }
+
+  std::string getName() const override { return "ModifyTextObject"; }
+
+ private:
+  std::weak_ptr<TextObject> m_target;
+  std::string m_oldText;
+  bool m_oldIsLatex = false;
+  float m_oldFontSize = 18.0f;
+  std::string m_newText;
+  bool m_newIsLatex = false;
+  float m_newFontSize = 18.0f;
 };
 
 template <typename EditorT>

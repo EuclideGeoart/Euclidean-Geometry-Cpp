@@ -4,8 +4,8 @@
 #include "Constants.h"
 #include "TextLabel.h"
 
-#include "imgui.h"
-#include "imgui-SFML.h"
+#include <imgui.h>
+#include <imgui-SFML.h>
 
 #include <cstring>
 #include <algorithm>
@@ -109,53 +109,75 @@ void TextEditorDialog::updatePreview() {
     if (!m_textChanged) return;
     m_textChanged = false;
     
-    m_previewTexture.clear(sf::Color::White);
+    LatexRenderer::initDPI();
+
+    // 1. Calculate Scaling Logic
+    float ratio = LatexRenderer::VISUAL_SCALE / 2.5f;
+    float scale = LatexRenderer::HD_INVERSE * ratio;
     
+    // 2. Prepare the Content (Measure First!)
+    // We need to know the size BEFORE we create the background texture
+    sf::Sprite spriteToDraw;
+    sf::Text textToDraw;
+    bool useSprite = false;
+    
+    float displayW = 0.0f;
+    float displayH = 0.0f;
+
     if (m_currentText.empty()) {
-        m_previewTexture.display();
-        m_previewValid = true;
-        return;
+        // Empty case
     }
-    
-    if (m_isLatexMode) {
-        // Render LaTeX with high quality
-       auto tex = LatexRenderer::RenderLatex(m_currentText, m_fontSize,0, m_textColor);
-        
+    else if (m_isLatexMode) {
+        // --- LaTeX Mode ---
+        auto tex = LatexRenderer::RenderLatex(m_currentText, m_fontSize, 0, m_textColor);
         if (tex) {
-            sf::Sprite sprite(*tex);
+            spriteToDraw.setTexture(*tex);
+            spriteToDraw.setScale(scale, scale);
             
-            // Center in preview area
-            sf::Vector2u texSize = tex->getSize();
-            sf::Vector2u previewSize = m_previewTexture.getSize();
-            
-            float x = (previewSize.x - texSize.x) * 0.5f;
-            float y = (previewSize.y - texSize.y) * 0.5f;
-            float scale = LatexRenderer::HD_INVERSE; 
-            sprite.setScale(scale, scale);
-            
-            sprite.setPosition(x, y);
-            m_previewTexture.draw(sprite);
+            displayW = tex->getSize().x * scale;
+            displayH = tex->getSize().y * scale;
+            useSprite = true;
         }
-    } else {
-        // Render plain text
+    } 
+    else {
+        // --- Normal Text Mode ---
         const sf::Font* font = LatexRenderer::getFont();
         if (font) {
-            sf::Text text;
-            text.setFont(*font);
-            text.setString(m_currentText);
-            text.setCharacterSize(static_cast<unsigned int>(m_fontSize));
-            text.setFillColor(m_textColor);
+            textToDraw.setFont(*font);
+            textToDraw.setString(m_currentText);
             
-            // Center in preview area
-            sf::FloatRect bounds = text.getLocalBounds();
-            sf::Vector2u previewSize = m_previewTexture.getSize();
+            float hdFontSize = m_fontSize * LatexRenderer::HD_FACTOR * LatexRenderer::VISUAL_SCALE;
+            textToDraw.setCharacterSize(static_cast<unsigned int>(std::round(hdFontSize)));
+            textToDraw.setFillColor(m_textColor);
+            textToDraw.setScale(scale, scale);
             
-            float x = (previewSize.x - bounds.width) * 0.5f;
-            float y = (previewSize.y - bounds.height) * 0.5f;
-            
-            text.setPosition(x, y);
-            m_previewTexture.draw(text);
+            sf::FloatRect bounds = textToDraw.getLocalBounds();
+            displayW = bounds.width * scale;
+            displayH = bounds.height * scale;
         }
+    }
+
+    // 3. Resize the Background Texture to Fit Content
+    // Minimum size: 600x300, but grow if content is larger (+ padding)
+    unsigned int requiredW = std::max(600u, static_cast<unsigned int>(displayW + 50.0f));
+    unsigned int requiredH = std::max(300u, static_cast<unsigned int>(displayH + 50.0f));
+
+    if (m_previewTexture.getSize().x != requiredW || m_previewTexture.getSize().y != requiredH) {
+        m_previewTexture.create(requiredW, requiredH);
+    }
+    
+    // 4. Draw
+    m_previewTexture.clear(sf::Color::White);
+    
+    if (useSprite) {
+        // Center/Position LaTeX
+        spriteToDraw.setPosition(20.0f, 20.0f); // 20px padding
+        m_previewTexture.draw(spriteToDraw);
+    } else if (!m_currentText.empty()) {
+        // Position Text (accounting for glyph offsets)
+        sf::FloatRect bounds = textToDraw.getLocalBounds();
+        textToDraw.setPosition(20.0f - (bounds.left * scale), 20.0f - (bounds.top * scale));
+        m_previewTexture.draw(textToDraw);
     }
     
     m_previewTexture.display();
@@ -164,21 +186,29 @@ void TextEditorDialog::updatePreview() {
 
 void TextEditorDialog::renderSymbolTabs() {
     if (ImGui::BeginTabBar("SymbolTabs")) {
+        float ratio = LatexRenderer::VISUAL_SCALE / 2.5f;
+        float windowWidth = ImGui::GetContentRegionAvail().x;
+        
         // Symbols tab
         if (ImGui::BeginTabItem("Symbols")) {
-            ImGui::BeginChild("SymbolsScroll", ImVec2(0, 120), true);
+            ImGui::BeginChild("SymbolsScroll", ImVec2(0, 120 * ratio), true);
             
-            int buttonsPerRow = 8;
-            int count = 0;
+            float buttonWidth = 50.0f * ratio;
+            float buttonHeight = 30.0f * ratio;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            
+            float currentX = 0.0f;
             
             for (const auto& sym : m_symbols) {
                 if (sym.category != "Symbols") continue;
                 
-                if (count > 0 && count % buttonsPerRow != 0) {
+                if (currentX + buttonWidth > windowWidth && currentX > 0.0f) {
+                    currentX = 0.0f;
+                } else if (currentX > 0.0f) {
                     ImGui::SameLine();
                 }
                 
-                if (ImGui::Button(sym.label.c_str(), ImVec2(50, 30))) {
+                if (ImGui::Button(sym.label.c_str(), ImVec2(buttonWidth, buttonHeight))) {
                     // Insert symbol at cursor position
                     m_currentText += sym.latexCode;
                     std::strncpy(m_textBuffer, m_currentText.c_str(), TEXT_BUFFER_SIZE - 1);
@@ -190,7 +220,7 @@ void TextEditorDialog::renderSymbolTabs() {
                     ImGui::SetTooltip("%s", sym.latexCode.c_str());
                 }
                 
-                count++;
+                currentX += buttonWidth + spacing;
             }
             
             ImGui::EndChild();
@@ -199,19 +229,23 @@ void TextEditorDialog::renderSymbolTabs() {
         
         // Greek tab
         if (ImGui::BeginTabItem("Greek")) {
-            ImGui::BeginChild("GreekScroll", ImVec2(0, 120), true);
+            ImGui::BeginChild("GreekScroll", ImVec2(0, 120 * ratio), true);
             
-            int buttonsPerRow = 8;
-            int count = 0;
+            float buttonWidth = 50.0f * ratio;
+            float buttonHeight = 30.0f * ratio;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float currentX = 0.0f;
             
             for (const auto& sym : m_symbols) {
                 if (sym.category != "Greek") continue;
                 
-                if (count > 0 && count % buttonsPerRow != 0) {
+                if (currentX + buttonWidth > windowWidth && currentX > 0.0f) {
+                    currentX = 0.0f;
+                } else if (currentX > 0.0f) {
                     ImGui::SameLine();
                 }
                 
-                if (ImGui::Button(sym.label.c_str(), ImVec2(50, 30))) {
+                if (ImGui::Button(sym.label.c_str(), ImVec2(buttonWidth, buttonHeight))) {
                     m_currentText += sym.latexCode;
                     std::strncpy(m_textBuffer, m_currentText.c_str(), TEXT_BUFFER_SIZE - 1);
                     m_textBuffer[TEXT_BUFFER_SIZE - 1] = '\0';
@@ -222,7 +256,7 @@ void TextEditorDialog::renderSymbolTabs() {
                     ImGui::SetTooltip("%s", sym.latexCode.c_str());
                 }
                 
-                count++;
+                currentX += buttonWidth + spacing;
             }
             
             ImGui::EndChild();
@@ -231,19 +265,23 @@ void TextEditorDialog::renderSymbolTabs() {
         
         // Geometry tab
         if (ImGui::BeginTabItem("Geometry")) {
-            ImGui::BeginChild("GeometryScroll", ImVec2(0, 120), true);
+            ImGui::BeginChild("GeometryScroll", ImVec2(0, 120 * ratio), true);
             
-            int buttonsPerRow = 8;
-            int count = 0;
+            float buttonWidth = 50.0f * ratio;
+            float buttonHeight = 30.0f * ratio;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float currentX = 0.0f;
             
             for (const auto& sym : m_symbols) {
                 if (sym.category != "Geometry") continue;
                 
-                if (count > 0 && count % buttonsPerRow != 0) {
+                if (currentX + buttonWidth > windowWidth && currentX > 0.0f) {
+                    currentX = 0.0f;
+                } else if (currentX > 0.0f) {
                     ImGui::SameLine();
                 }
                 
-                if (ImGui::Button(sym.label.c_str(), ImVec2(50, 30))) {
+                if (ImGui::Button(sym.label.c_str(), ImVec2(buttonWidth, buttonHeight))) {
                     m_currentText += sym.latexCode;
                     std::strncpy(m_textBuffer, m_currentText.c_str(), TEXT_BUFFER_SIZE - 1);
                     m_textBuffer[TEXT_BUFFER_SIZE - 1] = '\0';
@@ -254,7 +292,7 @@ void TextEditorDialog::renderSymbolTabs() {
                     ImGui::SetTooltip("%s", sym.latexCode.c_str());
                 }
                 
-                count++;
+                currentX += buttonWidth + spacing;
             }
             
             ImGui::EndChild();
@@ -263,19 +301,23 @@ void TextEditorDialog::renderSymbolTabs() {
         
         // Math tab
         if (ImGui::BeginTabItem("Math")) {
-            ImGui::BeginChild("MathScroll", ImVec2(0, 120), true);
+            ImGui::BeginChild("MathScroll", ImVec2(0, 120 * ratio), true);
             
-            int buttonsPerRow = 6;
-            int count = 0;
+            float buttonWidth = 70.0f * ratio;
+            float buttonHeight = 30.0f * ratio;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float currentX = 0.0f;
             
             for (const auto& sym : m_symbols) {
                 if (sym.category != "Math") continue;
                 
-                if (count > 0 && count % buttonsPerRow != 0) {
+                if (currentX + buttonWidth > windowWidth && currentX > 0.0f) {
+                    currentX = 0.0f;
+                } else if (currentX > 0.0f) {
                     ImGui::SameLine();
                 }
                 
-                if (ImGui::Button(sym.label.c_str(), ImVec2(70, 30))) {
+                if (ImGui::Button(sym.label.c_str(), ImVec2(buttonWidth, buttonHeight))) {
                     m_currentText += sym.latexCode;
                     std::strncpy(m_textBuffer, m_currentText.c_str(), TEXT_BUFFER_SIZE - 1);
                     m_textBuffer[TEXT_BUFFER_SIZE - 1] = '\0';
@@ -286,7 +328,7 @@ void TextEditorDialog::renderSymbolTabs() {
                     ImGui::SetTooltip("%s", sym.latexCode.c_str());
                 }
                 
-                count++;
+                currentX += buttonWidth + spacing;
             }
             
             ImGui::EndChild();
@@ -299,22 +341,29 @@ void TextEditorDialog::renderSymbolTabs() {
 
 void TextEditorDialog::renderPreviewArea() {
     ImGui::Text("Preview:");
-    ImGui::BeginChild("PreviewArea", ImVec2(0, 200), true, ImGuiWindowFlags_NoScrollbar);
+    
+    // 1. Calculate the window height
+    float ratio = LatexRenderer::VISUAL_SCALE / 2.5f;
+    
+    // 2. Enable Horizontal Scrollbar and vertical scrollbar
+    ImGui::BeginChild("PreviewArea", ImVec2(0, 200 * ratio), true, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar);
     
     if (m_previewValid && m_previewTexture.getTexture().getNativeHandle() != 0) {
         const sf::Texture& tex = m_previewTexture.getTexture();
         sf::Vector2u texSize = tex.getSize();
         
-        // Calculate scaled size to fit width
-        float availWidth = ImGui::GetContentRegionAvail().x;
-        float scale = std::min(1.0f, availWidth / static_cast<float>(texSize.x));
-        ImVec2 displaySize(texSize.x * scale, texSize.y * scale);
+        // --- SIZE ADJUSTMENT ---
+        // The texture is HD (High-Res), so 1.0f looks huge.
+        // 0.45f roughly compensates for the HD factor to match the input text size.
+        float viewScale = 0.45f; 
         
-        // Fix flipped preview: Swap UV coordinates vertically
-        ImVec2 uv0(0, 1);  // Bottom-left
-        ImVec2 uv1(1, 0);  // Top-right
+        ImVec2 displaySize(texSize.x * viewScale, texSize.y * viewScale);
         
-        // Mandatory Fix 3: Use Native Handle to force correct UVs
+        // UV coordinates to fix any flipping issues
+        ImVec2 uv0(0, 1);
+        ImVec2 uv1(1, 0);
+        
+        // Render the image
         ImGui::Image((void*)(intptr_t)tex.getNativeHandle(), displaySize, uv0, uv1);
     } else {
         ImGui::TextDisabled("No preview available");
@@ -326,7 +375,8 @@ void TextEditorDialog::renderPreviewArea() {
 void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) {
     if (!m_isOpen) return;
     
-    ImGui::SetNextWindowSize(ImVec2(650, 600), ImGuiCond_FirstUseEver);
+    float ratio = LatexRenderer::VISUAL_SCALE / 2.5f;
+    ImGui::SetNextWindowSize(ImVec2(650 * ratio, 600 * ratio), ImGuiCond_FirstUseEver);
     
     if (ImGui::Begin("Text Editor", &m_isOpen, ImGuiWindowFlags_NoCollapse)) {
         // Top section: Text editor
@@ -334,7 +384,7 @@ void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) 
         
         ImGuiInputTextFlags flags = ImGuiInputTextFlags_AllowTabInput;
         if (ImGui::InputTextMultiline("##textinput", m_textBuffer, TEXT_BUFFER_SIZE, 
-                                       ImVec2(-1, 150), flags)) {
+                                       ImVec2(-1, 150 * ratio), flags)) {
             m_currentText = std::string(m_textBuffer);
             m_textChanged = true;
         }
@@ -351,7 +401,7 @@ void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) 
         ImGui::SameLine();
         ImGui::Text("Font Size:");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(100);
+        ImGui::SetNextItemWidth(100 * ratio);
         if (ImGui::DragFloat("##fontsize", &m_fontSize, 0.5f, 6.0f, 72.0f, "%.1f")) {
             m_textChanged = true;
         }
@@ -377,7 +427,7 @@ void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) 
         ImGui::Spacing();
         
         // Footer: OK/Cancel buttons
-        float buttonWidth = 100.0f;
+        float buttonWidth = 100.0f * ratio;
         float spacing = ImGui::GetStyle().ItemSpacing.x;
         float totalWidth = buttonWidth * 2 + spacing;
         float offsetX = (ImGui::GetContentRegionAvail().x - totalWidth) * 0.5f;
@@ -388,23 +438,6 @@ void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) 
             m_confirmed = true;
             m_resultText = m_currentText;
             m_isOpen = false;
-            
-            // --- SAVE LOGIC ---
-            if (editor.textEditingLabel) {
-                // Determine if this is a change that warrants a new command or updating existing
-                // For now, simple update
-                if (editor.isEditingExistingText) {
-                    // TODO: Push Undo Command for property change
-                }
-                
-                editor.textEditingLabel->setRawContent(m_currentText, m_isLatexMode);
-                editor.textEditingLabel->setFontSize(m_fontSize);
-                editor.textEditingLabel->update(); // Force refresh
-                
-                // Clear pointer to release "lock" on editing
-                editor.textEditingLabel = nullptr;
-                editor.isEditingExistingText = false;
-            }
         }
         
         ImGui::SameLine();
@@ -413,27 +446,6 @@ void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) 
             m_confirmed = false;
             m_isOpen = false;
 
-            // --- CANCEL LOGIC ---
-            if (!editor.isEditingExistingText && editor.textEditingLabel) {
-                 // If we were creating a NEW label and cancelled, we should remove it (Undo creation)
-                 // Assuming creation command was already pushed, we might need to Undo it? 
-                 // Or easier: manually remove it from textLabels list if checks passed.
-                 // For safety with CommandSystem, ideally we call editor.cancelLastOperation() if supported
-                 // Or just let it exist as empty? No.
-                 // editor.deleteObject(editor.textEditingLabel.get()); // If such method exists
-                 
-                 // Fallback: If "New Label", user expects it to vanish if Cancelled.
-                 // Using editor to find and remove.
-                 auto& labels = editor.textLabels;
-                 auto it = std::find(labels.begin(), labels.end(), editor.textEditingLabel);
-                 if (it != labels.end()) {
-                     labels.erase(it);
-                 }
-                 // And remove command history if possible? 
-                 // editor.commandManager.undo(); // If creation was the last command
-                 editor.commandManager.undo(); 
-            }
-            
             editor.textEditingLabel = nullptr;
             editor.isEditingExistingText = false;
         }
@@ -443,15 +455,6 @@ void TextEditorDialog::render(sf::RenderWindow& window, GeometryEditor& editor) 
     // If dialog was closed via 'X', treat as cancel
     if (!m_isOpen && !m_confirmed) {
         m_confirmed = false;
-        // Same cancel logic
-        if (!editor.isEditingExistingText && editor.textEditingLabel) {
-             auto& labels = editor.textLabels;
-             auto it = std::find(labels.begin(), labels.end(), editor.textEditingLabel);
-             if (it != labels.end()) {
-                 labels.erase(it);
-             }
-             editor.commandManager.undo();
-        }
         editor.textEditingLabel = nullptr;
         editor.isEditingExistingText = false;
     }

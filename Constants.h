@@ -1,13 +1,11 @@
 #pragma once
-#include "CharTraitsFix.h" // For char_traits<unsigned int> specialization
-                           // 
+#include "CharTraitsFix.h"                                     // For char_traits<unsigned int> specialization
+                                                               //
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>  // Include CGAL Kernel
 
 #include <SFML/Graphics.hpp>  // Then SFML headers
 #include <SFML/Graphics/Color.hpp>
 #include <string>  // Include standard string first
-
-
 
 // Define the Kernel type
 typedef CGAL::Exact_predicates_exact_constructions_kernel Kernel;
@@ -32,12 +30,10 @@ namespace Constants {
 //
 // Replace with your actual absolute path for testing:
 #ifdef _WIN32
-const std::string DEFAULT_FONT_PATH =
-    "C:/Windows/Fonts/seguisym.ttf";
-    //"C:/Windows/Fonts/arial.ttf";
+const std::string DEFAULT_FONT_PATH = "C:/Windows/Fonts/seguisym.ttf";
+//"C:/Windows/Fonts/arial.ttf";
 #else
-const std::string DEFAULT_FONT_PATH =
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf";
+const std::string DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf";
 #endif
 
 // --- Window & View ---
@@ -65,11 +61,9 @@ const sf::Color LOCKED_COLOR = sf::Color(128, 0, 128, 200);  // Changed to const
 
 // --- General Colors ---
 const sf::Color PREVIEW_COLOR = sf::Color(100, 100, 100, 128);  // General preview
-const sf::Color SELECTION_UNIVERSAL_COLOR =
-    sf::Color(255, 165, 0,
-              180);  // Orange, semi-transparent for general selection highlight
-const sf::Color HOVER_UNIVERSAL_COLOR =
-    sf::Color(0, 255, 255, 180);  // Cyan, semi-transparent for general hover
+const sf::Color SELECTION_UNIVERSAL_COLOR = sf::Color(255, 165, 0,
+                                                      180);           // Orange, semi-transparent for general selection highlight
+const sf::Color HOVER_UNIVERSAL_COLOR = sf::Color(0, 255, 255, 180);  // Cyan, semi-transparent for general hover
 
 // --- Object Visuals & Interaction ---
 // (General outline thicknesses for selected/hovered objects)
@@ -86,7 +80,7 @@ const sf::Color POINT_FILL_COLOR = sf::Color(255, 0, 0);  // Red for better visi
 constexpr float POINT_RADIUS_SELECTED = 7.0f;             // Selected point radius
 
 const sf::Color LINE_DEFAULT_COLOR = sf::Color(0, 0, 255);            // Blue for lines
-constexpr float LINE_THICKNESS_DEFAULT = 1.0f; // Scale invariant thickness
+constexpr float LINE_THICKNESS_DEFAULT = 1.0f;                        // Scale invariant thickness
 const sf::Color CONSTRUCTION_LINE_COLOR = sf::Color(0, 0, 255, 150);  // Blue
 const sf::Color CIRCLE_DEFAULT_COLOR = sf::Color(255, 105, 180);      // Hot Pink
 const sf::Color OBJECT_POINT_DEFAULT_COLOR = sf::Color(255, 165, 0);  // Orange
@@ -112,13 +106,13 @@ const sf::Color GUI_MESSAGE_COLOR = sf::Color::Black;
 // HandleEvents.cpp to get properly scaled world-unit tolerances.
 // ============================================================================
 
-constexpr float SELECTION_SCREEN_PIXELS = 7.0f;      // Click/selection precision
-constexpr float TOOLTIP_SCREEN_PIXELS = 2.0f;        // Strict tolerance for tooltip visibility
-constexpr float SNAP_SCREEN_PIXELS = 12.0f;          // Snapping "magnetism" radius
-constexpr float HOVER_SCREEN_PIXELS = 10.0f;         // Hover detection radius
-constexpr float DRAG_THRESHOLD_PIXELS = 5.0f;        // Drag initiation threshold
-constexpr float LABEL_DRAG_RADIUS_PIXELS = 60.0f;     // Label drag radius around anchor (screen pixels)
-constexpr float LABEL_HIT_PADDING_PIXELS = 6.0f;      // Extra label hit padding (screen pixels)
+constexpr float SELECTION_SCREEN_PIXELS = 7.0f;    // Click/selection precision
+constexpr float TOOLTIP_SCREEN_PIXELS = 2.0f;      // Strict tolerance for tooltip visibility
+constexpr float SNAP_SCREEN_PIXELS = 12.0f;        // Snapping "magnetism" radius
+constexpr float HOVER_SCREEN_PIXELS = 10.0f;       // Hover detection radius
+constexpr float DRAG_THRESHOLD_PIXELS = 5.0f;      // Drag initiation threshold
+constexpr float LABEL_DRAG_RADIUS_PIXELS = 60.0f;  // Label drag radius around anchor (screen pixels)
+constexpr float LABEL_HIT_PADDING_PIXELS = 6.0f;   // Extra label hit padding (screen pixels)
 
 // ============================================================================
 // DEPRECATED: Old world-unit constants (for backwards compatibility)
@@ -132,12 +126,12 @@ const float POINT_SIZE = 5.0f;                 // Used for scaled drawing (still
 // Line specific visual constants
 const float LINE_THICKNESS = 1.0f;
 const float CONSTRUCTION_LINE_THICKNESS = 1.0f;  // Thinner for construction lines
-// [DEPRECATED] Use getDynamicSelectionTolerance() instead  
-const float LINE_INTERACTION_RADIUS = 5.0f;      // Legacy: was for clicking on lines
-const float GRID_SNAP_INTERVAL = 2.0f;           // Snapping interval for grid alignment
-const float LINE_ARROWHEAD_SIZE = 10.0f;         // Size of arrowheads on lines
-const float LINE_DASH_LENGTH = 5.0f;             // Length of dashes in dashed lines
-const float LINE_DASH_GAP = 3.0f;                // Gap between dashes in dashed lines
+// [DEPRECATED] Use getDynamicSelectionTolerance() instead
+const float LINE_INTERACTION_RADIUS = 5.0f;  // Legacy: was for clicking on lines
+const float GRID_SNAP_INTERVAL = 2.0f;       // Snapping interval for grid alignment
+const float LINE_ARROWHEAD_SIZE = 10.0f;     // Size of arrowheads on lines
+const float LINE_DASH_LENGTH = 5.0f;         // Length of dashes in dashed lines
+const float LINE_DASH_GAP = 3.0f;            // Gap between dashes in dashed lines
 
 // Add this epsilon constant for small floating-point comparisons
 const double EPSILON = 0.00001;  // Small value for floating-point comparisons
@@ -154,13 +148,12 @@ const sf::Color CIRCLE_DEFAULT_FILL_COLOR = sf::Color::Transparent;  // Default 
 // const sf::Color CIRCLE_DEFAULT_FILL_COLOR = sf::Color(255, 105, 180, 100); //
 // Semi-transparent Hot Pink
 
-const sf::Color CIRCLE_OUTLINE_COLOR =
-    sf::Color(0, 100, 100);  // Example: Darker teal for non-selected, non-hovered outline
-const float CIRCLE_OUTLINE_THICKNESS = 2.0f;    // Example: Default outline thickness for circles
-const float CIRCLE_PERIMETER_TOLERANCE = 5.0f;  // Tolerance for clicking circle perimeter (pixels
-                                                // or world units depending on use)
-const float MIN_CIRCLE_RADIUS = 1e-18f;           // Minimum radius (Microscopic support)
-const bool ALWAYS_SHOW_CIRCLE_CENTERS = true;   // Always show circle centers
+const sf::Color CIRCLE_OUTLINE_COLOR = sf::Color(0, 100, 100);  // Example: Darker teal for non-selected, non-hovered outline
+const float CIRCLE_OUTLINE_THICKNESS = 2.0f;                    // Example: Default outline thickness for circles
+const float CIRCLE_PERIMETER_TOLERANCE = 5.0f;                  // Tolerance for clicking circle perimeter (pixels
+                                                                // or world units depending on use)
+const float MIN_CIRCLE_RADIUS = 1e-18f;                         // Minimum radius (Microscopic support)
+const bool ALWAYS_SHOW_CIRCLE_CENTERS = true;                   // Always show circle centers
 
 // Missing constants needed for selection box
 
@@ -169,27 +162,27 @@ const sf::Color SELECTION_BOX_OUTLINE_COLOR = sf::Color::Yellow;
 const float SELECTION_BOX_OUTLINE_THICKNESS = 1.0f;
 
 // ADD THESE New circle-specific selection and hover constants
-const sf::Color SELECTION_COLOR_CIRCLE_FILL =
-    sf::Color(SELECTION_UNIVERSAL_COLOR.r, SELECTION_UNIVERSAL_COLOR.g, SELECTION_UNIVERSAL_COLOR.b,
-              100);  // Semi-transparent selection fill
+const sf::Color SELECTION_COLOR_CIRCLE_FILL = sf::Color(SELECTION_UNIVERSAL_COLOR.r,
+                                                        SELECTION_UNIVERSAL_COLOR.g,
+                                                        SELECTION_UNIVERSAL_COLOR.b,
+                                                        100);  // Semi-transparent selection fill
 const sf::Color SELECTION_COLOR_CIRCLE_OUTLINE = SELECTION_UNIVERSAL_COLOR;
 const float SELECTION_THICKNESS_CIRCLE = 2.0f;
 const sf::Color HOVER_COLOR_CIRCLE_OUTLINE = HOVER_UNIVERSAL_COLOR;
 const float HOVER_THICKNESS_CIRCLE = 1.5f;
 
 // --- GUI ---
-const sf::Color GUI_BACKGROUND_COLOR =
-    sf::Color(255, 255, 255, 255);  // Dark gray with transparency
-const float GUI_HEIGHT = 50.0f;     // Height of the GUI panel
+const sf::Color GUI_BACKGROUND_COLOR = sf::Color(255, 255, 255, 255);  // Dark gray with transparency
+const float GUI_HEIGHT = 50.0f;                                        // Height of the GUI panel
 const sf::Vector2f BUTTON_SIZE(100.f, 35.f);
 const sf::Color BUTTON_DEFAULT_COLOR = sf::Color(200, 200, 200);
 const sf::Color BUTTON_ACTIVE_COLOR = sf::Color(100, 100, 255, 200);    // Blueish, active tool
 const sf::Color BUTTON_INACTIVE_COLOR = sf::Color(180, 180, 180, 200);  // Greyish, inactive
 const sf::Color BUTTON_HOVER_COLOR = sf::Color(150, 150, 220, 220);     // Lighter blueish for hover
-inline unsigned int BUTTON_TEXT_SIZE = 24;              // Helper for adjustable
-const sf::Color BUTTON_TEXT_COLOR = sf::Color::Black;  // Example value
-inline unsigned int GUI_MESSAGE_TEXT_SIZE = 18;         // Helper for adjustable
-const float GUI_MESSAGE_DURATION = 3.0f;               // Seconds, example value
+inline unsigned int BUTTON_TEXT_SIZE = 24;                              // Helper for adjustable
+const sf::Color BUTTON_TEXT_COLOR = sf::Color::Black;                   // Example value
+inline unsigned int GUI_MESSAGE_TEXT_SIZE = 18;                         // Helper for adjustable
+const float GUI_MESSAGE_DURATION = 3.0f;                                // Seconds, example value
 
 // --- General Interaction & Snapping ---
 const float MOUSE_OVER_TOLERANCE = 5.0f;    // Tolerance in screen pixels
@@ -214,7 +207,6 @@ const float HOVER_THICKNESS_POINT = 1.5f;
 const float CIRCLE_CENTER_VISUAL_RADIUS = 3.0f;
 const sf::Color CIRCLE_CENTER_VISUAL_COLOR = sf::Color(255, 255, 255);
 const float CIRCLE_ALPHA = 30;  // Transparency for circle fills
-
 
 // -- Coordinate precision for intersection points
 // (The duplicate definition of COORDINATE_PRECISION was here and has been
@@ -266,21 +258,17 @@ extern float CURRENT_ZOOM;  // This should not be a global constant, but tracked
                             // by GeometryEditor or view state
 
 // REPLACE WITH THESE:
-inline constexpr float VIEW_MIN_ZOOM_LEVEL =
-    0.1f;  // Max zoom-in (e.g., view is 10% of original height)
-inline constexpr float VIEW_MAX_ZOOM_LEVEL =
-    15.0f;  // Max zoom-out (e.g., view is 1500% of original height)
-inline constexpr float MOUSE_WHEEL_ZOOM_FACTOR =
-    1.1f;  // Factor for each scroll tick (was ZOOM_FACTOR)
+inline constexpr float VIEW_MIN_ZOOM_LEVEL = 0.1f;      // Max zoom-in (e.g., view is 10% of original height)
+inline constexpr float VIEW_MAX_ZOOM_LEVEL = 15.0f;     // Max zoom-out (e.g., view is 1500% of original height)
+inline constexpr float MOUSE_WHEEL_ZOOM_FACTOR = 1.1f;  // Factor for each scroll tick (was ZOOM_FACTOR)
 
-const float MIN_CENTER_POINT_VISUAL_RADIUS = 3.0f;  // Minimum size for center point visual
+const float MIN_CENTER_POINT_VISUAL_RADIUS = 3.0f;   // Minimum size for center point visual
 const float MAX_CENTER_POINT_VISUAL_RADIUS = 10.0f;  // Maximum size for center point visual
-            // Default length for constructing lines like perpendiculars
+                                                     // Default length for constructing lines like perpendiculars
 
 // Debug flags
 
-const double MIN_DISTANCE_SQUARED_LINE_CREATION =
-    1e-36;  // Microscopic support
+const double MIN_DISTANCE_SQUARED_LINE_CREATION = 1e-36;  // Microscopic support
 
-    constexpr double PI= 3.14159265358979323846;
+constexpr double PI = 3.14159265358979323846;
 }  // namespace Constants

@@ -25,6 +25,7 @@ enum class ObjectType {
   Angle,                   // Angle measurement
   AngleGiven,              // Angle with given size (popup input)
   TextLabel,               // Text/LaTeX label
+  TextObject,              // Independent text object
   Hide,                    // Hide tool mode
   Detach,                  // Detach tool mode
 

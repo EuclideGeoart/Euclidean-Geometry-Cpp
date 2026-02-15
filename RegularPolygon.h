@@ -68,6 +68,7 @@ class RegularPolygon : public GeometricObject {
   std::shared_ptr<Point> getEdgeStartPoint() const { return m_edgeStartPoint; }
   std::shared_ptr<Point> getEdgeEndPoint() const { return m_edgeEndPoint; }
   const std::vector<std::shared_ptr<Point>>& getDerivedVertices() const { return m_derivedVertices; }
+  void setDerivedVertices(const std::vector<std::shared_ptr<Point>>& derivedVertices);
   CreationMode getCreationMode() const { return m_creationMode; }
   int getNumSides() const { return m_numSides; }
   double getRadius() const { return m_radius; }

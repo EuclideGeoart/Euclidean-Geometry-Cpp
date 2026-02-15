@@ -232,6 +232,8 @@ std::vector<std::shared_ptr<GeometricObject>> GeometryEditor::getAllObjects() co
   for (auto& poly : polygons) all.push_back(poly);
   for (auto& reg : regularPolygons) all.push_back(reg);
   for (auto& tri : triangles) all.push_back(tri);
+  for (auto& tl : textLabels) all.push_back(tl);
+  for (auto& to : textObjects) all.push_back(to);
   return all;
 }
 void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
@@ -280,6 +282,16 @@ void GeometryEditor::addObject(const std::shared_ptr<GeometricObject>& obj) {
       break;
     case ObjectType::TextLabel:
       textLabels.push_back(std::dynamic_pointer_cast<TextLabel>(obj));
+      break;
+    case ObjectType::TextObject:
+      if (auto textObj = std::dynamic_pointer_cast<TextObject>(obj)) {
+        textObjects.push_back(textObj);
+        std::cout << "[DEBUG] addObject routed TextObject ID " << textObj->getID()
+                  << " | textObjects size=" << textObjects.size()
+                  << " | allObjects size=" << getAllObjects().size() << std::endl;
+      } else {
+        std::cout << "[ERROR] addObject: ObjectType::TextObject cast failed." << std::endl;
+      }
       break;
     default:
       // Unknown or unsupported type
@@ -751,6 +763,7 @@ void GeometryEditor::render() {
     for (auto& ag : angles) drawObject(ag);
     // text labels
     for (auto& tl : textLabels) drawObject(tl);
+    for (auto& to : textObjects) drawObject(to);
 
     // --- Preview lines ---
     // Draw existing preview Line objects without triggering heavy updates
@@ -1016,7 +1029,31 @@ void GeometryEditor::render() {
       }
     }
 
+    auto isLiveObjectPtr = [&](GeometricObject* obj) -> bool {
+      if (!obj) return false;
+
+      auto containsRaw = [&](const auto& container) {
+        for (const auto& item : container) {
+          if (item.get() == obj) return true;
+        }
+        return false;
+      };
+
+      return containsRaw(points) ||
+             containsRaw(ObjectPoints) ||
+             containsRaw(lines) ||
+             containsRaw(circles) ||
+             containsRaw(angles) ||
+             containsRaw(rectangles) ||
+             containsRaw(regularPolygons) ||
+             containsRaw(triangles) ||
+             containsRaw(polygons) ||
+             containsRaw(textLabels) ||
+             containsRaw(textObjects);
+    };
+
     auto drawSelectedLabelHitbox = [&](GeometricObject* obj) {
+      if (!isLiveObjectPtr(obj)) return;
       sf::FloatRect labelBounds;
       if (computeLabelHitBounds(obj, labelBounds)) {
         drawDashedRect(labelBounds, selectedLabelHitboxColor);
@@ -1571,18 +1608,60 @@ void GeometryEditor::update(sf::Time deltaTime) {
   gui.update(deltaTime);
 
   // Handle text editor dialog confirmation
-  if (textEditorDialog.wasConfirmed()) {
+  if (textEditorDialog.wasConfirmed() && !textEditorDialog.isDialogOpen()) {
     if (textEditingLabel) {
       std::string resultText = textEditorDialog.getResultText();
       bool isLatex = textEditorDialog.isLatexResult();
       float fontSize = textEditorDialog.getFontSize();
+      bool wasEditingExistingText = isEditingExistingText;
 
       textEditingLabel->setRawContent(resultText, isLatex);
       textEditingLabel->setFontSize(fontSize);
 
       setGUIMessage("Text: Label updated.");
+      textEditingLabel = nullptr;
+      isEditingExistingText = false;
+      if (!wasEditingExistingText) {
+        setCurrentTool(ObjectType::None);
+      }
+    } else if (m_textEditingObject) {
+      // Editing existing TextObject
+      std::string newText = textEditorDialog.getResultText();
+      bool newIsLatex = textEditorDialog.isLatexResult();
+      float newFontSize = textEditorDialog.getFontSize();
+
+      std::string oldText = m_textEditingObject->getRawContent();
+      bool oldIsLatex = m_textEditingObject->isRichText();
+      float oldFontSize = m_textEditingObject->getFontSize();
+
+      bool changed = (oldText != newText) || (oldIsLatex != newIsLatex) || (std::abs(oldFontSize - newFontSize) > 1e-6f);
+      if (changed) {
+        auto editCmd = std::make_shared<ModifyTextObjectCommand>(m_textEditingObject,
+                                                                  oldText,
+                                                                  oldIsLatex,
+                                                                  oldFontSize,
+                                                                  newText,
+                                                                  newIsLatex,
+                                                                  newFontSize);
+        commandManager.execute(editCmd);
+      }
+
+      setGUIMessage("Text: Object updated.");
+      m_textEditingObject = nullptr;
+    } else if (m_currentToolType == ObjectType::TextObject || (m_activeMode == Mode::Text)) {
+      std::string text = textEditorDialog.getResultText();
+      bool isLatex = textEditorDialog.isLatexResult();
+      float fontSize = textEditorDialog.getFontSize();
+      
+      if (!text.empty()) {
+        auto newText = std::make_shared<TextObject>(m_pendingTextPosition, text, isLatex, fontSize);
+        commandManager.execute(std::make_shared<CreateCommand>(*this, std::static_pointer_cast<GeometricObject>(newText)));
+        std::cout << "[DEBUG] Created TextObject. Total Objects: " << getAllObjects().size() << std::endl;
+        setGUIMessage("Text: Object created.");
+        setCurrentTool(ObjectType::None);
+      }
     }
-    textEditingLabel = nullptr;
+    textEditorDialog.consumeConfirmation();
   }
 
   if (selectedObject && selectedObject->getType() == ObjectType::Angle) {
@@ -1623,6 +1702,9 @@ void GeometryEditor::update(sf::Time deltaTime) {
     if (obj) obj->update();
   }
   for (const auto& obj : angles) {
+    if (obj) obj->update();
+  }
+  for (const auto& obj : textObjects) {
     if (obj) obj->update();
   }
 
@@ -1859,6 +1941,59 @@ void GeometryEditor::handleResize(unsigned int width, unsigned int height) {
   grid.update(drawingView, sf::Vector2u(width, height));
 
   m_lastWindowSize = sf::Vector2u(width, height);
+}
+
+void GeometryEditor::handleMouseDoubleClick(const Point_2& worldPos) {
+  float tolerance = getScaledTolerance(drawingView);
+  sf::Vector2f worldPosSf(static_cast<float>(CGAL::to_double(worldPos.x())), static_cast<float>(CGAL::to_double(worldPos.y())));
+
+  auto all = getAllObjects();
+  for (auto it = all.rbegin(); it != all.rend(); ++it) {
+    const auto& obj = *it;
+    if (!obj || !obj->isValid() || !obj->isVisible()) {
+      continue;
+    }
+
+    ObjectType t = obj->getType();
+    if (t != ObjectType::TextObject && t != ObjectType::TextLabel) {
+      continue;
+    }
+
+    if (obj->contains(worldPosSf, tolerance)) {
+      if (t == ObjectType::TextLabel) {
+        auto label = std::dynamic_pointer_cast<TextLabel>(obj);
+        if (!label) {
+          return;
+        }
+
+        isEditingExistingText = true;
+        textEditingLabel = label;
+        m_textEditingObject = nullptr;
+        textEditorDialog.open(label->getRawContent(),
+                             label->isRichText(),
+                             label->getFontSize());
+        return;
+      }
+
+      m_textEditingObject = std::dynamic_pointer_cast<TextObject>(obj);
+      if (!m_textEditingObject) {
+        return;
+      }
+
+      isEditingExistingText = false;
+      textEditingLabel = nullptr;
+      textEditorDialog.open(m_textEditingObject->getRawContent(),
+                           m_textEditingObject->isRichText(),
+                           m_textEditingObject->getFontSize());
+      return;
+    }
+  }
+
+  // Fallback: Check Point Labels or other objects if needed
+}
+
+void GeometryEditor::handleMouseDoubleClick(const sf::Vector2f& worldPos) {
+  handleMouseDoubleClick(Point_2(worldPos.x, worldPos.y));
 }
 
 void GeometryEditor::resetView() {
@@ -2886,8 +3021,18 @@ void GeometryEditor::clearScene() {
 
   // Cancel any ongoing operations
   cancelOperation();
+
+  // Clear selection state before object containers are reset
+  clearSelection();
+
   selectedObject = nullptr;
   hoveredObject = nullptr;
+  labelDragObject = nullptr;
+  isDraggingLabel = false;
+  labelDragVertexIndex = -1;
+  selectedShape = nullptr;
+  selectedVertex = nullptr;
+  pointToRename = nullptr;
 
   // Clear all object containers
   ObjectPoints.clear();

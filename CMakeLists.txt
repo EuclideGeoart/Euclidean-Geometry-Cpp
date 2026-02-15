@@ -107,6 +107,7 @@ set(SOURCES
     Triangle.cpp
     Angle.cpp
     TextLabel.cpp
+    TextObject.cpp
     LatexRenderer.cpp
     MicroTeXSFML.cpp
     SymbolPalette.cpp
@@ -167,7 +168,9 @@ if(WIN32)
     target_link_libraries(FluxGeo PRIVATE
         sfml-graphics sfml-window sfml-system CGAL::CGAL comdlg32 opengl32
     )
+    if($<$<CONFIG:Release>:>)
     target_link_options(FluxGeo PRIVATE "-mwindows")
+    endif()
 else()
     target_link_libraries(FluxGeo PRIVATE
         sfml-graphics sfml-window sfml-system CGAL::CGAL

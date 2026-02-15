@@ -26,6 +26,8 @@ public:
     bool wasConfirmed() const { return m_confirmed; }
     bool isLatexResult() const { return m_isLatexMode; }
     float getFontSize() const { return m_fontSize; }
+    void consumeConfirmation() { m_confirmed = false; }
+
 
 private:
     void updatePreview();

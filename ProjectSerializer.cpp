@@ -351,27 +351,50 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
         }
     }
 
-    // E. Harvest ObjectPoints (CRITICAL FIX: Include constrained points!)
+    // E. Harvest from RegularPolygons (CRITICAL: preserve defining dependency points)
+    for (const auto& rpoly : editor.regularPolygons) {
+      if (!rpoly) continue;
+      if (rpoly->getCreationMode() == RegularPolygon::CreationMode::Edge) {
+        markForSave(rpoly->getEdgeStartPoint());
+        markForSave(rpoly->getEdgeEndPoint());
+      } else {
+        markForSave(rpoly->getCenterPoint());
+        markForSave(rpoly->getFirstVertexPoint());
+      }
+      for (const auto& dv : rpoly->getDerivedVertices()) {
+        markForSave(dv);
+      }
+    }
+
+    // F. Harvest ObjectPoints (CRITICAL FIX: Include constrained points!)
     for (const auto& op : editor.ObjectPoints) {
         markForSave(op);
     }
 
     // Build a collision-free point ID map for serialization.
     std::set<unsigned int> usedSerializedPointIds;
+    std::set<unsigned int> blockedSerializedPointIds;
     unsigned int nextSerializedPointId = 0u;
     for (const auto& obj : editor.getAllObjects()) {
-      if (obj && obj->getID() > nextSerializedPointId) {
+      if (!obj) continue;
+      if (obj->getID() > nextSerializedPointId) {
         nextSerializedPointId = obj->getID();
+      }
+      if (!std::dynamic_pointer_cast<Point>(obj) && obj->getID() > 0u) {
+        blockedSerializedPointIds.insert(obj->getID());
       }
     }
 
     for (const auto& pt : pointsToSave) {
       if (!pt) continue;
       unsigned int sid = pt->getID();
-      if (sid == 0u || usedSerializedPointIds.find(sid) != usedSerializedPointIds.end()) {
+      if (sid == 0u ||
+          usedSerializedPointIds.find(sid) != usedSerializedPointIds.end() ||
+          blockedSerializedPointIds.find(sid) != blockedSerializedPointIds.end()) {
         do {
           sid = ++nextSerializedPointId;
-        } while (usedSerializedPointIds.find(sid) != usedSerializedPointIds.end());
+        } while (usedSerializedPointIds.find(sid) != usedSerializedPointIds.end() ||
+                 blockedSerializedPointIds.find(sid) != blockedSerializedPointIds.end());
       }
       usedSerializedPointIds.insert(sid);
       pointIdForSave[pt.get()] = sid;
@@ -749,16 +772,57 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
             auto it = pointIdForSave.find(edgeEndPt.get());
             rpolyJson["edgeEndID"] = (it != pointIdForSave.end()) ? it->second : edgeEndPt->getID();
           }
+
+          json vertexIdsJson = json::array();
+          auto appendVertexId = [&](const std::shared_ptr<Point>& point) {
+            if (!point) {
+              vertexIdsJson.push_back(-1);
+              return;
+            }
+            auto it = pointIdForSave.find(point.get());
+            unsigned int savedId = (it != pointIdForSave.end()) ? it->second : point->getID();
+            vertexIdsJson.push_back(static_cast<unsigned long long>(savedId));
+          };
+          if (auto edgeStartPt = rpoly->getEdgeStartPoint()) {
+            appendVertexId(edgeStartPt);
+          }
+          if (auto edgeEndPt = rpoly->getEdgeEndPoint()) {
+            appendVertexId(edgeEndPt);
+          }
+          for (const auto& dv : rpoly->getDerivedVertices()) {
+            appendVertexId(dv);
+          }
+          rpolyJson["vertexIds"] = vertexIdsJson;
         } else {
           rpolyJson["creationMode"] = "CenterAndVertex";
           if (auto centerPt = rpoly->getCenterPoint()) {
             auto it = pointIdForSave.find(centerPt.get());
             rpolyJson["centerPointID"] = (it != pointIdForSave.end()) ? it->second : centerPt->getID();
+            rpolyJson["centerId"] = rpolyJson["centerPointID"];
           }
           if (auto firstVertPt = rpoly->getFirstVertexPoint()) {
             auto it = pointIdForSave.find(firstVertPt.get());
             rpolyJson["firstVertexPointID"] = (it != pointIdForSave.end()) ? it->second : firstVertPt->getID();
+            rpolyJson["vertexId"] = rpolyJson["firstVertexPointID"];
           }
+
+          json vertexIdsJson = json::array();
+          auto appendVertexId = [&](const std::shared_ptr<Point>& point) {
+            if (!point) {
+              vertexIdsJson.push_back(-1);
+              return;
+            }
+            auto it = pointIdForSave.find(point.get());
+            unsigned int savedId = (it != pointIdForSave.end()) ? it->second : point->getID();
+            vertexIdsJson.push_back(static_cast<unsigned long long>(savedId));
+          };
+          if (auto firstVertPt = rpoly->getFirstVertexPoint()) {
+            appendVertexId(firstVertPt);
+          }
+          for (const auto& dv : rpoly->getDerivedVertices()) {
+            appendVertexId(dv);
+          }
+          rpolyJson["vertexIds"] = vertexIdsJson;
         }
 
         // Keep vertices for legacy compatibility
@@ -896,6 +960,75 @@ bool ProjectSerializer::saveProject(const GeometryEditor& editor, const std::str
     }
     project["objects"]["intersections"] = intersectionsArray;
 
+    // Save Text entries (TextObject + TextLabel)
+    json textsArray = json::array();
+    auto allObjects = editor.getAllObjects();
+    std::cout << "[DEBUG] Save scan started. Total objects in unified list: " << allObjects.size() << std::endl;
+    for (const auto& obj : allObjects) {
+      if (!obj) continue;
+
+      if (obj->getType() == ObjectType::TextObject) {
+        std::cout << "[DEBUG] Found TextObject ID: " << obj->getID() << std::endl;
+        auto textObj = std::dynamic_pointer_cast<TextObject>(obj);
+        if (textObj) {
+          if (!textObj->isValid()) {
+            std::cout << "[DEBUG] Skipping invalid TextObject ID: " << textObj->getID() << std::endl;
+            continue;
+          }
+
+          json tJson;
+          tJson["type"] = "textObject";
+          tJson["id"] = textObj->getID();
+          Point_2 pos = textObj->getCGALPosition();
+          tJson["x"] = CGAL::to_double(pos.x());
+          tJson["y"] = CGAL::to_double(pos.y());
+          tJson["content"] = textObj->getRawContent();
+          tJson["isLatex"] = textObj->isRichText();
+          tJson["fontSize"] = textObj->getFontSize();
+          tJson["color"] = colorToHex(textObj->getColor());
+          tJson["visible"] = textObj->isVisible();
+          tJson["locked"] = textObj->isLocked();
+
+          addTransformMetadata(tJson, textObj);
+
+          textsArray.push_back(tJson);
+        } else {
+          std::cout << "[ERROR] Failed to cast TextObject! ID: " << obj->getID() << std::endl;
+        }
+      } else if (obj->getType() == ObjectType::TextLabel) {
+        std::cout << "[DEBUG] Found TextLabel ID: " << obj->getID() << std::endl;
+        auto textLabel = std::dynamic_pointer_cast<TextLabel>(obj);
+        if (textLabel) {
+          if (!textLabel->isValid()) {
+            std::cout << "[DEBUG] Skipping invalid TextLabel ID: " << textLabel->getID() << std::endl;
+            continue;
+          }
+
+          json tJson;
+          tJson["type"] = "textLabel";
+          tJson["id"] = textLabel->getID();
+          Point_2 pos = textLabel->getCGALPosition();
+          tJson["x"] = CGAL::to_double(pos.x());
+          tJson["y"] = CGAL::to_double(pos.y());
+          tJson["content"] = textLabel->getRawContent();
+          tJson["isLatex"] = textLabel->isRichText();
+          tJson["fontSize"] = textLabel->getFontSize();
+          tJson["color"] = colorToHex(textLabel->getColor());
+          tJson["visible"] = textLabel->isVisible();
+          tJson["locked"] = textLabel->isLocked();
+          tJson["boxWidthWorld"] = textLabel->getBoxWidthWorld();
+
+          addTransformMetadata(tJson, textLabel);
+
+          textsArray.push_back(tJson);
+        } else {
+          std::cout << "[ERROR] Failed to cast TextLabel! ID: " << obj->getID() << std::endl;
+        }
+      }
+    }
+    std::cout << "[DEBUG] Saved text entry count: " << textsArray.size() << std::endl;
+    project["objects"]["texts"] = textsArray;
+
     // Write to file
     std::ofstream file(filepath);
     if (!file.is_open()) {
@@ -960,6 +1093,7 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
     // PHASE 1: REGISTRY
     std::map<unsigned int, json> registry;
+    std::set<unsigned int> nonPointRegistryIds;
     std::map<unsigned int, std::pair<unsigned int, unsigned int>> vectorLineMap;
 
     auto addToRegistry = [&](const json& list) {
@@ -979,15 +1113,35 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         addToRegistry(lines);
         for (const auto& line : lines) {
             unsigned int id = line.value("id", 0u);
+            if (id > 0u) nonPointRegistryIds.insert(id);
             unsigned int start = line.value("startPointID", 0u);
             unsigned int end = line.value("endPointID", 0u);
             if (start > 0 && end > 0) vectorLineMap[end] = {start, id};
         }
     }
-    if (data.contains("circles")) addToRegistry(data["circles"]);
+    if (data.contains("circles")) {
+      addToRegistry(data["circles"]);
+      for (const auto& circle : data["circles"]) {
+        unsigned int id = circle.value("id", 0u);
+        if (id > 0u) nonPointRegistryIds.insert(id);
+      }
+    }
+    if (data.contains("regularPolygons")) {
+      for (const auto& rp : data["regularPolygons"]) {
+        unsigned int id = rp.value("id", 0u);
+        if (id > 0u) nonPointRegistryIds.insert(id);
+      }
+    }
+    if (data.contains("tangentLines")) {
+      for (const auto& tan : data["tangentLines"]) {
+        unsigned int id = tan.value("id", 0u);
+        if (id > 0u) nonPointRegistryIds.insert(id);
+      }
+    }
     if (data.contains("objectPoints")) addToRegistry(data["objectPoints"]);
 
-    // PHASE 2: POLYMORPHIC POINTS (Pass 1 & Pass 2)
+    // PHASE 1 (FOUNDATION): POLYMORPHIC POINTS
+    // Order is strict: points -> objectPoints -> intersectionPoints
     std::map<unsigned int, std::shared_ptr<GeometricObject>> created;
     std::map<unsigned int, std::shared_ptr<Point>> pointMap;
     std::map<unsigned int, std::vector<std::shared_ptr<Point>>> pointAliases;
@@ -995,6 +1149,22 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     std::unordered_set<unsigned int> usedPointIds;
     std::vector<std::pair<const json*, std::shared_ptr<Point>>> loadedPointRecords;
     std::vector<std::shared_ptr<ObjectPoint>> pendingCircleHostIdZero;
+    struct PendingCircleHostRelink {
+      std::shared_ptr<ObjectPoint> point;
+      unsigned int hostId = 0u;
+      double t = 0.0;
+    };
+    std::vector<PendingCircleHostRelink> pendingCircleHostRelinks;
+    struct PendingObjectPointHostRelink {
+      std::shared_ptr<ObjectPoint> point;
+      unsigned int hostId = 0u;
+      ObjectType hostType = ObjectType::None;
+      double t = 0.5;
+      bool hasEdgeIndex = false;
+      int edgeIndex = -1;
+      double edgeRel = 0.5;
+    };
+    std::vector<PendingObjectPointHostRelink> pendingObjectPointHostRelinks;
     std::vector<std::shared_ptr<Point>> zeroIdCircleHostedPointCandidates;
     if (editor.getXAxisShared()) created[editor.getXAxisShared()->getID()] = editor.getXAxisShared();
     if (editor.getYAxisShared()) created[editor.getYAxisShared()->getID()] = editor.getYAxisShared();
@@ -1076,7 +1246,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         if (effectiveId > 0u) pointAliases[effectiveId].push_back(pt);
         if (requestedId > 0u) {
           if (!pointMap.count(requestedId)) pointMap[requestedId] = pt;
-          if (!created.count(requestedId)) created[requestedId] = pt;
+          if (!created.count(requestedId) && nonPointRegistryIds.find(requestedId) == nonPointRegistryIds.end()) {
+            created[requestedId] = pt;
+          }
           pointAliases[requestedId].push_back(pt);
         }
         editor.points.push_back(pt);
@@ -1131,7 +1303,9 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         if (effectiveId > 0u) pointAliases[effectiveId].push_back(op);
         if (requestedId > 0u) {
           if (!pointMap.count(requestedId)) pointMap[requestedId] = op;
-          if (!created.count(requestedId)) created[requestedId] = op;
+          if (!created.count(requestedId) && nonPointRegistryIds.find(requestedId) == nonPointRegistryIds.end()) {
+            created[requestedId] = op;
+          }
           pointAliases[requestedId].push_back(op);
         }
 
@@ -1148,7 +1322,56 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
       }
     }
 
-    // PHASE 2: RECURSIVE CONSTRUCTION (Non-point objects)
+    // 1c. IntersectionPoints from intersections[] records
+    // These MUST be in pointMap/created before dependent objects (especially angles) are loaded.
+    if (data.contains("intersections") && data["intersections"].is_array()) {
+      for (const auto& iJson : data["intersections"]) {
+        if (!iJson.contains("points") || !iJson["points"].is_array()) continue;
+
+        for (const auto& pJ : iJson["points"]) {
+          unsigned int requestedId = pJ.value("id", 0u);
+          if (requestedId == 0u) continue;
+
+          if (pointMap.count(requestedId)) {
+            auto existing = pointMap[requestedId];
+            if (existing) {
+              existing->setIntersectionPoint(true);
+              existing->setDependent(true);
+              if (pJ.contains("label")) existing->setLabel(pJ.value("label", ""));
+              if (pJ.contains("showLabel")) existing->setShowLabel(pJ.value("showLabel", false));
+              if (pJ.contains("labelOffset") && pJ["labelOffset"].is_array() && pJ["labelOffset"].size() >= 2) {
+                existing->setLabelOffset(sf::Vector2f(pJ["labelOffset"][0].get<float>(), pJ["labelOffset"][1].get<float>()));
+              }
+            }
+            continue;
+          }
+
+          unsigned int effectiveId = allocatePointId(requestedId);
+          Point_2 pos(pJ.value("x", 0.0), pJ.value("y", 0.0));
+          auto ip = std::make_shared<Point>(pos, Constants::CURRENT_ZOOM, Constants::INTERSECTION_POINT_COLOR, effectiveId);
+          ip->setIntersectionPoint(true);
+          ip->setDependent(true);
+          ip->setLocked(true);
+          ip->setLabel(pJ.value("label", ""));
+          ip->setShowLabel(pJ.value("showLabel", false));
+          if (pJ.contains("labelOffset") && pJ["labelOffset"].is_array() && pJ["labelOffset"].size() >= 2) {
+            ip->setLabelOffset(sf::Vector2f(pJ["labelOffset"][0].get<float>(), pJ["labelOffset"][1].get<float>()));
+          }
+
+          pointMap[effectiveId] = ip;
+          created[effectiveId] = ip;
+          if (effectiveId > 0u) pointAliases[effectiveId].push_back(ip);
+          if (requestedId > 0u && requestedId != effectiveId) {
+            if (!pointMap.count(requestedId)) pointMap[requestedId] = ip;
+            if (!created.count(requestedId)) created[requestedId] = ip;
+            pointAliases[requestedId].push_back(ip);
+          }
+          editor.points.push_back(ip);
+        }
+      }
+    }
+
+    // PHASE 2 (GEOMETRY): RECURSIVE CONSTRUCTION (Non-point objects)
     std::vector<unsigned int> stack;
 
     auto choosePointAlias = [&](unsigned int requestedId, const json& owner, bool isStart,
@@ -1190,7 +1413,6 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         for (const auto& c : candidates) {
           if (!c) continue;
           Point_2 cp = c->getCGALPosition();
-          double cx = CGAL::to_double(cp.x());
           double cy = CGAL::to_double(cp.y());
           double score = partnerLooksOffscreen ? std::abs(cy - py) : CGAL::to_double(CGAL::squared_distance(cp, partnerPos));
           if (score < bestScore) {
@@ -1299,6 +1521,12 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             sf::Color color = hexToColor(jObj.value("color", "#000000"));
             int lType = jObj.value("lineType", 0);
             if (start && end) {
+                auto startOp = std::dynamic_pointer_cast<ObjectPoint>(start);
+                auto endOp = std::dynamic_pointer_cast<ObjectPoint>(end);
+                if ((startOp && !startOp->isValid()) || (endOp && !endOp->isValid())) {
+                  stack.pop_back();
+                  return nullptr;
+                }
                 // Fix: Line constructor takes bool for segment, not LineType
                 auto ln = std::make_shared<Line>(start, end, true, color, id); 
                 ln->setLineType((Line::LineType)lType); 
@@ -1341,6 +1569,12 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
              sf::Color color = hexToColor(jObj.value("color", "#000000"));
              int lType = jObj.value("lineType", 0);
              if (start && end) {
+                 auto startOp = std::dynamic_pointer_cast<ObjectPoint>(start);
+                 auto endOp = std::dynamic_pointer_cast<ObjectPoint>(end);
+                 if ((startOp && !startOp->isValid()) || (endOp && !endOp->isValid())) {
+                   stack.pop_back();
+                   return nullptr;
+                 }
                  auto ln = std::make_shared<Line>(start, end, false, color, id);
                  ln->setLineType((Line::LineType)lType);
            ln->setThickness(jObj.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
@@ -1398,16 +1632,36 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
           unsigned int hostId = jPt.value("hostId", 0u);
           auto op = std::dynamic_pointer_cast<ObjectPoint>(pt);
           ObjectType hostType = static_cast<ObjectType>(jPt.value("hostType", static_cast<int>(ObjectType::None)));
-          if (op && hostId == 0u && hostType == ObjectType::Circle) {
-            pendingCircleHostIdZero.push_back(op);
+          double tHost = jPt.value("t", 0.5);
+          bool hasEdgeIndex = jPt.contains("edgeIndex") && jPt["edgeIndex"].is_number_integer();
+          int edgeIdx = hasEdgeIndex ? jPt.value("edgeIndex", -1) : -1;
+          double edgeRel = jPt.value("edgeRel", tHost);
+          if (op && hostType == ObjectType::Circle) {
+            if (hostId == 0u) {
+              pendingCircleHostIdZero.push_back(op);
+            } else {
+              pendingCircleHostRelinks.push_back({op, hostId, tHost});
+            }
           }
 
           auto host = std::dynamic_pointer_cast<GeometricObject>(getOrCreate(hostId));
-          if (op && host) {
+          if (op && hostId != 0u && (!host || (hasEdgeIndex && edgeIdx >= 0))) {
+            pendingObjectPointHostRelinks.push_back({op, hostId, hostType, tHost, hasEdgeIndex, edgeIdx, edgeRel});
+            return;
+          }
+
+          if (op && host && !(hostType == ObjectType::Circle && !std::dynamic_pointer_cast<Circle>(host))) {
+            if (hasEdgeIndex) {
+              if (edgeIdx >= 0) {
+                op->relinkShapeEdgeHost(host, static_cast<size_t>(edgeIdx), edgeRel);
+                host->addChildPoint(op);
+                return;
+              }
+            }
+
             if (hostType == ObjectType::None) {
               hostType = static_cast<ObjectType>(host->getType());
             }
-            double tHost = jPt.value("t", 0.5);
             op->relinkHost(host, tHost, hostType);
             if (hostType == ObjectType::Line || hostType == ObjectType::LineSegment) {
               if (auto l = std::dynamic_pointer_cast<Line>(host)) l->addChildPoint(op);
@@ -1692,6 +1946,16 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
             zeroIdCircleFallback->addChildPoint(op);
           }
         }
+
+        for (const auto& pending : pendingCircleHostRelinks) {
+          if (!pending.point || pending.hostId == 0u) continue;
+          auto it = created.find(pending.hostId);
+          if (it == created.end()) continue;
+          auto circleHost = std::dynamic_pointer_cast<Circle>(it->second);
+          if (!circleHost) continue;
+          pending.point->relinkHost(circleHost, pending.t, ObjectType::Circle);
+          circleHost->addChildPoint(pending.point);
+        }
     }
 
     // Tangent Lines
@@ -1712,7 +1976,8 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
 
       for (const auto& item : data["tangentLines"]) {
         unsigned int extId = item.value("externalPointID", 0u);
-        auto ext = std::dynamic_pointer_cast<Point>(getOrCreate(extId));
+        auto extIt = pointMap.find(extId);
+        auto ext = (extIt != pointMap.end()) ? extIt->second : std::dynamic_pointer_cast<Point>(getOrCreate(extId));
         if (!ext && extId == 0u && !zeroIdCircleHostedPointCandidates.empty()) {
           ext = zeroIdCircleHostedPointCandidates.front();
         }
@@ -2069,25 +2334,116 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
         int sides = item.value("sides", 5);
         sf::Color color = hexToColor(item.value("color", "#000000"));
         std::shared_ptr<RegularPolygon> rp;
+        std::vector<std::shared_ptr<Point>> loadedDerivedVertices;
+
+        auto findPointByPosition = [&](const Point_2& target, double tolSq,
+                                       const std::vector<std::shared_ptr<Point>>& excluded)
+            -> std::shared_ptr<Point> {
+          std::shared_ptr<Point> best;
+          double bestDist = tolSq;
+          for (const auto& kv : pointMap) {
+            const auto& p = kv.second;
+            if (!p) continue;
+            bool isExcluded = false;
+            for (const auto& ex : excluded) {
+              if (ex && ex.get() == p.get()) {
+                isExcluded = true;
+                break;
+              }
+            }
+            if (isExcluded) continue;
+
+            double d = CGAL::to_double(CGAL::squared_distance(p->getCGALPosition(), target));
+            if (d <= bestDist) {
+              bestDist = d;
+              best = p;
+            }
+          }
+          return best;
+        };
 
         if (mode == "Edge") {
-          unsigned int e1Id = item.value("edgeStartID", 0u);
-          unsigned int e2Id = item.value("edgeEndID", 0u);
-          auto e1 = std::dynamic_pointer_cast<Point>(getOrCreate(e1Id));
-          auto e2 = std::dynamic_pointer_cast<Point>(getOrCreate(e2Id));
+          unsigned int e1Id = item.value("edgeStartID", item.value("edgeStartId", 0u));
+          unsigned int e2Id = item.value("edgeEndID", item.value("edgeEndId", 0u));
+          auto e1It = pointMap.find(e1Id);
+          auto e2It = pointMap.find(e2Id);
+          auto e1 = (e1It != pointMap.end()) ? e1It->second : std::dynamic_pointer_cast<Point>(getOrCreate(e1Id));
+          auto e2 = (e2It != pointMap.end()) ? e2It->second : std::dynamic_pointer_cast<Point>(getOrCreate(e2Id));
           if (!e1 || !e2) continue;
           rp = std::make_shared<RegularPolygon>(e1, e2, sides, color, id, RegularPolygon::CreationMode::Edge);
+
+          if (item.contains("vertexIds") && item["vertexIds"].is_array()) {
+            const auto& ids = item["vertexIds"];
+            for (size_t i = 2; i < ids.size(); ++i) {
+              long long vid = ids[i].is_number_unsigned()
+                                  ? static_cast<long long>(ids[i].get<unsigned long long>())
+                                  : ids[i].get<long long>();
+              if (vid <= 0 || vid > static_cast<long long>(std::numeric_limits<unsigned int>::max())) continue;
+              auto pit = pointMap.find(static_cast<unsigned int>(vid));
+              if (pit != pointMap.end() && pit->second) {
+                loadedDerivedVertices.push_back(pit->second);
+              }
+            }
+          } else if (item.contains("vertices") && item["vertices"].is_array()) {
+            std::vector<std::shared_ptr<Point>> excluded;
+            excluded.push_back(e1);
+            excluded.push_back(e2);
+            const auto& verts = item["vertices"];
+            for (size_t i = 2; i < verts.size(); ++i) {
+              const auto& v = verts[i];
+              if (!v.is_array() || v.size() < 2) continue;
+              Point_2 target(v[0].get<double>(), v[1].get<double>());
+              auto matched = findPointByPosition(target, 1e-8, excluded);
+              if (matched) {
+                loadedDerivedVertices.push_back(matched);
+                excluded.push_back(matched);
+              }
+            }
+          }
         } else {
           // Fallback to legacy Center/Vertex mode
-          unsigned int centerId = item.value("centerPointID", 0u);
-          unsigned int v1Id = item.value("firstVertexPointID", 0u);
-          auto center = std::dynamic_pointer_cast<Point>(getOrCreate(centerId));
-          auto v1 = std::dynamic_pointer_cast<Point>(getOrCreate(v1Id));
+          unsigned int centerId = item.value("centerPointID", item.value("centerId", 0u));
+          unsigned int v1Id = item.value("firstVertexPointID", item.value("vertexId", 0u));
+          auto centerIt = pointMap.find(centerId);
+          auto v1It = pointMap.find(v1Id);
+          auto center = (centerIt != pointMap.end()) ? centerIt->second : std::dynamic_pointer_cast<Point>(getOrCreate(centerId));
+          auto v1 = (v1It != pointMap.end()) ? v1It->second : std::dynamic_pointer_cast<Point>(getOrCreate(v1Id));
           if (!center || !v1) continue;
           rp = std::make_shared<RegularPolygon>(center, v1, sides, color, id);
+
+          if (item.contains("vertexIds") && item["vertexIds"].is_array()) {
+            const auto& ids = item["vertexIds"];
+            for (size_t i = 1; i < ids.size(); ++i) {
+              long long vid = ids[i].is_number_unsigned()
+                                  ? static_cast<long long>(ids[i].get<unsigned long long>())
+                                  : ids[i].get<long long>();
+              if (vid <= 0 || vid > static_cast<long long>(std::numeric_limits<unsigned int>::max())) continue;
+              auto pit = pointMap.find(static_cast<unsigned int>(vid));
+              if (pit != pointMap.end() && pit->second) {
+                loadedDerivedVertices.push_back(pit->second);
+              }
+            }
+          } else if (item.contains("vertices") && item["vertices"].is_array()) {
+            std::vector<std::shared_ptr<Point>> excluded;
+            excluded.push_back(v1);
+            const auto& verts = item["vertices"];
+            for (size_t i = 1; i < verts.size(); ++i) {
+              const auto& v = verts[i];
+              if (!v.is_array() || v.size() < 2) continue;
+              Point_2 target(v[0].get<double>(), v[1].get<double>());
+              auto matched = findPointByPosition(target, 1e-8, excluded);
+              if (matched) {
+                loadedDerivedVertices.push_back(matched);
+                excluded.push_back(matched);
+              }
+            }
+          }
         }
 
         if (rp) {
+          if (!loadedDerivedVertices.empty()) {
+            rp->setDerivedVertices(loadedDerivedVertices);
+          }
           bool jsonDependent = item.value("isDependent", false);
           // Ensure dependent status is synced correctly based on parent existence
           rp->setDependent(jsonDependent || hasTransformParent(item));
@@ -2100,8 +2456,116 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
           if (item.contains("labelOffsetX") && item.contains("labelOffsetY")) {
             rp->setLabelOffset(sf::Vector2f(item["labelOffsetX"].get<float>(), item["labelOffsetY"].get<float>()));
           }
+          rp->update();
           editor.regularPolygons.push_back(rp);
         }
+      }
+    }
+
+    // Legacy cleanup: older saves could serialize internal helper points for
+    // edge-mode regular polygons (center/firstVertex), making them appear as
+    // stray red draggable points. Hide those leaked helpers on load.
+    for (const auto& rp : editor.regularPolygons) {
+      if (!rp || rp->getCreationMode() != RegularPolygon::CreationMode::Edge) continue;
+
+      std::unordered_set<Point*> constructionPoints;
+      if (auto p = rp->getEdgeStartPoint()) constructionPoints.insert(p.get());
+      if (auto p = rp->getEdgeEndPoint()) constructionPoints.insert(p.get());
+      for (const auto& dv : rp->getDerivedVertices()) {
+        if (dv) constructionPoints.insert(dv.get());
+      }
+
+      auto hideLeakedHelper = [&](const std::shared_ptr<Point>& helper) {
+        if (!helper) return;
+        if (constructionPoints.find(helper.get()) != constructionPoints.end()) return;
+
+        auto inEditor = std::find(editor.points.begin(), editor.points.end(), helper);
+        if (inEditor == editor.points.end()) return;
+
+        helper->setVisible(false);
+        helper->setShowLabel(false);
+        helper->setDependent(true);
+        helper->setLocked(true);
+      };
+
+      hideLeakedHelper(rp->getCenterPoint());
+      hideLeakedHelper(rp->getFirstVertexPoint());
+    }
+
+    for (const auto& pending : pendingObjectPointHostRelinks) {
+      if (!pending.point || pending.hostId == 0u) continue;
+      auto host = std::dynamic_pointer_cast<GeometricObject>(getOrCreate(pending.hostId));
+      if (!host) continue;
+
+      if (pending.hasEdgeIndex && pending.edgeIndex >= 0) {
+        pending.point->relinkShapeEdgeHost(host, static_cast<size_t>(pending.edgeIndex), pending.edgeRel);
+        host->addChildPoint(pending.point);
+        continue;
+      }
+
+      ObjectType hostType = pending.hostType;
+      if (hostType == ObjectType::None) {
+        hostType = static_cast<ObjectType>(host->getType());
+      }
+
+      if (hostType == ObjectType::Circle && !std::dynamic_pointer_cast<Circle>(host)) {
+        continue;
+      }
+
+      pending.point->relinkHost(host, pending.t, hostType);
+      host->addChildPoint(pending.point);
+    }
+
+    if (data.contains("lines") && data["lines"].is_array()) {
+      auto hasLineInEditor = [&](unsigned int lineId) {
+        if (lineId == 0u) return false;
+        for (const auto& existing : editor.lines) {
+          if (existing && existing->getID() == lineId) return true;
+        }
+        return false;
+      };
+
+      for (const auto& item : data["lines"]) {
+        unsigned int lineId = item.value("id", 0u);
+        if (lineId == 0u || hasLineInEditor(lineId)) continue;
+
+        auto ln = std::dynamic_pointer_cast<Line>(getOrCreate(lineId));
+        if (!ln) continue;
+
+        ln->setThickness(item.value("thickness", Constants::LINE_THICKNESS_DEFAULT));
+        if (item.contains("lineStyle")) {
+          ln->setLineStyle(static_cast<LineStyle>(item.value("lineStyle", 0)));
+        }
+        if (item.contains("decoration")) {
+          ln->setDecoration(static_cast<DecorationType>(item.value("decoration", 0)));
+        }
+
+        bool isParallel = item.value("isParallel", false);
+        bool isPerpendicular = item.value("isPerpendicular", false);
+        if (isParallel || isPerpendicular) {
+          auto refObj = getOrCreate(item.value("constraintRefId", 0u));
+          int edgeIndex = item.value("constraintRefEdgeIndex", -1);
+          Vector_2 refDir(0, 0);
+
+          if (refObj) {
+            if (edgeIndex >= 0) {
+              auto edges = refObj->getEdges();
+              if (edgeIndex < static_cast<int>(edges.size())) {
+                refDir = edges[static_cast<size_t>(edgeIndex)].to_vector();
+              }
+            } else if (auto refLine = std::dynamic_pointer_cast<Line>(refObj)) {
+              refDir = refLine->getEndPoint() - refLine->getStartPoint();
+            }
+          }
+
+          if (isParallel) {
+            ln->setAsParallelLine(refObj, edgeIndex, refDir);
+          } else if (isPerpendicular) {
+            ln->setAsPerpendicularLine(refObj, edgeIndex, refDir);
+          }
+        }
+
+        editor.lines.push_back(ln);
       }
     }
 
@@ -2112,10 +2576,46 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     };
 
     auto getPointFromMap = [&](unsigned int id) -> std::shared_ptr<Point> {
+      if (id == 0u) return nullptr;
+      auto itPoint = pointMap.find(id);
+      if (itPoint != pointMap.end() && itPoint->second) return itPoint->second;
       return std::dynamic_pointer_cast<Point>(getFromMap(id));
     };
 
-    // [FIX] Restore Intersection Constraint Loading
+    // PHASE 3 (DEPENDENTS): Angles last, after all point providers are ready.
+    if (data.contains("angles") && data["angles"].is_array()) {
+      for (const auto& item : data["angles"]) {
+        unsigned int id = item.value("id", 0u);
+        if (id == 0u) {
+          id = ++maxId;
+        } else {
+          bumpMaxId(id);
+        }
+
+        auto pA = getPointFromMap(item.value("pointAID", 0u));
+        auto v = getPointFromMap(item.value("vertexID", 0u));
+        auto pB = getPointFromMap(item.value("pointBID", 0u));
+        if (!pA || !v || !pB) continue;
+
+        bool reflex = item.value("reflex", false);
+        sf::Color color = hexToColor(item.value("color", "#000000"));
+        auto angle = std::make_shared<Angle>(pA, v, pB, reflex, color);
+        angle->setID(id);
+        if (item.contains("radius")) {
+          angle->setRadius(item.value("radius", 20.0));
+        }
+        angle->setShowLabel(item.value("showLabel", false));
+        if (item.contains("labelOffset") && item["labelOffset"].is_array() && item["labelOffset"].size() >= 2) {
+          angle->setLabelOffset(sf::Vector2f(item["labelOffset"][0].get<float>(), item["labelOffset"][1].get<float>()));
+        }
+        angle->update();
+
+        editor.angles.push_back(angle);
+        created[id] = angle;
+      }
+    }
+
+    // 3b. Restore Intersection Constraint Loading
     if (data.contains("intersections")) {
       for (const auto& iJson : data["intersections"]) {
         auto A = getFromMap(iJson.value("aId", 0u));
@@ -2141,6 +2641,65 @@ bool ProjectSerializer::loadProject(GeometryEditor& editor, const std::string& f
     for (auto& poly : editor.polygons) if (poly) poly->update();
     for (auto& tri : editor.triangles) if (tri) tri->update();
     for (auto& rp : editor.regularPolygons) if (rp) rp->update();
+    for (auto& ang : editor.angles) if (ang) ang->update();
+
+    // PHASE 4: TEXT ENTRIES (TextObject + TextLabel)
+    if (data.contains("texts") && data["texts"].is_array()) {
+      for (const auto& jText : data["texts"]) {
+        unsigned int id = jText.value("id", 0u);
+        if (id == 0u) id = ++maxId;
+        else bumpMaxId(id);
+
+        double x = jText.value("x", 0.0);
+        double y = jText.value("y", 0.0);
+        std::string content = jText.value("content", "");
+        bool isLatex = jText.value("isLatex", false);
+        float fontSize = jText.value("fontSize", 18.0f);
+        sf::Color color = hexToColor(jText.value("color", "#000000"));
+        std::string textType = jText.value("type", "textObject");
+
+        if (textType == "textLabel" || textType == "label") {
+          auto textLabel = std::make_shared<TextLabel>(Point_2(x, y), content, isLatex, fontSize, color, id);
+          textLabel->setID(id);
+          textLabel->setColor(color);
+          if (jText.contains("visible")) textLabel->setVisible(jText.value("visible", true));
+          if (jText.contains("locked")) textLabel->setLocked(jText.value("locked", false));
+          if (jText.contains("boxWidthWorld")) textLabel->setBoxWidthWorld(jText.value("boxWidthWorld", 0.0f));
+
+          editor.textLabels.push_back(textLabel);
+          created[id] = textLabel;
+          continue;
+        }
+
+        auto textObj = std::make_shared<TextObject>(Point_2(x, y), content, isLatex, fontSize);
+        textObj->setID(id);
+        textObj->setColor(color);
+        if (jText.contains("visible")) textObj->setVisible(jText.value("visible", true));
+        if (jText.contains("locked")) textObj->setLocked(jText.value("locked", false));
+
+        // Restoration of transformations for TextObjects
+        if (jText.contains("isDependent") && jText.value("isDependent", false)) {
+          unsigned int parentID = jText.value("parentSourceID", 0u);
+          unsigned int auxID = jText.value("auxObjectID", 0u);
+          TransformationType tType = static_cast<TransformationType>(jText.value("transformType", 0));
+          
+          textObj->setDependent(true);
+          textObj->setTransformType(tType);
+          textObj->setTransformValue(jText.value("transformValue", 0.0));
+          
+          if (parentID != 0u) {
+            auto parent = getOrCreate(parentID);
+            auto aux = (auxID != 0u) ? getOrCreate(auxID) : nullptr;
+            if (parent) {
+              textObj->restoreTransformation(parent, aux, tType);
+            }
+          }
+        }
+
+        editor.textObjects.push_back(textObj);
+        created[id] = textObj;
+      }
+    }
 
     editor.objectIdCounter = maxId + 1;
     editor.enforceLabelPolicyOnAll(false);
@@ -3248,7 +3807,6 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
 
     // Scaling Factor (now accurately reflects pixels-to-world units)
     double pixelToWorldScale = width / outputWidth;
-    double strokeWidth = 1.0 * pixelToWorldScale;
     double pointRadius = 2.0 * pixelToWorldScale;
     double gridStrokeWidth = 0.5 * pixelToWorldScale;
 
@@ -3704,6 +4262,50 @@ bool ProjectSerializer::exportSVG(const GeometryEditor& editor, const std::strin
         }
       }
     }
+    // 3. TextLabels (created by Text tool / dialog flow)
+    for (const auto& textLabel : editor.textLabels) {
+      if (textLabel && textLabel->isValid() && textLabel->isVisible()) {
+        Point_2 pos = textLabel->getCGALPosition();
+        double sx = CGAL::to_double(pos.x());
+        double sy = (minY + maxY) - CGAL::to_double(pos.y());
+
+        SVGWriter::Style textStyle;
+        textStyle.fill = colorToHex(textLabel->getColor());
+        textStyle.stroke = "none";
+        textStyle.fontSize = textLabel->getFontSize() * pixelToWorldScale;
+        textStyle.textAnchor = "middle";
+        textStyle.dominantBaseline = "central";
+
+        std::string content = textLabel->getRawContent();
+        if (textLabel->isRichText()) {
+          content = "$$" + content + "$$";
+        }
+        svg.drawText(sx, sy, content, textStyle);
+      }
+    }
+
+    // 4. TextObjects
+    for (const auto& textObj : editor.textObjects) {
+      if (textObj && textObj->isValid() && textObj->isVisible()) {
+        Point_2 pos = textObj->getCGALPosition();
+        double sx = CGAL::to_double(pos.x());
+        double sy = (minY + maxY) - CGAL::to_double(pos.y());
+
+        SVGWriter::Style textStyle;
+        textStyle.fill = colorToHex(textObj->getColor());
+        textStyle.stroke = "none";
+        textStyle.fontSize = textObj->getFontSize() * pixelToWorldScale;
+        textStyle.textAnchor = "middle";
+        textStyle.dominantBaseline = "central";
+
+        std::string content = textObj->getRawContent();
+        if (textObj->isRichText()) {
+          content = "$$" + content + "$$";
+        }
+        svg.drawText(sx, sy, content, textStyle);
+      }
+    }
+
     if (svg.save(filepath)) {
       std::cout << "SVG exported successfully (WYSIWYG)." << std::endl;
       return true;

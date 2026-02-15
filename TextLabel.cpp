@@ -151,6 +151,7 @@ void TextLabel::refreshCache(float scale) {
         renderTexture.draw(drawable);
         renderTexture.display();
         m_cachedTexture = std::make_shared<sf::Texture>(renderTexture.getTexture());
+        m_cachedTexture->setSmooth(true); // FIX: Enable smoothing for sharp downscaling
       }
     }
   }
@@ -161,8 +162,8 @@ void TextLabel::refreshCache(float scale) {
     m_cachedRender.setTexture(*m_cachedTexture, true);
     
     // Calculate local bounds for hit-testing
-    // HD_FACTOR=4.0, VISUAL_SCALE=2.5 -> HD_INVERSE = 0.1
-    const float HD_INVERSE = 1.0f / (4.0f * 2.5f);
+    // Use the SHARED constant from LatexRenderer
+    const float HD_INVERSE = LatexRenderer::HD_INVERSE;
     m_localBounds = sf::FloatRect(0.0f, 0.0f, 
                                   m_width * HD_INVERSE, 
                                   m_height * HD_INVERSE);
@@ -190,9 +191,8 @@ void TextLabel::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
   if (!m_cachedTexture) return;
 
   // ===== HIGH-DPI INVERSE SCALING =====
-  // HD_FACTOR=4.0, VISUAL_SCALE=2.5 -> Render at 10x, display at 1x
-  // Inverse = 1.0 / (HD_FACTOR * VISUAL_SCALE) = 0.1
-  const float HD_INVERSE = 1.0f / (4.0f * 2.5f); // = 0.1
+  // Use the shared constant which we tuned in LatexRenderer.h
+  const float HD_INVERSE = LatexRenderer::HD_INVERSE;
   
   // Calculate the scaled dimensions for hit-testing
   float displayW = m_width * scale * HD_INVERSE;
@@ -212,6 +212,23 @@ void TextLabel::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
   sprite.setPosition(anchorX, anchorY);
 
   window.draw(sprite);
+
+  // --- DEBUG: RED BOX ---
+  // This draws a red outline where the LaTeX text *thinks* it is.
+  // If you see a red box but no text -> Font loading failed.
+  // If you see NO red box -> The coordinates are wrong (off-screen).
+
+  sf::FloatRect bounds = sprite.getGlobalBounds();
+  /*
+  sf::RectangleShape debugBox;
+  debugBox.setPosition(bounds.left, bounds.top);
+  debugBox.setSize(sf::Vector2f(bounds.width, bounds.height));
+  debugBox.setFillColor(sf::Color::Transparent);
+  debugBox.setOutlineColor(sf::Color::Red);
+  debugBox.setOutlineThickness(1.0f);
+  window.draw(debugBox);
+  */
+  // ----------------------
   
   // ===== SELECTION OUTLINE (only when selected) =====
   if (isSelected()) {
@@ -231,8 +248,7 @@ void TextLabel::draw(sf::RenderWindow& window, float scale, bool forceVisible) c
 sf::FloatRect TextLabel::getGlobalBounds() const {
   float scale = (m_lastScale > 0.0f) ? m_lastScale : 1.0f;
   
-  // HD_FACTOR=4.0, VISUAL_SCALE=2.5 -> HD_INVERSE = 0.1
-  const float HD_INVERSE = 1.0f / (4.0f * 2.5f);
+  const float HD_INVERSE = LatexRenderer::HD_INVERSE;
   float displayW = m_width * scale * HD_INVERSE;
   float displayH = m_height * scale * HD_INVERSE;
   

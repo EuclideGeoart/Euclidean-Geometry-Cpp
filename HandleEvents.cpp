@@ -2804,6 +2804,10 @@ void handleMouseRelease(GeometryEditor& editor, const sf::Event::MouseButtonEven
   sf::Vector2i pixelPos(mouseEvent.x, mouseEvent.y);
   sf::Vector2f worldPos = editor.window.mapPixelToCoords(pixelPos, editor.drawingView);
 
+  if (editor.textEditorDialog.isDialogOpen()) {
+    return;
+  }
+
   if (mouseEvent.button == sf::Mouse::Left && editor.isDraggingLabel) {
     editor.isDraggingLabel = false;
     editor.labelDragObject = nullptr;
@@ -3419,7 +3423,30 @@ void handleEvents(GeometryEditor& editor) {
         editor.gui.updateLayout(static_cast<float>(event.size.width));
         break;
       case sf::Event::MouseButtonPressed:
-        handleMousePress(editor, event.mouseButton);
+        {
+          static sf::Clock doubleClickClock;
+          static sf::Vector2i lastClickPos;
+          static sf::Mouse::Button lastButton = sf::Mouse::ButtonCount;
+          
+          sf::Time elapsed = doubleClickClock.getElapsedTime();
+          sf::Vector2i currentClickPos(event.mouseButton.x, event.mouseButton.y);
+          
+          if (elapsed.asMilliseconds() < 300 && 
+              lastButton == event.mouseButton.button &&
+              std::abs(currentClickPos.x - lastClickPos.x) < 5 &&
+              std::abs(currentClickPos.y - lastClickPos.y) < 5) 
+          {
+            // Double click detected
+            sf::Vector2f worldPos = editor.window.mapPixelToCoords(currentClickPos, editor.drawingView);
+            editor.handleMouseDoubleClick(worldPos);
+          }
+          
+          doubleClickClock.restart();
+          lastClickPos = currentClickPos;
+          lastButton = event.mouseButton.button;
+          
+          handleMousePress(editor, event.mouseButton);
+        }
         break;
       case sf::Event::MouseButtonReleased:
         handleMouseRelease(editor, event.mouseButton);

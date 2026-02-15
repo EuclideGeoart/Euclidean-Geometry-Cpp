@@ -1341,7 +1341,7 @@ void GUI::draw(sf::RenderWindow& window, const sf::View& drawingView, GeometryEd
       ImGui::Separator();
       ImGui::Text("Font Sizes");
       if (ImGui::SliderFloat("GUI Font", &editor.guiFontSize, 8.0f, 24.0f, "%.0f")) {
-        ImGui::GetIO().FontGlobalScale = editor.guiFontSize / 13.0f;
+        ImGui::GetIO().FontGlobalScale = editor.guiFontSize / 15.0f;
       }
       if (ImGui::SliderFloat("Drawing Labels", &editor.drawingFontSize, 8.0f, 48.0f, "%.0f")) {
         LabelManager::instance().setFontSize(static_cast<unsigned int>(editor.drawingFontSize));

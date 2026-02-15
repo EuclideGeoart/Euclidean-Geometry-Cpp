@@ -107,6 +107,8 @@ public:
   void setHost(std::shared_ptr<Circle> circleHost);
   void clearHost(); // Make sure this is public and correctly implemented
   void relinkHost(std::shared_ptr<GeometricObject> host, double t, ObjectType hostType);
+  void relinkShapeEdgeHost(std::shared_ptr<GeometricObject> hostShape, size_t edgeIndex,
+                           double edgeRelativePos);
   void validate() const;
 
   // Add the getPositionCGAL method declaration to the public section of your

@@ -2121,19 +2121,26 @@ static void handleMidpointToolClick(GeometryEditor& editor, GeometricObject* cli
     // Find the nearest edge
     auto edgeHit = PointUtils::findNearestEdge(editor, worldPos_sfml, tolerance);
     if (edgeHit.has_value() && edgeHit->host == clickedObj) {
-      // Create a midpoint at the center of the edge
-      Point_2 edgeStart = edgeHit->edge.source();
-      Point_2 edgeEnd = edgeHit->edge.target();
-      Point_2 midPos = CGAL::midpoint(edgeStart, edgeEnd);
+      auto hostShared = std::dynamic_pointer_cast<GeometricObject>(editor.findSharedPtr(clickedObj));
+      if (!hostShared) {
+        editor.setGUIMessage("Midpoint failed: shape host unavailable.");
+        return;
+      }
 
-      // Create a free point at the midpoint (static, not dynamic)
-      auto freePoint = std::make_shared<Point>(midPos, 1.0f, Constants::POINT_DEFAULT_COLOR);
-      editor.addObject(freePoint);
-      freePoint->setSelected(true);
-      editor.commandManager.pushHistoryOnly(std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(freePoint)));
+      auto midpointOnEdge = ObjectPoint::createOnShapeEdge(hostShared, edgeHit->edgeIndex, 0.5,
+                                                            Constants::POINT_DEFAULT_COLOR);
+      if (!midpointOnEdge || !midpointOnEdge->isValid()) {
+        editor.setGUIMessage("Midpoint failed: could not attach to edge.");
+        return;
+      }
 
-      std::cout << "Created Point at edge midpoint" << std::endl;
-      editor.setGUIMessage("Point created at edge midpoint.");
+      editor.addObject(midpointOnEdge);
+      midpointOnEdge->setSelected(true);
+      editor.commandManager.pushHistoryOnly(
+          std::make_shared<CreateCommand>(editor, std::static_pointer_cast<GeometricObject>(midpointOnEdge)));
+
+      std::cout << "Created Dynamic Midpoint on shape edge" << std::endl;
+      editor.setGUIMessage("Midpoint constructed on shape edge.");
       return;
     }
   }
@@ -4813,6 +4820,7 @@ static void handleTextTool(GeometryEditor& editor, const sf::Vector2f& worldPos_
   if (hitObj) {
     auto label = std::dynamic_pointer_cast<TextLabel>(editor.findSharedPtr(hitObj));
     if (label) {
+      editor.isEditingExistingText = true;
       editor.textEditingLabel = label;
       editor.textEditorDialog.open(label->getRawContent(), label->isRichText(), label->getFontSize());
       editor.setGUIMessage("Text: Editing existing label (OK to confirm, Cancel to abort).");
@@ -4831,6 +4839,10 @@ static void handleTextTool(GeometryEditor& editor, const sf::Vector2f& worldPos_
 }
 
 void handleMousePress(GeometryEditor& editor, const sf::Event::MouseButtonEvent& mouseEvent) {
+  if (editor.textEditorDialog.isDialogOpen()) {
+    return;
+  }
+
   editor.isResizingAngle = false;  // Reset resizing flag
                                    // --- Angle Arc Resize Handle Hit Test ---
                                    // (Moved after worldPos_sfml is defined)
@@ -5621,6 +5633,14 @@ skipAngleArcHandle:
   }
   if (mouseEvent.button == sf::Mouse::Left && !eventHandledByGui) {
     editor.isPanning = false;
+
+    // --- MODE-BASED TEXT INPUT ---
+    if (editor.m_activeMode == Mode::Text) {
+      editor.m_pendingTextPosition = editor.toCGALPoint(worldPos_sfml);
+      editor.m_textEditingObject = nullptr;
+      editor.textEditorDialog.open("", false, 18.0f);
+      return;
+    }
   }
 
   if (eventHandledByGui) {

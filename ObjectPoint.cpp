@@ -285,14 +285,33 @@ void ObjectPoint::setHost(std::shared_ptr<Circle> circleHost) {
 }
 
 void ObjectPoint::relinkHost(std::shared_ptr<GeometricObject> host, double t, ObjectType hostType) {
+  m_isShapeEdgeAttachment = false;
+  m_hostShape.reset();
+  m_edgeIndex = 0;
+  m_edgeRelativePos = 0.0;
     setHost(host, hostType);
     if (hostType == ObjectType::Circle) {
         m_angleOnCircleRad = t;
     } else {
         m_relativePositionOnLine = Kernel::FT(t);
-        m_edgeRelativePos = t; // For shape edge
     }
     updatePositionFromHost();
+}
+
+void ObjectPoint::relinkShapeEdgeHost(std::shared_ptr<GeometricObject> hostShape, size_t edgeIndex,
+                    double edgeRelativePos) {
+  if (!hostShape) return;
+
+  clearHost();
+
+  m_isShapeEdgeAttachment = true;
+  m_hostShape = hostShape;
+  m_hostObject = hostShape;
+  m_hostType = hostShape->getType();
+  m_edgeIndex = edgeIndex;
+  m_edgeRelativePos = std::max(0.0, std::min(1.0, edgeRelativePos));
+
+  updatePositionFromHost();
 }
 
 // Fix the destructor to ensure proper cleanup
@@ -362,6 +381,10 @@ void ObjectPoint::clearHost() {
     // Clear the weak pointers
     m_hostLine.reset();
     m_hostCircle.reset();
+    m_hostShape.reset();
+    m_isShapeEdgeAttachment = false;
+    m_edgeIndex = 0;
+    m_edgeRelativePos = 0.0;
 
   } catch (const std::exception &e) {
     std::cerr << "Exception in ObjectPoint::clearHost: " << e.what() << std::endl;

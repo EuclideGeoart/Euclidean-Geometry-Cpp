@@ -6,32 +6,15 @@
 #include "graphic/graphic.h"
 #include "utils/utf.h"
 
+#include "MicroTeXSFML.h"
+#include "graphic/graphic.h"
+#include "utils/utf.h"
+
 namespace tex {
 
 namespace {
-class Font_sfml : public Font {
- public:
-  Font_sfml(const std::shared_ptr<sf::Font>& font, float size, int style)
-      : m_font(font), m_size(size), m_style(style) {}
+/* Font_sfml moved to MicroTeXSFML.h */
 
-  float getSize() const override { return m_size; }
-
-  sptr<Font> deriveFont(int style) const override {
-    return sptrOf<Font_sfml>(m_font, m_size, style);
-  }
-
-  bool operator==(const Font& f) const override { return this == &f; }
-
-  bool operator!=(const Font& f) const override { return this != &f; }
-
-  const std::shared_ptr<sf::Font>& getSfFont() const { return m_font; }
-  int getStyle() const { return m_style; }
-
- private:
-  std::shared_ptr<sf::Font> m_font;
-  float m_size = 12.0f;
-  int m_style = PLAIN;
-};
 
 std::shared_ptr<sf::Font> loadFontFromFile(const std::string& path) {
   auto font = std::make_shared<sf::Font>();

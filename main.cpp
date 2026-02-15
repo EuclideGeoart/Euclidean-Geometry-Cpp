@@ -105,6 +105,15 @@ int main() {
     ImGui::SFML::Init(editor.window);
     setupImGuiStyle();
 
+    // --- ADAPTIVE GUI SCALING ---
+    auto desktopMode = sf::VideoMode::getDesktopMode();
+    float screenHeight = static_cast<float>(desktopMode.height);
+    // Base scale on 1080p. 
+    float guiScale = screenHeight / 1080.0f;
+    if (guiScale < 1.0f) guiScale = 1.0f; // Clamp minimum to 1.0
+    
+    std::cout << "Detected Screen Height: " << screenHeight << " -> GUI Scale: " << guiScale << std::endl;
+
     // --- FONT LOADING ---
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->Clear();
@@ -112,10 +121,14 @@ int main() {
     // 1. Base Font
     ImFontConfig baseConfig;
     ImFont *baseFont = nullptr;
+    // Scale font size by guiScale to get sharp text
+    float baseFontSize = 15.0f * guiScale;
+    float symbolFontSize = 18.0f * guiScale;
+
 #if defined(_WIN32) || defined(_WIN64)
     try {
       if (std::filesystem::exists("C:/Windows/Fonts/segoeui.ttf")) {
-        baseFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 20.0f, &baseConfig);
+        baseFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", baseFontSize, &baseConfig);
       }
     } catch (...) {
       baseFont = nullptr;
@@ -123,7 +136,7 @@ int main() {
     if (!baseFont) {
       try {
         if (std::filesystem::exists("C:/Windows/Fonts/arial.ttf")) {
-          baseFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/arial.ttf", 18.0f);
+          baseFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/arial.ttf", baseFontSize);
         }
       } catch (...) {
         baseFont = nullptr;
@@ -132,10 +145,10 @@ int main() {
 #else
     // Try common Linux font paths
     if (std::filesystem::exists("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")) {
-      baseFont = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18.0f, &baseConfig);
+      baseFont = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", baseFontSize, &baseConfig);
     }
     if (!baseFont && std::filesystem::exists("/usr/share/fonts/truetype/freefont/FreeSans.ttf")) {
-      baseFont = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/freefont/FreeSans.ttf", 18.0f, &baseConfig);
+      baseFont = io.Fonts->AddFontFromFileTTF("/usr/share/fonts/truetype/freefont/FreeSans.ttf", baseFontSize, &baseConfig);
     }
     if (!baseFont) {
       std::cerr << "Warning: Could not load a system font. Using ImGui default font." << std::endl;
@@ -187,7 +200,7 @@ int main() {
       } catch (...) {
         continue;
       }
-      ImFont *sym = io.Fonts->AddFontFromFileTTF(path.c_str(), 18.0f, &symbolConfig, icon_ranges);
+      ImFont *sym = io.Fonts->AddFontFromFileTTF(path.c_str(), symbolFontSize, &symbolConfig, icon_ranges);
       if (sym) {
         std::cout << "Loaded symbol font for robust character support: " << path << std::endl;
         loadedSymbol = true;
@@ -200,6 +213,9 @@ int main() {
 
     ImGui::SFML::UpdateFontTexture();
     Button::loadFont();
+    
+    // SCALE GUI ELEMENTS
+    ImGui::GetStyle().ScaleAllSizes(guiScale);
     io.FontGlobalScale = 1.0f;
 
     sf::Clock deltaClock;

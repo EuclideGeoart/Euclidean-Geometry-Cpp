@@ -122,6 +122,24 @@ void RegularPolygon::syncDerivedVertices() {
   }
 }
 
+void RegularPolygon::setDerivedVertices(const std::vector<std::shared_ptr<Point>>& derivedVertices) {
+  m_derivedVertices.clear();
+  m_derivedVertices.reserve(derivedVertices.size());
+
+  for (const auto& pt : derivedVertices) {
+    if (!pt) continue;
+    pt->setLocked(true);
+    pt->setDependent(true);
+    pt->setShowLabel(true);
+    pt->setVisible(true);
+    pt->addDependent(m_selfHandle);
+    m_derivedVertices.push_back(pt);
+  }
+
+  ensureDerivedVertices();
+  syncDerivedVertices();
+}
+
 void RegularPolygon::generateVertices() {
     m_vertices.clear();
 

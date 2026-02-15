@@ -62,6 +62,21 @@ struct GeometryView {
   bool isLineSegment = false;
 };
 
+bool tryGetValidLineEndpoints(const Line *line, Point_2 &start, Point_2 &end) {
+  if (!line || !line->getStartPointPtr() || !line->getEndPointPtr()) {
+    return false;
+  }
+
+  try {
+    start = line->getStartPoint();
+    end = line->getEndPoint();
+  } catch (...) {
+    return false;
+  }
+
+  return CGAL::to_double(CGAL::squared_distance(start, end)) > kEpsilonSq;
+}
+
 GeometryView buildGeometryView(const GeometricObject &obj) {
   GeometryView view;
   if (auto line = dynamic_cast<const Line *>(&obj)) {
@@ -91,26 +106,36 @@ void intersectLineLine(const GeometryView &a, const GeometryView &b,
     return;
   }
 
+  Point_2 aStart, aEnd, bStart, bEnd;
+  if (!tryGetValidLineEndpoints(a.line, aStart, aEnd) ||
+      !tryGetValidLineEndpoints(b.line, bStart, bEnd)) {
+    return;
+  }
+
   if (a.isLineSegment && b.isLineSegment) {
-    Segment_2 sa(a.line->getStartPoint(), a.line->getEndPoint());
-    Segment_2 sb(b.line->getStartPoint(), b.line->getEndPoint());
+    Segment_2 sa(aStart, aEnd);
+    Segment_2 sb(bStart, bEnd);
     addIntersectionObject(out, CGAL::intersection(sa, sb));
     return;
   }
 
   if (a.isLineSegment && !b.isLineSegment) {
-    Segment_2 sa(a.line->getStartPoint(), a.line->getEndPoint());
-    addIntersectionObject(out, CGAL::intersection(b.line->getCGALLine(), sa));
+    Segment_2 sa(aStart, aEnd);
+    Line_2 lb(bStart, bEnd);
+    addIntersectionObject(out, CGAL::intersection(lb, sa));
     return;
   }
 
   if (!a.isLineSegment && b.isLineSegment) {
-    Segment_2 sb(b.line->getStartPoint(), b.line->getEndPoint());
-    addIntersectionObject(out, CGAL::intersection(a.line->getCGALLine(), sb));
+    Segment_2 sb(bStart, bEnd);
+    Line_2 la(aStart, aEnd);
+    addIntersectionObject(out, CGAL::intersection(la, sb));
     return;
   }
 
-  CGAL::Object result = CGAL::intersection(a.line->getCGALLine(), b.line->getCGALLine());
+  Line_2 la(aStart, aEnd);
+  Line_2 lb(bStart, bEnd);
+  CGAL::Object result = CGAL::intersection(la, lb);
   addIntersectionObject(out, result);
 }
 
@@ -118,7 +143,12 @@ void intersectLineCircle(const GeometryView &lineView, const GeometryView &circl
                           std::vector<Point_2> &out) {
   if (!lineView.line || !circleView.circle) return;
 
-  Line_2 line = lineView.line->getCGALLine();
+  Point_2 start, end;
+  if (!tryGetValidLineEndpoints(lineView.line, start, end)) {
+    return;
+  }
+
+  Line_2 line(start, end);
   auto points = findIntersection(line, circleView.circle->getCGALCircle());
 
   if (!lineView.isLineSegment) {
@@ -126,7 +156,7 @@ void intersectLineCircle(const GeometryView &lineView, const GeometryView &circl
     return;
   }
 
-  Segment_2 seg(lineView.line->getStartPoint(), lineView.line->getEndPoint());
+  Segment_2 seg(start, end);
   for (const auto &p : points) {
     if (isPointOnSegmentApprox(seg, p, 1.0)) {
       addUnique(out, p);
@@ -156,11 +186,16 @@ void intersectLineSegments(const GeometryView &lineView,
     return;
   }
 
-  Line_2 line = lineView.line->getCGALLine();
+  Point_2 start, end;
+  if (!tryGetValidLineEndpoints(lineView.line, start, end)) {
+    return;
+  }
+
+  Line_2 line(start, end);
+  Segment_2 lineSegment(start, end);
   for (const auto &seg : segments) {
     if (lineView.isLineSegment) {
-      addIntersectionObject(out, CGAL::intersection(seg, Segment_2(lineView.line->getStartPoint(),
-                                                                    lineView.line->getEndPoint())));
+      addIntersectionObject(out, CGAL::intersection(seg, lineSegment));
     } else {
       addIntersectionObject(out, CGAL::intersection(line, seg));
     }

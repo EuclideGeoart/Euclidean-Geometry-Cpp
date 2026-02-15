@@ -35,8 +35,13 @@ class LatexRenderer {
 
   // High-DPI Scaling Constants
   static constexpr float HD_FACTOR = 4.0f;
-  static constexpr float VISUAL_SCALE = 2.5f;
-  static constexpr float HD_INVERSE = 1.0f / (HD_FACTOR * VISUAL_SCALE);
+
+  
+  // ADAPTABLE DPI CONSTANTS (Set by initDPI)
+  static float VISUAL_SCALE; 
+  static float HD_INVERSE;
+  
+  static void initDPI();
 
  private:
   static std::unordered_map<std::string, std::shared_ptr<sf::Texture>> s_textureCache;
